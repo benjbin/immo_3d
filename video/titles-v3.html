@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Art Exposium — story v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Inter:wght@500;600&display=block" rel="stylesheet">
+<style>
+/* Compositeur image par image : window.setT(t, {bg, phone, labels, hour}) — tout est calculé en JS à partir de t. */
+:root{--ink:#141414;--blue:#332CFD;--cream:#FBF9F5;--bold:Outfit,system-ui,sans-serif;--sans:Inter,system-ui,sans-serif;--m:72px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#000}
+#stage{position:absolute;inset:0;overflow:hidden}
+.layer{position:absolute;inset:0;pointer-events:none}
+.full{position:absolute;inset:0;width:1080px;height:1920px;display:block}
+#bgBlur{filter:blur(26px) brightness(.5) saturate(1.1);transform:scale(1.12)}
+#scrimB{background:linear-gradient(to top,rgba(10,10,14,.74) 0%,rgba(10,10,14,.5) 22%,rgba(10,10,14,.16) 40%,rgba(10,10,14,0) 52%)}
+#scrimT{background:linear-gradient(to bottom,rgba(10,10,14,.62) 0%,rgba(10,10,14,.38) 20%,rgba(10,10,14,.1) 32%,rgba(10,10,14,0) 42%)}
+#vig{background:radial-gradient(ellipse 95% 80% at 50% 48%,rgba(0,0,0,0) 62%,rgba(0,0,0,.2) 100%)}
+.cream{background:var(--cream)}
+#tag{position:absolute;left:var(--m);top:282px;height:38px;filter:brightness(0) invert(1)}
+.blk{position:absolute;left:var(--m);right:var(--m);color:#fff}
+.mask{overflow:hidden;display:block;padding-bottom:.08em;margin-bottom:-.08em}
+.mask > *{display:block}
+.eb{font-family:var(--sans);font-weight:600;font-size:24px;letter-spacing:.32em;text-transform:uppercase;color:rgba(255,255,255,.82)}
+.eb b{color:#fff;font-weight:600}
+.h1{font-family:var(--bold);font-weight:800;font-size:112px;line-height:.92;letter-spacing:-.02em;text-transform:uppercase;text-shadow:0 2px 30px rgba(0,0,0,.3)}
+.band{display:inline-block;position:relative;font-family:var(--bold);font-weight:800;font-size:76px;line-height:1;letter-spacing:-.015em;color:var(--blue);padding:8px 20px 14px;margin-top:10px;z-index:0}
+.band::before{content:"";position:absolute;inset:0;background:var(--cream);transform-origin:left;transform:scaleX(var(--w,1));z-index:-1}
+.band > span{display:inline-block}
+/* ouverture */
+.logo{position:absolute;left:50%;width:900px;height:156px;margin-left:-450px;perspective:900px}
+.logo .pk{position:absolute;left:0;top:0;height:156px;width:132.8px;transform-style:preserve-3d}
+.logo .pk img{position:absolute;left:0;top:0;height:156px;width:132.8px}
+.logo .wd{position:absolute;left:132.8px;top:0;height:156px;width:767.2px}
+.pos{position:absolute;left:var(--m);right:var(--m);text-align:center;font-family:var(--bold);font-weight:800;font-size:64px;line-height:1.02;letter-spacing:-.015em;color:var(--ink)}
+.pos em{font-style:normal;color:var(--blue)}
+#reveal{-webkit-mask-image:url(assets/ax-pict.png);mask-image:url(assets/ax-pict.png);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
+/* téléphone */
+#phoneWrap{position:absolute;left:50%;top:500px;width:520px;height:1094px;margin-left:-260px;perspective:2600px}
+#phone{position:absolute;inset:0;border-radius:84px;background:linear-gradient(145deg,#3a3b40,#0d0d10 38%,#1c1d22 70%,#4a4b52);padding:13px;box-shadow:0 70px 120px rgba(0,0,0,.55),0 20px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);transform-style:preserve-3d}
+#screen{position:relative;width:494px;height:1068px;border-radius:70px;overflow:hidden;background:#000}
+#screen img{position:absolute;inset:0;width:494px;height:1068px;display:block}
+#island{position:absolute;left:50%;top:20px;width:128px;height:37px;margin-left:-64px;border-radius:20px;background:#050506}
+#glare{position:absolute;inset:0;border-radius:70px;background:linear-gradient(118deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,.04) 28%,rgba(255,255,255,0) 42%,rgba(255,255,255,0) 100%)}
+.btnside{position:absolute;width:5px;border-radius:3px;background:linear-gradient(#2a2b30,#55565c)}
+.tap{position:absolute;width:0;height:0}
+.tap i{position:absolute;left:0;top:0;border-radius:50%;transform:translate(-50%,-50%)}
+.tap .dot{width:46px;height:46px;background:rgba(51,44,253,.92);box-shadow:0 0 0 4px rgba(255,255,255,.85),0 6px 18px rgba(51,44,253,.5)}
+.tap .ring{width:46px;height:46px;border:4px solid rgba(51,44,253,.9)}
+.sub{position:absolute;left:var(--m);right:var(--m);top:340px;color:#fff;height:150px}
+.sub .stp{display:flex;gap:10px;margin-bottom:18px}
+.sub .stp i{width:42px;height:4px;border-radius:2px;background:rgba(255,255,255,.28);position:relative;overflow:hidden}
+.sub .stp i b{position:absolute;inset:0;background:#fff;transform-origin:left}
+.sub .ln{position:absolute;left:0;right:0;top:26px;font-family:var(--bold);font-weight:800;font-size:52px;line-height:1;letter-spacing:-.015em}
+.sub .ln em{font-style:normal;background:var(--cream);color:var(--blue);padding:2px 14px 8px;display:inline-block;margin-top:6px}
+/* joystick (réplique de l'interface de balade) */
+#joy{position:absolute;left:var(--m);top:1328px;width:196px;height:196px;border-radius:50%;background:radial-gradient(circle,rgba(30,32,30,.55),rgba(20,22,20,.72));box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.18),0 12px 30px rgba(0,0,0,.35);backdrop-filter:blur(10px)}
+#joy::before{content:"";position:absolute;inset:26px;border-radius:50%;border:1.5px dashed rgba(255,255,255,.16)}
+#knob{position:absolute;left:50%;top:50%;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#f3e2bf,#d8bd8c 55%,#a88a57);box-shadow:0 8px 18px rgba(0,0,0,.4)}
+#knob::after{content:"";position:absolute;inset:24px;border-radius:50%;border:2px solid rgba(255,255,255,.55)}
+#joyL{position:absolute;left:var(--m);width:196px;top:1536px;text-align:center;font-family:var(--sans);font-weight:600;font-size:18px;letter-spacing:.3em;color:rgba(255,255,255,.7)}
+/* étiquettes de lots */
+.lab{position:absolute;display:flex;align-items:center;gap:12px;padding:12px 20px 12px 16px;border-radius:999px;background:rgba(18,19,20,.72);border:1px solid rgba(255,255,255,.18);font-family:var(--sans);font-weight:600;font-size:26px;color:#fff;white-space:nowrap;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.lab i{width:16px;height:16px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px rgba(255,255,255,.14)}
+.lab small{font-weight:500;color:rgba(255,255,255,.72);font-size:22px}
+.lab::after{content:"";position:absolute;left:50%;bottom:-9px;width:16px;height:16px;margin-left:-8px;background:rgba(18,19,20,.72);transform:rotate(45deg);border-right:1px solid rgba(255,255,255,.18);border-bottom:1px solid rgba(255,255,255,.18)}
+.legend{display:flex;gap:26px;font-family:var(--sans);font-weight:500;font-size:24px;color:rgba(255,255,255,.9);margin-top:22px}
+.legend span{display:flex;align-items:center;gap:10px}.legend i{width:14px;height:14px;border-radius:50%;background:var(--c)}
+/* cartes bénéfices */
+.card{position:absolute;left:var(--m);right:var(--m);height:200px;border-radius:34px;background:var(--cream);display:flex;align-items:center;gap:34px;padding:0 48px;box-shadow:0 30px 70px rgba(0,0,0,.35)}
+.card svg{flex:0 0 76px;width:76px;height:76px;fill:none;stroke:var(--blue);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.card p{font-family:var(--bold);font-weight:700;font-size:50px;line-height:1.02;letter-spacing:-.015em;color:var(--ink)}
+.card p em{font-style:normal;color:var(--blue)}
+/* fin */
+.end{position:absolute;left:0;right:0;text-align:center;color:var(--ink)}
+.end .tl{font-family:var(--bold);font-weight:600;font-size:46px;line-height:1.1;color:#2a2a2e;letter-spacing:-.01em}
+.btn{display:inline-flex;align-items:center;gap:18px;padding:34px 64px;border-radius:999px;background:var(--blue);color:#fff;font-family:var(--bold);font-weight:700;font-size:46px;box-shadow:0 22px 50px rgba(51,44,253,.3)}
+.btn svg{width:42px;height:42px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.url{font-family:var(--bold);font-weight:600;font-size:42px;color:var(--ink)}
+.url b{color:var(--blue);font-weight:700}
+#wipe{background:var(--blue)}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="stage">
+  <!-- fonds -->
+  <img id="bg" class="full" alt="">
+  <img id="bgBlur" class="full" alt="">
+  <div class="layer" id="scrimT"></div>
+  <div class="layer" id="scrimB"></div>
+
+  <!-- 1 · drone -->
+  <div class="blk s1 px" style="top:1086px">
+    <div class="h1"><span class="mask"><span data-a="rise" data-t="1.72" data-d="0.75">Vos acheteurs</span></span><span class="mask"><span data-a="rise" data-t="1.78" data-d="0.75">visitent</span></span></div>
+    <div><span class="band" data-a="band" data-t="2.05" data-d="0.6"><span>avant la construction.</span></span></div>
+  </div>
+
+  <!-- 2 · démo téléphone -->
+  <div class="sub s2" id="sub">
+    <div class="stp"><i><b></b></i><i><b></b></i><i><b></b></i></div>
+    <div class="ln" data-k="0">Choisir un étage</div>
+    <div class="ln" data-k="1">Toucher un lot</div>
+    <div class="ln" data-k="2">Prix, plan, surfaces :<br><em>en un geste</em></div>
+  </div>
+  <div id="phoneWrap" class="s2"><div id="phone">
+    <div class="btnside" style="left:-4px;top:210px;height:70px"></div><div class="btnside" style="left:-4px;top:300px;height:110px"></div><div class="btnside" style="right:-4px;top:260px;height:150px"></div>
+    <div id="screen"><img id="ph" alt=""><div id="taps"></div><div id="island"></div><div id="glare"></div></div>
+  </div></div>
+
+  <!-- 3 · visite à pied -->
+  <div class="blk s3 px" style="top:360px">
+    <div class="h1"><span class="mask"><span data-a="rise" data-t="9.66" data-d="0.75">Visite à pied</span></span></div>
+    <div><span class="band" data-a="band" data-t="9.88" data-d="0.6"><span>en temps réel</span></span></div>
+  </div>
+  <div class="s3" id="joyBox"><div id="joy"><div id="knob"></div></div><div id="joyL">BALADE</div></div>
+
+  <!-- 4 · disponibilités -->
+  <div class="layer s4" id="labs"></div>
+  <div class="blk s4 px" style="top:360px">
+    <div class="h1" style="font-size:96px"><span class="mask"><span data-a="rise" data-t="12.66" data-d="0.75">Disponibilités</span></span></div>
+    <div><span class="band" data-a="band" data-t="12.88" data-d="0.6"><span>à jour, en direct</span></span></div>
+    <div class="legend" data-a="fade" data-t="13.2" data-d="0.5"><span><i style="--c:#3f8f5f"></i>Disponible</span><span><i style="--c:#c9932f"></i>Réservé</span><span><i style="--c:#b0503c"></i>Vendu</span></div>
+  </div>
+
+  <!-- 5 · bénéfices -->
+  <div class="s5">
+    <div class="card" data-a="card" data-t="15.12" data-d="0.7" style="top:600px"><svg viewBox="0 0 48 48"><rect x="4" y="9" width="30" height="21" rx="2.5"/><path d="M13 37h12M19 30v7"/><rect x="31" y="17" width="13" height="24" rx="2.5"/><path d="M36 37h3"/></svg><p>Sur votre site<br><em>et sur mobile</em></p></div>
+    <div class="card" data-a="card" data-t="15.26" data-d="0.7" style="top:836px"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18"/><path d="M6 24h36M24 6c5 5 7.5 11 7.5 18S29 37 24 42c-5-5-7.5-11-7.5-18S19 11 24 6z"/></svg><p>Sans application<br><em>à télécharger</em></p></div>
+    <div class="card" data-a="card" data-t="15.4" data-d="0.7" style="top:1072px"><svg viewBox="0 0 48 48"><path d="M5 37l12-12 8 8 17-17"/><path d="M31 16h11v11"/><path d="M5 43h38"/></svg><p>Plus de ventes<br><em>sur plan</em></p></div>
+  </div>
+
+  <div class="layer" id="vig"></div>
+  <img id="tag" src="assets/ax-logo.png" alt="">
+
+  <!-- 0 · ouverture (crème), puis masque pictogramme qui s'ouvre sur le plan 1 -->
+  <div class="layer cream s0" id="open">
+    <div class="logo" id="logoA" style="top:760px"><div class="pk"><img class="pb" src="assets/ax-pict-black.png" alt=""><img class="pu" src="assets/ax-pict-blue.png" alt=""></div><img class="wd" src="assets/ax-word.png" alt=""></div>
+    <div class="pos" style="top:1010px"><span class="mask"><span data-a="rise" data-t="0.72" data-d="0.7">La maquette 3D qui</span></span><span class="mask"><span data-a="rise" data-t="0.78" data-d="0.7"><em>vend vos programmes</em></span></span><span class="mask"><span data-a="rise" data-t="0.84" data-d="0.7"><em>sur plan.</em></span></span></div>
+  </div>
+  <div class="layer s0" id="reveal"><img id="bgR" class="full" alt=""></div>
+
+  <!-- volet bleu (transition unique) -->
+  <div class="layer" id="wipe"></div>
+
+  <!-- 6 · fin -->
+  <div class="layer cream s6" id="wipeC">
+    <div class="logo" id="logoB" style="top:600px"><div class="pk"><img class="pb" src="assets/ax-pict-black.png" alt=""><img class="pu" src="assets/ax-pict-blue.png" alt=""></div><img class="wd" src="assets/ax-word.png" alt=""></div>
+    <div class="end" style="top:850px"><div class="tl"><span class="mask"><span data-a="rise" data-t="17.95" data-d="0.7">Maquettes 3D immobilières</span></span><span class="mask"><span data-a="rise" data-t="18.01" data-d="0.7">temps réel</span></span></div></div>
+    <div class="end" style="top:1080px"><span class="btn" id="cta" data-a="pop" data-t="18.2" data-d="0.6">Demandez une démo<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="end" style="top:1290px"><div class="url" data-a="fade" data-t="18.42" data-d="0.5">artexposium<b>.tech</b></div></div>
+  </div>
+</div>
+<script>
+const CUTS = [0, 1.6, 4, 9.5, 12.5, 15, 17, 20];
+const FPS = 30;
+const LOTS = { 101: ['T4 · 77 m²', '#c9932f'], 102: ['T3 · 80 m²', '#3f8f5f'], 201: ['T4 · 77 m²', '#3f8f5f'], 202: ['T3 · 80 m²', '#3f8f5f'], 301: ['T3 · 80 m²', '#b0503c'], 302: ['T4 · 77 m²', '#3f8f5f'] };
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const outExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const inOutExpo = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2);
+const inOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const outBack = (x) => { const c1 = 1.2, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const shotOf = (t) => { for (let i = 0; i < 7; i++) if (t < CUTS[i + 1]) return i; return 6; };
+const $ = (s) => document.querySelector(s);
+const anims = [...document.querySelectorAll('[data-a]')];
+const groups = [0, 1, 2, 3, 4, 5, 6].map((k) => [...document.querySelectorAll('.s' + k)]);
+let TAPS = [];
+
+function buildLogo(el, t0, t) {
+  const a = outExpo(clamp((t - t0) / 0.55)), b = outExpo(clamp((t - t0 - 0.12) / 0.55)), c = inOutExpo(clamp((t - t0 - 0.3) / 0.6));
+  const pb = el.querySelector('.pb'), pu = el.querySelector('.pu'), wd = el.querySelector('.wd'), pk = el.querySelector('.pk');
+  pb.style.transform = `translateX(${(1 - a) * -60}px)`; pb.style.opacity = String(clamp(a * 2.5));
+  pu.style.transform = `translateY(${(1 - b) * 70}px)`; pu.style.opacity = String(clamp(b * 2.5));
+  // profondeur : le pictogramme pivote légèrement et se pose, avec une ombre qui se resserre
+  const d = outExpo(clamp((t - t0) / 0.9));
+  pk.style.transform = `rotateY(${(1 - d) * 38}deg) rotateX(${(1 - d) * -10}deg) translateZ(${(1 - d) * 60}px)`;
+  pk.style.filter = `drop-shadow(0 ${(1 - d) * 26 + 6}px ${(1 - d) * 26 + 10}px rgba(20,20,20,${0.08 + 0.14 * (1 - d)}))`;
+  wd.style.clipPath = `inset(-10% ${(1 - c) * 100}% -10% 0)`;
+  wd.style.transform = `translateX(${(1 - c) * -30}px)`;
+}
+function wipeAt(t) {
+  // volet bleu traversant : il couvre en 0,24 s jusqu'à la coupe, puis libère le plan suivant vers le haut
+  for (const c of [4, 9.5, 12.5, 15]) {
+    if (t >= c - 0.24 && t < c) return (1 - inOutExpo((t - c + 0.24) / 0.24)) * 100;
+    if (t >= c && t < c + 0.3) return -inOutExpo((t - c) / 0.3) * 100;
+  }
+  if (t >= 16.78) return (1 - inOutExpo(clamp((t - 16.78) / 0.3))) * 100;   // fin : le volet bleu reste, la crème monte par-dessus
+  return 100;
+}
+function apply(t, x) {
+  const shot = shotOf(t);
+  groups.forEach((g, i) => g.forEach((el) => el.classList.toggle('hide', i !== shot && !(i === 0 && t < 1.62))));
+  for (const el of anims) {
+    const p = clamp((t - +el.dataset.t) / +el.dataset.d), a = el.dataset.a;
+    if (a === 'rise') { const e = outExpo(p); el.style.transform = `translateY(${(1 - e) * 105}%)`; }
+    else if (a === 'fade') { const e = outExpo(p); el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 14}px)`; }
+    else if (a === 'band') { const w = outExpo(clamp(p * 1.25)), e = outExpo(clamp((p - 0.25) / 0.75)); el.style.setProperty('--w', String(w)); const s = el.firstElementChild; s.style.transform = `translateY(${(1 - e) * 30}px)`; s.style.opacity = String(clamp(e * 1.6)); }
+    else if (a === 'pop') { const e = outExpo(p); el.style.opacity = String(clamp(p * 2.5)); el.style.transform = `translateY(${(1 - e) * 26}px) scale(${0.94 + 0.06 * e})`; }
+    else if (a === 'card') { const e = outExpo(p); el.style.opacity = String(clamp(p * 3)); el.style.transform = `translateY(${(1 - e) * 160}px) rotateX(${(1 - e) * 18}deg) scale(${0.94 + 0.06 * e})`; }
+  }
+  // parallaxe : les blocs de texte dérivent légèrement vers le haut pendant leur plan
+  document.querySelectorAll('.px').forEach((el) => { const g = [...el.classList].find((c) => /^s\d$/.test(c)); const k = +g[1]; el.style.transform = `translateY(${-(t - CUTS[k]) * 9}px)`; });
+
+  // fonds
+  $('#bgBlur').style.display = shot === 2 || shot === 5 ? 'block' : 'none';
+  $('#bg').style.display = shot === 2 || shot === 5 ? 'none' : 'block';
+  $('#bgBlur').style.transform = `scale(${1.12 + (shot === 5 ? (t - 15) * 0.025 : 0)})`;
+  $('#scrimB').style.opacity = { 0: 0, 1: 1, 2: 0, 3: 0.35, 4: 0.25, 5: 0, 6: 0 }[shot];
+  $('#scrimT').style.opacity = { 0: 0, 1: 0.55, 2: 0.6, 3: 1, 4: 1, 5: 0.5, 6: 0 }[shot];
+  $('#tag').style.opacity = shot >= 1 && shot <= 5 ? String(0.92 * outExpo(clamp((t - 1.75) / 0.6))) : '0';
+
+  // 0 · ouverture
+  buildLogo($('#logoA'), 0.08, t);
+  const m = clamp((t - 1.22) / 0.4), mk = inOutExpo(m);
+  const rv = $('#reveal');
+  rv.style.display = t >= 1.22 && t < 1.62 ? 'block' : 'none';
+  if (t >= 1.22) {
+    // masque en forme de pictogramme, ancré sur le volume bleu du logo, qui grandit jusqu'à couvrir l'écran
+    const s0 = 156 / 347, s = s0 * Math.pow(60, mk);
+    const ax = 246, ay = 200;                         // centre du volume bleu dans le pictogramme (px source)
+    const px0 = 1080 / 2 - 450 + ax * s0, py0 = 760 + ay * s0;
+    const px = px0 + (540 - px0) * mk, py = py0 + (960 - py0) * mk;
+    rv.style.maskSize = rv.style.webkitMaskSize = `${295 * s}px ${347 * s}px`;
+    rv.style.maskPosition = rv.style.webkitMaskPosition = `${px - ax * s}px ${py - ay * s}px`;
+  }
+  $('#open').style.transform = `scale(${1 + 0.06 * mk})`;
+
+  // 2 · téléphone
+  const pt = t - 4;
+  const ent = outExpo(clamp((pt - 0.1) / 0.9));
+  const rotY = -12 + 18 * inOut(clamp(pt / 5.4)), rotX = 5 - 3 * inOut(clamp(pt / 5.4));
+  $('#phone').style.transform = `translateY(${(1 - ent) * 900 + Math.sin(pt * 1.3) * 8}px) rotateY(${rotY}deg) rotateX(${rotX}deg) rotateZ(${(1 - ent) * 6}deg) scale(.97)`;
+  $('#glare').style.backgroundPosition = `${rotY * 4}px 0`;
+  // sous-titres : un par geste
+  const steps = [0, 2.35, 3.25];
+  let cur = 0; steps.forEach((s, i) => { if (pt >= s) cur = i; });
+  document.querySelectorAll('.sub .ln').forEach((el) => {
+    const k = +el.dataset.k, tin = steps[k] + (k === 0 ? 0.25 : 0.32), tout = steps[k + 1];
+    const pin = outExpo(clamp((pt - tin) / 0.6)), pout = tout != null ? inOutExpo(clamp((pt - tout + 0.05) / 0.35)) : 0;
+    el.style.clipPath = `inset(${pout * 100}% 0 ${(1 - pin) * 100}% 0)`;
+    el.style.transform = `translateY(${(1 - pin) * 50 - pout * 50}px)`;
+  });
+  document.querySelectorAll('.sub .stp b').forEach((b, i) => { b.style.transform = `scaleX(${i < cur ? 1 : i === cur ? outExpo(clamp((pt - steps[i]) / 0.5)) : 0})`; });
+  $('.sub').style.opacity = String(clamp((pt - 0.2) / 0.3));
+  // indicateurs de toucher (coordonnées CSS du téléphone → écran 444×964)
+  const k = 494 / 390;
+  $('#taps').innerHTML = TAPS.map((tp) => {
+    const dt = pt - tp.t;
+    if (dt < -0.28 || dt > 0.75) return '';
+    const app = outExpo(clamp((dt + 0.28) / 0.25)), press = dt >= 0 ? 1 - 0.18 * Math.sin(Math.PI * clamp(dt / 0.16)) : 1;
+    const gone = clamp((dt - 0.35) / 0.4), ring = outExpo(clamp(dt / 0.6));
+    return `<div class="tap" style="left:${tp.x * k}px;top:${tp.y * k}px">
+      <i class="ring" style="opacity:${dt >= 0 ? (1 - ring) * 0.9 : 0};width:${46 + 110 * ring}px;height:${46 + 110 * ring}px"></i>
+      <i class="dot" style="opacity:${app * (1 - gone)};transform:translate(-50%,-50%) scale(${(0.6 + 0.4 * app) * press})"></i></div>`;
+  }).join('');
+
+  // 3 · joystick : le pouce pousse vers l'avant
+  const jt = t - 9.5, push = outExpo(clamp((jt - 0.35) / 0.6)) * (1 - inOut(clamp((jt - 2.3) / 0.6)));
+  $('#knob').style.transform = `translate(${Math.sin(jt * 1.7) * 3 * push}px, ${-34 * push}px)`;
+  $('#joyBox').style.opacity = String(outExpo(clamp((jt - 0.2) / 0.5)));
+  $('#joyBox').style.transform = `translateY(${(1 - outExpo(clamp((jt - 0.2) / 0.6))) * 40}px)`;
+
+  // 4 · étiquettes de lots
+  if (shot === 4 && x.labels) {
+    $('#labs').innerHTML = x.labels.map((L, i) => {
+      if (L.z > 1 || L.x < 0.06 || L.x > 0.94) return '';
+      const e = outExpo(clamp((t - 12.95 - i * 0.07) / 0.6));
+      const [ty, c] = LOTS[L.id];
+      return `<div class="lab" style="left:${L.x * 1080}px;top:${L.y * 1920}px;transform:translate(-50%,calc(-100% - 16px)) translateY(${(1 - e) * 22}px) scale(${0.9 + 0.1 * e});opacity:${e}"><i style="--c:${c}"></i>${L.id} <small>${ty}</small></div>`;
+    }).join('');
+  }
+
+  // 6 · fin
+  $('#wipe').style.transform = `translateY(${wipeAt(t)}%)`;
+  $('#wipeC').style.transform = `translateY(${(1 - inOutExpo(clamp((t - 17.0) / 0.42))) * 100}%)`;
+  buildLogo($('#logoB'), 17.4, t);
+  const br = t > 18.8 ? Math.sin((t - 18.8) * 3.2) : 0;
+  if (t > 18.8) $('#cta').style.transform = `scale(${1 + 0.022 * br})`, $('#cta').style.boxShadow = `0 ${22 + 8 * br}px ${50 + 20 * br}px rgba(51,44,253,${0.3 + 0.1 * br})`;
+}
+const setImg = (el, src) => new Promise((res) => { if (!src || el.dataset.src === src) return res(); el.onload = () => res(); el.onerror = () => res(); el.dataset.src = src; el.src = src; });
+window.setT = async (t, x = {}) => {
+  if (x.taps) TAPS = x.taps;
+  await Promise.all([setImg($('#bg'), x.bg), setImg($('#bgBlur'), x.bg), setImg($('#bgR'), x.bg), setImg($('#ph'), x.phone)]);
+  apply(t, x);
+};
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load('800 100px Outfit'), document.fonts.load('700 50px Outfit'), document.fonts.load('600 46px Outfit'),
+  document.fonts.load('600 26px Inter'), document.fonts.load('500 24px Inter'),
+  ...[...document.images].filter((i) => i.getAttribute('src')).map((i) => i.decode().catch(() => {})),
+])).then(() => true);
+apply(0, {});
+</script>
+</body>
+</html>

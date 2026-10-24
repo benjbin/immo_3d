@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Art Exposium — compositeur de la story v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Inter:wght@500;600&display=block" rel="stylesheet">
+<style>
+/* window.setT(t, src, extra) : frame de fond + titres au temps t, calculés en JS (aucune transition CSS). */
+:root{--ink:#141414;--blue:#332CFD;--cream:#FBF9F5;--bold:Outfit,Lexend,system-ui,sans-serif;--sans:Inter,system-ui,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#000}
+#stage{position:absolute;inset:0;overflow:hidden}
+#bg{position:absolute;inset:0;width:1080px;height:1920px;display:block}
+.layer{position:absolute;inset:0;pointer-events:none}
+#scrimB{background:linear-gradient(to top,rgba(10,10,14,.72) 0%,rgba(10,10,14,.5) 22%,rgba(10,10,14,.18) 40%,rgba(10,10,14,0) 52%)}
+#scrimT{background:linear-gradient(to bottom,rgba(10,10,14,.6) 0%,rgba(10,10,14,.38) 20%,rgba(10,10,14,.12) 32%,rgba(10,10,14,0) 42%)}
+#vig{background:radial-gradient(ellipse 95% 80% at 50% 48%,rgba(0,0,0,0) 65%,rgba(0,0,0,.18) 100%)}
+#flash{background:#fff;opacity:0}
+#black{background:#000;opacity:0}
+.cream{background:var(--cream)}
+#tag{position:absolute;left:84px;top:282px;height:40px;filter:brightness(0) invert(1);opacity:.92}
+.blk{position:absolute;left:84px;right:84px;color:#fff}
+.mask{overflow:hidden;display:block;padding:0 0 .06em;margin-bottom:-.06em}
+.mask > *{display:block;will-change:transform}
+.t1{font-family:var(--bold);font-weight:800;font-size:96px;line-height:.98;letter-spacing:-.005em;text-transform:uppercase;text-shadow:0 2px 26px rgba(0,0,0,.35)}
+.band{display:inline-block;position:relative;font-family:var(--bold);font-weight:800;font-size:84px;line-height:1;letter-spacing:-.01em;color:var(--blue);padding:10px 22px 16px;margin-top:12px}
+.band::before{content:"";position:absolute;inset:0;background:var(--cream);transform-origin:left;transform:scaleX(var(--w,1));z-index:-1}
+.band span{display:inline-block}
+.bandwrap{position:relative;z-index:0;display:block}
+.chips{display:flex;gap:16px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:12px;padding:14px 24px;border-radius:999px;background:rgba(20,20,20,.62);border:1px solid rgba(255,255,255,.22);font-family:var(--sans);font-weight:600;font-size:27px;color:#fff;backdrop-filter:blur(8px)}
+.chip i{width:16px;height:16px;border-radius:50%;background:var(--c)}
+.clock{font-family:var(--bold);font-weight:700;font-size:132px;line-height:1;font-variant-numeric:tabular-nums;margin-top:26px;text-shadow:0 2px 26px rgba(0,0,0,.3)}
+.clock small{font-family:var(--sans);font-size:26px;font-weight:600;letter-spacing:.3em;text-transform:uppercase;opacity:.85;margin-left:20px;vertical-align:middle}
+.sunbar{height:6px;border-radius:3px;margin-top:22px;background:linear-gradient(90deg,#ffd9a0,#ff9e4f 40%,#c46a52 60%,#4f5fb8 80%,#1d2350);position:relative}
+.sunbar b{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;box-shadow:0 0 16px rgba(255,230,190,.9)}
+/* logo construit : pictogramme noir + bleu + mot-symbole */
+.logo{position:absolute;left:50%;width:900px;height:156px;margin-left:-450px}
+.logo .pk{position:absolute;left:0;top:0;height:156px;width:132.8px;overflow:hidden}
+.logo .pk img{position:absolute;left:0;top:0;height:156px;width:132.8px}
+.logo .wd{position:absolute;left:132.8px;top:0;height:156px;width:767.2px}
+.end{position:absolute;left:0;right:0;text-align:center;color:var(--ink)}
+.end .tl{font-family:var(--sans);font-weight:500;font-size:38px;color:#3b3b40}
+.btn{display:inline-flex;align-items:center;gap:18px;padding:32px 60px;border-radius:999px;background:var(--blue);color:#fff;font-family:var(--bold);font-weight:700;font-size:44px;letter-spacing:.01em;box-shadow:0 20px 50px rgba(51,44,253,.28)}
+.btn svg{width:40px;height:40px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.url{font-family:var(--bold);font-weight:600;font-size:40px;color:var(--ink)}
+.url b{color:var(--blue);font-weight:700}
+.legal{font-family:var(--sans);font-weight:500;font-size:23px;letter-spacing:.04em;color:#8a8a90}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <img id="bg" alt="">
+  <div class="layer" id="scrimT"></div>
+  <div class="layer" id="scrimB"></div>
+  <img id="tag" src="assets/ax-logo.png" alt="">
+
+  <!-- 1 -->
+  <div class="blk s1" style="top:1030px">
+    <div class="t1"><span class="mask"><span data-a="rise" data-t="1.45" data-d="0.6">Vos acheteurs</span></span><span class="mask"><span data-a="rise" data-t="1.6" data-d="0.6">visitent</span></span></div>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="1.9" data-d="0.55"><span>avant la</span></span></span>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="2.05" data-d="0.55"><span>construction.</span></span></span>
+  </div>
+  <!-- 2 -->
+  <div class="blk s2" style="top:370px">
+    <div class="t1"><span class="mask"><span data-a="rise" data-t="4.15" data-d="0.6">Étage par étage</span></span></div>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="4.45" data-d="0.55"><span>lot par lot</span></span></span>
+  </div>
+  <div class="blk s2" style="top:1470px">
+    <div class="chips" data-a="fade" data-t="6.0" data-d="0.4"><span class="chip"><i style="--c:#3f8f5f"></i>Disponible</span><span class="chip"><i style="--c:#c9932f"></i>Réservé</span><span class="chip"><i style="--c:#b0503c"></i>Vendu</span></div>
+  </div>
+  <!-- 3 -->
+  <div class="blk s3" style="top:1250px">
+    <div class="t1"><span class="mask"><span data-a="rise" data-t="7.35" data-d="0.6">Visite à pied</span></span></div>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="7.65" data-d="0.55"><span>en temps réel</span></span></span>
+  </div>
+  <!-- 4 -->
+  <div class="blk s4" style="top:370px">
+    <div class="t1"><span class="mask"><span data-a="rise" data-t="10.65" data-d="0.6">La lumière,</span></span></div>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="10.9" data-d="0.55"><span>heure par heure</span></span></span>
+    <div class="mask"><div class="clock" data-a="rise" data-t="11.1" data-d="0.55"><span id="clk">19 h 00</span><small>21 juin</small></div></div>
+    <div class="sunbar" data-a="fade" data-t="11.3" data-d="0.4"><b id="sunDot"></b></div>
+  </div>
+  <!-- 5 -->
+  <div class="blk s5" style="top:1120px">
+    <div class="t1"><span class="mask"><span data-a="rise" data-t="13.65" data-d="0.6">Un configurateur</span></span></div>
+    <span class="bandwrap"><span class="band" data-a="band" data-t="13.95" data-d="0.55"><span>qui vend.</span></span></span>
+    <div class="chips" style="margin-top:34px">
+      <span class="chip" data-a="fade" data-t="14.35" data-d="0.4">Web &amp; mobile</span>
+      <span class="chip" data-a="fade" data-t="14.5" data-d="0.4">Sans application</span>
+      <span class="chip" data-a="fade" data-t="14.65" data-d="0.4">Intégré à votre site</span>
+    </div>
+  </div>
+
+  <div class="layer" id="vig"></div>
+  <div class="layer" id="black"></div>
+  <div class="layer" id="flash"></div>
+
+  <!-- 0 · ouverture -->
+  <div class="layer cream s0" id="open">
+    <div class="logo" id="logoA" style="top:882px"><div class="pk"><img class="pb" src="assets/ax-pict-black.png" alt=""><img class="pu" src="assets/ax-pict-blue.png" alt=""></div><img class="wd" src="assets/ax-word.png" alt=""></div>
+  </div>
+
+  <!-- 6 · carte de fin -->
+  <div class="layer s6" id="wipeB" style="background:#332CFD"></div>
+  <div class="layer cream s6" id="wipeC">
+    <div class="logo" id="logoB" style="top:640px"><div class="pk"><img class="pb" src="assets/ax-pict-black.png" alt=""><img class="pu" src="assets/ax-pict-blue.png" alt=""></div><img class="wd" src="assets/ax-word.png" alt=""></div>
+    <div class="end" style="top:870px"><div class="tl" data-a="fade" data-t="17.7" data-d="0.45">Maquettes 3D immobilières<br>temps réel</div></div>
+    <div class="end" style="top:1060px"><span class="btn" data-a="pop" data-t="17.95" data-d="0.5">Demandez une démo<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="end" style="top:1260px"><div class="url" data-a="fade" data-t="18.2" data-d="0.45">artexposium<b>.tech</b></div></div>
+    <div class="end" style="top:1500px"><div class="legal" data-a="fade" data-t="18.4" data-d="0.45">Projet de démonstration · visuels non contractuels</div></div>
+  </div>
+</div>
+<script>
+const CUTS = [0, 1.2, 4, 7, 10.5, 13.5, 16.5, 20];
+const FPS = 30;
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const outExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const outCubic = (x) => 1 - Math.pow(1 - x, 3);
+const inOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const shotOf = (t) => { for (let i = 0; i < 7; i++) if (t < CUTS[i + 1]) return i; return 6; };
+const $ = (s) => document.querySelector(s);
+const anims = [...document.querySelectorAll('[data-a]')];
+const groups = [0, 1, 2, 3, 4, 5, 6].map((k) => [...document.querySelectorAll('.s' + k)]);
+const fmtH = (h) => { let hh = Math.floor(h), mm = Math.round((h - hh) * 60 / 5) * 5; if (mm === 60) { hh++; mm = 0; } return `${hh} h ${String(mm).padStart(2, '0')}`; };
+// construction du logo : le volume noir glisse, le volume bleu se lève, le mot-symbole se dévoile
+function buildLogo(el, t0, t) {
+  const a = outExpo(clamp((t - t0) / 0.5)), b = outExpo(clamp((t - t0 - 0.16) / 0.5)), c = inOut(clamp((t - t0 - 0.34) / 0.5));
+  const pb = el.querySelector('.pb'), pu = el.querySelector('.pu'), wd = el.querySelector('.wd');
+  pb.style.transform = `translateX(${(1 - a) * -110}%)`; pb.style.opacity = String(clamp(a * 3));
+  pu.style.transform = `translateY(${(1 - b) * 105}%)`;
+  wd.style.clipPath = `inset(0 ${(1 - c) * 100}% 0 0)`;
+  wd.style.transform = `translateX(${(1 - c) * -24}px)`;
+}
+function apply(t, extra = {}) {
+  const shot = shotOf(t);
+  groups.forEach((g, i) => g.forEach((el) => el.classList.toggle('hide', i !== shot)));
+  for (const el of anims) {
+    const p = clamp((t - +el.dataset.t) / +el.dataset.d), a = el.dataset.a;
+    if (a === 'rise') { const e = outExpo(p); el.style.transform = `translateY(${(1 - e) * 112}%)`; el.style.opacity = String(clamp(p * 4)); }
+    else if (a === 'fade') { const e = outCubic(p); el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 16}px)`; }
+    else if (a === 'band') { const w = inOut(clamp(p * 1.4)), e = outExpo(clamp((p - 0.3) / 0.7)); el.style.setProperty('--w', String(w)); const s = el.querySelector('span'); s.style.transform = `translateY(${(1 - e) * 40}px)`; s.style.opacity = String(e); }
+    else if (a === 'pop') { const e = outExpo(p); el.style.opacity = String(clamp(p * 2.5)); el.style.transform = `translateY(${(1 - e) * 30}px) scale(${0.92 + 0.08 * e})`; }
+  }
+  if (extra.hour != null) { $('#clk').textContent = fmtH(extra.hour); $('#sunDot').style.left = `${clamp((extra.hour - 19) / 3.5) * 100}%`; }
+  $('#scrimB').style.opacity = { 0: 0, 1: 1, 2: 0.6, 3: 1, 4: 0.3, 5: 1, 6: 0 }[shot];
+  $('#scrimT').style.opacity = { 0: 0, 1: 0.6, 2: 1, 3: 0.5, 4: 1, 5: 0.6, 6: 0.6 }[shot];
+  $('#tag').style.opacity = shot >= 1 && shot <= 5 ? String(0.92 * clamp((t - 1.35) / 0.4)) : '0';
+  buildLogo($('#logoA'), 0.12, t);
+  // carte de fin : volet bleu puis volet crème qui montent, puis logo construit
+  $('#wipeB').style.transform = `translateY(${(1 - inOut(clamp((t - 16.5) / 0.32))) * 100}%)`;
+  $('#wipeC').style.transform = `translateY(${(1 - inOut(clamp((t - 16.64) / 0.34))) * 100}%)`;
+  buildLogo($('#logoB'), 17.0, t);
+  // fondu au noir très court à l'entrée du séjour (6 images)
+  const f = Math.round(t * FPS), k7 = f - 7 * FPS;
+  $('#black').style.opacity = k7 >= 0 && k7 < 6 ? String(1 - k7 / 6) : (f >= 7 * FPS - 3 && f < 7 * FPS ? String((f - (7 * FPS - 3) + 1) / 4) : '0');
+  // flash léger d'une image et demie sur les coupes franches
+  let fl = 0;
+  for (const c of [4, 10.5, 13.5]) { const k = f - Math.round(c * FPS); if (k === 0) fl = 0.35; else if (k === 1) fl = 0.12; }
+  $('#flash').style.opacity = String(fl);
+}
+window.setT = (t, src, extra) => new Promise((res) => {
+  const img = $('#bg');
+  apply(t, extra || {});
+  if (!src || img.dataset.src === src) return res();
+  img.onload = () => res(); img.onerror = () => res();
+  img.dataset.src = src; img.src = src;
+});
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load('800 96px Outfit'), document.fonts.load('700 44px Outfit'), document.fonts.load('600 40px Outfit'),
+  document.fonts.load('600 27px Inter'), document.fonts.load('500 38px Inter'),
+  ...[...document.images].map((i) => i.decode().catch(() => {})),
+])).then(() => true);
+apply(0);
+</script>
+</body>
+</html>

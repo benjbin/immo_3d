@@ -1,0 +1,10 @@
+# réglages locaux et pages de test internes
+.claude/
+.DS_Store
+3d/dev/
+# vidéos (trop lourdes pour le dépôt)
+video/*.mp4
+video/audio/*.wav
+# originaux déposés par le client
+photos/*
+!photos/.gitkeep

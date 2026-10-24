@@ -1,0 +1,317 @@
+{
+  "_note": "Données d'exemple (lots, surfaces, prix et disponibilités fictifs), à remplacer par la grille réelle. Source unique pour la maquette 3D et le site.",
+  "programme": "Canopée",
+  "orientation": {
+    "rue": "Sud",
+    "droite": "Est",
+    "gauche": "Ouest",
+    "arriere": "Nord"
+  },
+  "zones": {
+    "A": {
+      "label": "côté rue",
+      "poly": [
+        [
+          -6,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          -9.4
+        ],
+        [
+          -1.4,
+          -9.4
+        ],
+        [
+          -1.4,
+          -7.6
+        ],
+        [
+          -6,
+          -7.6
+        ]
+      ]
+    },
+    "B": {
+      "label": "côté jardin",
+      "poly": [
+        [
+          -6,
+          -11.4
+        ],
+        [
+          2.2,
+          -11.4
+        ],
+        [
+          2.2,
+          -9.4
+        ],
+        [
+          6,
+          -9.4
+        ],
+        [
+          6,
+          -19
+        ],
+        [
+          -6,
+          -19
+        ]
+      ]
+    },
+    "noyau": {
+      "label": "escalier et ascenseur",
+      "poly": [
+        [
+          -6,
+          -7.6
+        ],
+        [
+          -1.4,
+          -7.6
+        ],
+        [
+          -1.4,
+          -11.4
+        ],
+        [
+          -6,
+          -11.4
+        ]
+      ]
+    },
+    "palier": {
+      "label": "palier",
+      "poly": [
+        [
+          -1.4,
+          -9.4
+        ],
+        [
+          2.2,
+          -9.4
+        ],
+        [
+          2.2,
+          -11.4
+        ],
+        [
+          -1.4,
+          -11.4
+        ]
+      ]
+    }
+  },
+  "lots": [
+    {
+      "id": "101",
+      "level": 1,
+      "zone": "A",
+      "typo": "T4",
+      "rooms": 4,
+      "surface": 77,
+      "status": "reserve",
+      "exterieurs": [
+        {
+          "type": "balcon filant et loggias",
+          "surface": 31
+        }
+      ],
+      "orientation": "Sud et Est",
+      "prix": 470000,
+      "pieces": [
+        "Séjour-cuisine 30,6 m²",
+        "Chambre 1 16,1 m²",
+        "Chambre 2 9,2 m²",
+        "Chambre 3 9,1 m²",
+        "Salle de bains 3,9 m²",
+        "Salle d'eau et WC 2,9 m²",
+        "Entrée 2,6 m²",
+        "Dégagement 2,2 m²"
+      ]
+    },
+    {
+      "id": "102",
+      "level": 1,
+      "zone": "B",
+      "typo": "T3",
+      "rooms": 3,
+      "surface": 80,
+      "status": "disponible",
+      "exterieurs": [
+        {
+          "type": "loggia",
+          "surface": 3
+        }
+      ],
+      "orientation": "Nord, Est et Ouest",
+      "prix": 445000,
+      "pieces": [
+        "Séjour-cuisine 33,5 m²",
+        "Chambre 1 12,7 m²",
+        "Chambre 2 12,9 m²",
+        "Entrée 9,1 m²",
+        "Dressing 5,2 m²",
+        "Salle d'eau 3,3 m²",
+        "WC 2,0 m²",
+        "Dégagement 1,7 m²"
+      ]
+    },
+    {
+      "id": "201",
+      "level": 2,
+      "zone": "A",
+      "typo": "T4",
+      "rooms": 4,
+      "surface": 77,
+      "status": "disponible",
+      "exterieurs": [
+        {
+          "type": "balcon filant et loggias",
+          "surface": 31
+        }
+      ],
+      "orientation": "Sud et Est",
+      "prix": 485000,
+      "pieces": [
+        "Séjour-cuisine 30,6 m²",
+        "Chambre 1 16,1 m²",
+        "Chambre 2 9,2 m²",
+        "Chambre 3 9,1 m²",
+        "Salle de bains 3,9 m²",
+        "Salle d'eau et WC 2,9 m²",
+        "Entrée 2,6 m²",
+        "Dégagement 2,2 m²"
+      ]
+    },
+    {
+      "id": "202",
+      "level": 2,
+      "zone": "B",
+      "typo": "T3",
+      "rooms": 3,
+      "surface": 80,
+      "status": "disponible",
+      "exterieurs": [
+        {
+          "type": "loggia",
+          "surface": 3
+        }
+      ],
+      "orientation": "Nord, Est et Ouest",
+      "prix": 460000,
+      "pieces": [
+        "Séjour-cuisine 33,5 m²",
+        "Chambre 1 12,7 m²",
+        "Chambre 2 12,9 m²",
+        "Entrée 9,1 m²",
+        "Dressing 5,2 m²",
+        "Salle d'eau 3,3 m²",
+        "WC 2,0 m²",
+        "Dégagement 1,7 m²"
+      ]
+    },
+    {
+      "id": "301",
+      "level": 3,
+      "zone": "B",
+      "typo": "T3",
+      "rooms": 3,
+      "surface": 80,
+      "status": "vendu",
+      "exterieurs": [
+        {
+          "type": "loggia",
+          "surface": 3
+        }
+      ],
+      "orientation": "Nord, Est et Ouest",
+      "prix": null,
+      "pieces": [
+        "Séjour-cuisine 33,5 m²",
+        "Chambre 1 12,7 m²",
+        "Chambre 2 12,9 m²",
+        "Entrée 9,1 m²",
+        "Dressing 5,2 m²",
+        "Salle d'eau 3,3 m²",
+        "WC 2,0 m²",
+        "Dégagement 1,7 m²"
+      ]
+    },
+    {
+      "id": "302",
+      "level": 3,
+      "zone": "A",
+      "typo": "T4",
+      "rooms": 4,
+      "surface": 77,
+      "status": "disponible",
+      "attique": true,
+      "exterieurs": [
+        {
+          "type": "balcon filant et loggias",
+          "surface": 31
+        },
+        {
+          "type": "toit-terrasse privatif",
+          "surface": 79
+        }
+      ],
+      "orientation": "Sud et Est",
+      "prix": 760000,
+      "pieces": [
+        "Séjour-cuisine 30,6 m²",
+        "Suite parentale 16,1 m²",
+        "Chambre 2 9,2 m²",
+        "Chambre 3 9,1 m²",
+        "Salle de bains 3,9 m²",
+        "Salle d'eau et WC 2,9 m²",
+        "Entrée 2,6 m²",
+        "Dégagement 2,2 m²"
+      ]
+    }
+  ],
+  "communs": [
+    {
+      "id": "rdc",
+      "level": 0,
+      "label": "Rez-de-chaussée",
+      "items": [
+        "Hall vitré avec visiophone",
+        "Local vélos et poussettes",
+        "4 garages fermés (en option)"
+      ]
+    },
+    {
+      "id": "toit",
+      "level": 4,
+      "label": "Toit-terrasse",
+      "items": [
+        "Terrasse bois privative du lot 302 (79 m²), accès par l'édicule",
+        "Toiture végétalisée",
+        "Édicule escalier et ascenseur"
+      ]
+    }
+  ],
+  "statuts": {
+    "disponible": {
+      "label": "Disponible",
+      "color": "#3f8f5f"
+    },
+    "reserve": {
+      "label": "Réservé",
+      "color": "#c9932f"
+    },
+    "vendu": {
+      "label": "Vendu",
+      "color": "#b0503c"
+    }
+  }
+}
