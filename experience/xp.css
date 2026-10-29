@@ -30,17 +30,18 @@ body.survol{cursor:pointer}
 .son{width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.18);color:#fff;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(6px)}
 .son svg{width:20px;height:20px}.son .on{display:none}.son[aria-pressed=true] .on{display:inline}.son[aria-pressed=true] .off{display:none}
 body.embed .haut .logo{display:none}
+body.embed{--haut:max(100px,env(safe-area-inset-top))}  /* sous l'en-tête Neokrome qui flotte sur l'accueil */
 
 /* mots : courts, très grands, masqués ligne par ligne, effacés tout seuls */
 .mot{position:fixed;left:var(--marge);right:var(--marge);bottom:calc(var(--bas) + 64px);margin:0;max-width:16ch;
   font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(40px,6.6vw,96px);line-height:.94;letter-spacing:-.02em;
-  text-shadow:0 2px 34px rgba(0,0,0,.42),0 1px 3px rgba(0,0,0,.25);pointer-events:none}
-.mot em,.mot-fin em{font-style:normal;color:#fff;-webkit-text-stroke:0;background:linear-gradient(90deg,#fff,#cfdcff);-webkit-background-clip:text;background-clip:text}
-.mot .l{display:block;overflow:hidden;padding-bottom:.06em;margin-bottom:-.06em}
-.mot .l>span{display:block;transform:translateY(105%);transition:transform 1.05s var(--ease)}
-.mot.vis .l>span{transform:none}
+  text-shadow:0 1px 2px rgba(0,0,0,.22),0 2px 14px rgba(0,0,0,.16);pointer-events:none}
+.mot em,.mot-fin em{font-style:normal;color:#fff}
+.mot .l{display:block;clip-path:inset(-.6em -.4em -.1em -.4em)}
+.mot .l>span{display:block;transform:translateY(125%);opacity:0;transition:transform 1.05s var(--ease),opacity .5s}
+.mot.vis .l>span{transform:none;opacity:1}
 .mot.vis .l:nth-child(2)>span{transition-delay:.08s}
-.mot.part .l>span{transform:translateY(-105%);transition:transform .8s cubic-bezier(.6,0,.8,.2)}
+.mot.part .l>span{transform:translateY(-105%);opacity:0;transition:transform .8s cubic-bezier(.6,0,.8,.2),opacity .45s}
 .mot.choix{font-size:clamp(30px,4.2vw,60px);top:calc(var(--haut) + 72px);bottom:auto}
 
 /* étiquette 3D (survol d'un lot) */
@@ -54,7 +55,7 @@ body.embed .haut .logo{display:none}
 /* fin */
 .fin{position:fixed;left:var(--marge);right:var(--marge);top:50%;transform:translateY(-50%);max-width:980px;opacity:0;visibility:hidden;transition:opacity 1.2s var(--ease),visibility 0s 1.2s}
 .fin.vis{opacity:1;visibility:visible;transition:opacity 1.2s var(--ease)}
-.mot-fin{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(40px,6.2vw,90px);line-height:.94;letter-spacing:-.02em;margin:0;text-shadow:0 2px 34px rgba(0,0,0,.4)}
+.mot-fin{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(40px,6.2vw,90px);line-height:.94;letter-spacing:-.02em;margin:0;text-shadow:0 1px 2px rgba(0,0,0,.22),0 2px 14px rgba(0,0,0,.16)}
 .mot-fin em{color:var(--electrique-clair);background:none;-webkit-background-clip:initial;background-clip:initial}
 .fin .sous{font-size:clamp(19px,1.9vw,25px);color:var(--sur-nuit);margin:20px 0 0;max-width:36ch}
 .actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
