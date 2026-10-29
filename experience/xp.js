@@ -146,7 +146,9 @@ function setHeure(h, now, force) {
   if (force || cur.hour == null || (Math.abs(cur.hour - h) > 0.012 && now - cur.hourAt > 110)) { V.setHour(h); cur.hour = h; cur.hourAt = now; cur.expo = V.renderer.toneMappingExposure; }
 }
 function modeAt(t, p) {
-  if (t < 0.555) return p[2] < -1.15 ? 'walk' : 'ext';
+  // dès l'abord du balcon (caméra à hauteur du R+2) on voit le vrai séjour éclairé à travers la baie, pas l'intérieur simulé de la façade
+  if (t > 0.24 && t < 0.6 && p[1] > 7.4 && p[1] < 8.6 && p[2] < 5) return 'walk';
+  if (t < 0.555) return 'ext';
   if (t < 0.665) return 'plan';
   if (t < 0.9) return 'walk';
   const lot = LOT || '201';
@@ -162,7 +164,8 @@ function poser(t, now, dt, force) {
   const mode = modeAt(t, p);
   setMode(mode);
   setHeure(heureAt(t), now, force);
-  setCut(mode === 'walk' ? 8.92 : mode === 'plan' ? coupeAt(t) : null);
+  // coupe sous le plancher du R+3 (9,4 m) : la dalle du balcon supérieur reste visible depuis le balcon
+  setCut(mode === 'walk' ? 9.36 : mode === 'plan' ? coupeAt(t) : null);
   // le plan de l'étage n'apparaît qu'une fois la coupe arrivée sous le R+3 (pas de lignes de lots vues de dehors)
   if (mode === 'plan') { const planVis = coupeAt(t) < 9.6; if (planVis !== cur.planVis) { V.lots.setFloor(planVis ? 2 : null); cur.planVis = planVis; } } else cur.planVis = undefined;
   // la tête suit doucement la souris, puis revient au cap du plan
@@ -187,7 +190,8 @@ function poser(t, now, dt, force) {
   S.walk = mode === 'walk'; S.indoor = S.walk && (LOT === '202' || t < 0.66 ? p[0] < 4.7 : p[2] < -1.3);
   if (LOT && t > 0.7 && cur.sel) { V.lots.setSelected(null); V.lots.setFilter(null); cur.sel = false; }
   // intérieur : éclairage baké très lumineux, exposition réduite pour garder du contraste
-  if (cur.expo) { const k = S.indoor ? 0.8 : 1; cur.ek = cur.ek == null ? k : cur.ek + (k - cur.ek) * (1 - Math.exp(-dt * 3)); V.renderer.toneMappingExposure = cur.expo * cur.ek; }
+  // (la maquette gère elle-même l'exposition intérieure quand elle a l'éclairage intérieur : __viewer.interior)
+  if (cur.expo && !V.interior) { const k = S.indoor ? 0.8 : 1; cur.ek = cur.ek == null ? k : cur.ek + (k - cur.ek) * (1 - Math.exp(-dt * 3)); V.renderer.toneMappingExposure = cur.expo * cur.ek; }
   if (V.lots.update) V.lots.update(dt);
   if (W.__xpfx) W.__xpfx.set({ focus: p[6], blur: REDUCED ? 0 : p[7], range: p[8] });
   V.controls.dispatchEvent({ type: 'change' });               // le viewer dessine dans sa propre boucle

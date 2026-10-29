@@ -2,6 +2,33 @@
 // Matériaux PBR 100 % procéduraux : chaque texture est calculée dans un canvas 2D
 // (couleur + roughnessMap + normalMap déduite d'une carte de hauteur par différences finies).
 //
+// ---------------------------------------------------------------------------
+// MATÉRIAUX D'INTÉRIEUR (passe « intérieurs photoréalistes ») — tous sur M, tous éclairés
+// (MeshStandardMaterial), UV en mètres (les UV « boîte » de lots.js conviennent telles quelles).
+// Chacun porte userData.interior = 'floor' | 'wall' | 'fabric' | … ; ne pas les cloner sans raison
+// (un matériau partagé = un seul programme, et viewer.js règle leur environnement en intérieur).
+//   Sols      oakParquet (chêne naturel, lames 19 cm, fil selon v = −z), oakParquetLight, oakParquetSmoked,
+//             tileFloor (grès 60×60 greige), microcement
+//   Murs      wallPaint (blanc chaud mat), ceilingPaint, wallPaintGreige, wallPaintSage, wallPaintClay,
+//             skirting (plinthes, laque satinée), tileWall (60×120 vertical), tileZellige, tileZelligeSage
+//   Bois      oakWood, walnutWood (fil selon v)
+//   Textiles  linenNatural, linenWhite, linenSand, linenSage, linenTerracotta, linenCharcoal, linenBlue
+//             (armure toile, répétition 20 cm), boucle, boucleOat, rugWool, rugWoolGrey,
+//             curtainSheer (voilage translucide, castShadow = false conseillé)
+//   Cuir      leatherCognac, leatherBlack, leatherCream
+//   Métal     brassBrushed, steelBrushed (brossé selon u), blackMetal (thermolaqué), chrome, mirror
+//   Céram.    ceramicWhite (émail brillant), stoneware, stonewareDark, terracotta
+//   Pierre    marbleWhite (Calacatta poli, 1,2 m), terrazzo
+//   Laques    lacquerWhite, lacquerGreige, lacquerSage, lacquerNavy, lacquerBlack (façades, placards)
+//   Verre     glassClear (vases, vitrines : transparent simple, sans transmission)
+//   Végétal   plantLeaf, plantLeafLight (double face), plantStem, pottingSoil (= soil)
+//   Lumière   lampShade (lin, s'illumine le soir), bulb (ampoule/diffuseur) : viewer.js pilote
+//             leur emissiveIntensity selon l'heure et place de vraies lumières (PointLight) au centre
+//             des abat-jour et ampoules trouvés dans les maillages « walk » qui utilisent ces deux matériaux.
+// Variantes de couleur d'un même matériau : préférer l'attribut de sommet 'tint' de lots.js
+// ou ces variantes plutôt qu'un clone par objet.
+// ---------------------------------------------------------------------------
+//
 // Convention d'échelle : 1 unité UV = 1 m. Une répétition de texture couvre la surface
 // réelle donnée par TILE (en mètres) et repeat = 1 / TILE. Des UV exprimées en mètres
 // (ce que produisent building.js et landscape.js) donnent donc directement la bonne échelle.
@@ -1115,7 +1142,337 @@ export function createMaterials(THREE, renderer) {
   // --- Divers ---------------------------------------------------------------------------
   M.marking = new THREE.MeshStandardMaterial({ name: 'marking', color: 0xe9e8e2, roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
+  // --- Intérieurs : sols, murs, plafonds, carrelages, palette de décoration --------------
+  interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap });
+  lap('Intérieurs');
+
   // Métadonnées non énumérables (Object.values(M) ne contient que des matériaux)
   Object.defineProperty(M, 'userData', { value: { buildTime: performance.now() - t0, timings, tile: TILE }, enumerable: false });
   return M;
+}
+
+// ===========================================================================
+// Intérieurs (passe « intérieurs photoréalistes ») — voir le bloc de documentation
+// en tête de fichier pour la liste des matériaux exportés.
+// ===========================================================================
+function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }) {
+  const V2 = (x, y = x) => new THREE.Vector2(x, y);
+  const mark = (m, kind) => { m.userData.interior = kind || true; return m; };
+  // matériaux coûteux et facultatifs : construits au premier accès (M.marbleWhite…), pas au chargement
+  const lazy = (keys, build) => {
+    let done = false;
+    const run = () => { if (done) return; done = true; for (const k of keys) delete M[k]; build(); };
+    for (const k of keys) Object.defineProperty(M, k, { configurable: true, enumerable: true, get() { run(); return M[k]; }, set(v) { run(); Object.defineProperty(M, k, { value: v, writable: true, configurable: true, enumerable: true }); } });
+  };
+
+  // ---- Parquet chêne naturel, lames 19 cm × 0,9–2,4 m, micro-chanfreins, vernis mat satiné ----
+  // Lames orientées selon v (direction -z du monde avec les UV « boîte » de lots.js).
+  {
+    const W = 1024, H = 2048, TU = 2.28, TV = 2.4, PW = 0.19, NC = Math.round(TU / PW);
+    const fib = fbm(W, H, { px: 256, py: 8, oct: 3, seed: 401 });      // fibres fines
+    const ray = fbm(W, H, { px: 64, py: 4, oct: 3, seed: 402 });       // veinage (lignes ondulées)
+    // bruits basse fréquence calculés au quart de la résolution (chargement plus rapide)
+    const WL = W >> 2, HL = H >> 2;
+    const lo = fbm(WL, HL, { px: 2, py: 4, oct: 4, seed: 403 });       // nuances larges
+    const knot = fbm(WL, HL, { px: 16, py: 32, oct: 2, seed: 404 });   // petites taches / nœuds
+    const smudge = fbm(WL, HL, { px: 4, py: 8, oct: 4, seed: 405 });   // usure du vernis (rugosité)
+    const r = mulberry32(406);
+    const cols = Array.from({ length: NC }, () => {
+      const two = r() < 0.75, L1 = two ? 0.85 + r() * 0.7 : TV, o = r() * TV;
+      const cuts = two ? [o, (o + L1) % TV] : [o];
+      const planks = cuts.map(() => ({ tint: 0.9 + r() * 0.2, warm: (r() - 0.5) * 0.06, sx: r() * W | 0, sy: r() * H | 0, freq: 5 + r() * 9, ph: r(), rough: (r() - 0.5) * 0.08, rift: r() }));
+      return { cuts, planks };
+    });
+    const early = hex('#c6ab8a'), late = hex('#977b5e'), gap = hex('#4d3c2e');
+    const col = new Buf(W, H), rough = new Float32Array(W * H), hgt = new Float32Array(W * H);
+    for (let y = 0, i = 0; y < H; y++) {
+      const v = (y + 0.5) / H * TV;
+      for (let x = 0; x < W; x++, i++) {
+        const u = (x + 0.5) / W * TU, c = Math.min(NC - 1, Math.floor(u / PW)), lu = u - c * PW, C = cols[c];
+        // lame courante (entre deux coupes, périodique)
+        let pk = 0, dv = 9;
+        if (C.cuts.length === 2) {
+          const [a, b] = C.cuts, inA = a < b ? (v >= a && v < b) : (v >= a || v < b);
+          pk = inA ? 0 : 1;
+        }
+        for (const cu of C.cuts) { const d = Math.abs(v - cu); dv = Math.min(dv, d, TV - d); }
+        const P = C.planks[pk];
+        const du = Math.min(lu, PW - lu);
+        const jy = (y + P.sy) % H, jx = (x + P.sx) % W, j = jy * W + jx, jl = (jy >> 2) * WL + (jx >> 2), il = (y >> 2) * WL + (x >> 2);
+        const t = lu / PW;
+        // veinage : lignes de croissance ondulées (débit sur dosse / faux quartier)
+        const phase = t * P.freq + 2.2 * ray[j] + P.ph + (P.rift > 0.6 ? 0.35 * Math.sin(v * 2.1 + P.ph * 6) : 0);
+        const ln = 0.5 + 0.5 * Math.sin(phase * 6.2832);
+        const l2 = ln * ln, lw = l2 * l2 * l2 * ln * (0.55 + 0.45 * fib[j]);
+        const f = fib[j] - 0.5;
+        const kn = sstep(0.8, 0.95, knot[jl]) * 0.5;
+        const tt = clamp01(0.62 * lw + 0.35 * f + 0.25 * kn + 0.15 * (lo[jl] - 0.5));
+        const k = P.tint * (1 + 0.07 * (lo[il] - 0.5));
+        // micro-chanfrein (1,5 mm) sur les rives longues, joint fin en bout
+        const bev = 1 - sstep(0.0002, 0.0019, du), endj = 1 - sstep(0.0002, 0.0011, dv);
+        const e = (bev > endj ? bev : endj) * 0.75, ke = 1 - e, o4 = i * 4, d = col.d;
+        d[o4] = (early[0] + (late[0] - early[0]) * tt) * k * (1 + P.warm) * ke + gap[0] * e;
+        d[o4 + 1] = (early[1] + (late[1] - early[1]) * tt) * k * ke + gap[1] * e;
+        d[o4 + 2] = (early[2] + (late[2] - early[2]) * tt) * k * (1 - P.warm * 1.5) * ke + gap[2] * e;
+        d[o4 + 3] = 255;
+        const edge = e / 0.75;
+        rough[i] = clamp01(0.47 + P.rough + 0.12 * lw + 0.06 * (smudge[il] - 0.5) + 0.3 * edge);
+        hgt[i] = (1 - 0.8 * Math.max(Math.sqrt(bev), endj)) + 0.035 * lw - 0.02 * f;
+      }
+    }
+    const set = pbrSet(W, H, [TU, TV], col, rough, hgt, 2.2);
+    M.oakParquet = mark(std(set, { name: 'oakParquet', normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
+    // variante plus claire (chêne blanchi) et plus foncée (chêne fumé), mêmes textures
+    M.oakParquetLight = mark(std(set, { name: 'oakParquetLight', color: new THREE.Color('#fff6ea'), normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
+    M.oakParquetSmoked = mark(std(set, { name: 'oakParquetSmoked', color: new THREE.Color('#9b8c7c'), normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
+  }
+
+  lap('int:parquet');
+  // ---- Peinture murale mate (texture neutre partagée : la couleur vient de .color) ----
+  {
+    const S = 512, peel = fbm(S, S, { px: 64, oct: 3, seed: 411 }), roll = fbm(S, S, { px: 4, py: 16, oct: 3, seed: 412 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 413 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) {
+      col.set(i, w, 0.985 + 0.012 * (lo[i] - 0.5) + 0.006 * (roll[i] - 0.5));
+      rough[i] = 0.9 + 0.05 * (peel[i] - 0.5) - 0.03 * (roll[i] - 0.5);
+      hgt[i] = 0.7 * peel[i] + 0.3 * roll[i];
+    }
+    const set = pbrSet(S, S, 1.5, col, rough, hgt, 0.9);
+    const paint = (name, c, kind = 'wall', p = {}) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.35), envMapIntensity: 0.6, ...p }), kind);
+    M.wallPaint = paint('wallPaint', '#ece9e3');           // blanc chaud (murs)
+    M.ceilingPaint = paint('ceilingPaint', '#f3f2ee', 'ceiling', { normalScale: V2(0.2) });
+    M.wallPaintGreige = paint('wallPaintGreige', '#d6cec2');
+    M.wallPaintSage = paint('wallPaintSage', '#b3b8a3');
+    M.wallPaintClay = paint('wallPaintClay', '#c9a58c');
+    M.skirting = mark(std({}, { name: 'skirting', color: new THREE.Color('#f0eee9'), roughness: 0.42, envMapIntensity: 0.7 }), 'wall');
+  }
+
+  lap('int:peinture');
+  // ---- Carrelages ----
+  const tiles = (name, { S = 512, tile = 1.2, nx = 2, ny = 2, base, jointC, joint = 0.002, rough = 0.45, glossVar = 0.06, stone = 0.05, wavy = 0, tintVar = 0.03, seed, ns = 3, hueVar = 0 }) => {
+    const st = fbm(S, S, { px: 8, oct: 5, seed }), hi = fbm(S, S, { px: 64, oct: 2, seed: seed + 1 }), wv = fbm(S, S, { px: nx * 2, py: ny * 2, oct: 3, seed: seed + 2 });
+    const r = mulberry32(seed + 3), n = nx * ny;
+    const T = Array.from({ length: n }, () => ({ k: 1 + (r() - 0.5) * 2 * tintVar, h: (r() - 0.5) * hueVar, sx: r() * S | 0, sy: r() * S | 0, g: (r() - 0.5) * glossVar }));
+    const B = hex(base), J = hex(jointC), col = new Buf(S, S), rg = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    const tw = tile / nx, th = tile / ny;
+    for (let y = 0, i = 0; y < S; y++) {
+      const v = (y + 0.5) / S * tile, ty = Math.floor(v / th), lv = v - ty * th;
+      for (let x = 0; x < S; x++, i++) {
+        const u = (x + 0.5) / S * tile, tx = Math.floor(u / tw), lu = u - tx * tw, P = T[(ty * nx + tx) % n];
+        const d = Math.min(lu, tw - lu, lv, th - lv), jt = 1 - sstep(joint * 0.35, joint * 0.75, d), bev = sstep(joint * 0.5, joint * 2.5, d);
+        const j = ((y + P.sy) % S) * S + ((x + P.sx) % S);
+        const kk = P.k * (1 + stone * (st[j] - 0.5) + 0.02 * (hi[j] - 0.5));
+        const c = [B[0] * kk * (1 + P.h), B[1] * kk, B[2] * kk * (1 - P.h)];
+        col.set(i, mixc(c, J, jt));
+        rg[i] = clamp01(rough + P.g + 0.04 * (hi[j] - 0.5) + 0.35 * jt);
+        hgt[i] = bev * (1 - 0.4 * jt) + wavy * (wv[i] - 0.5) * bev + 0.01 * hi[j];
+      }
+    }
+    return pbrSet(S, S, tile, col, rg, hgt, ns);
+  };
+  // grès cérame effet pierre 60 × 60, gris chaud, finition adoucie
+  M.tileFloor = mark(std(tiles('tileFloor', { S: 1024, tile: 1.2, nx: 2, ny: 2, base: '#d2ccc2', jointC: '#a8a196', rough: 0.5, stone: 0.07, seed: 421 }), { name: 'tileFloor', normalScale: V2(0.6), envMapIntensity: 0.8 }), 'floor');
+  // grand format mural 60 × 120 (pose verticale), blanc cassé satiné
+  lazy(['tileWall'], () => { M.tileWall = mark(std(tiles('tileWall', { S: 512, tile: 1.2, nx: 2, ny: 1, base: '#e6e2db', jointC: '#c2bcb2', rough: 0.32, stone: 0.04, seed: 431 }), { name: 'tileWall', normalScale: V2(0.5), envMapIntensity: 0.8 }), 'wall'); });
+  // zellige 10 × 10 émaillé (crédence de cuisine, douche) : nuances et surface ondulée
+  lazy(['tileZellige', 'tileZelligeSage'], () => {
+  M.tileZellige = mark(std(tiles('tileZellige', { S: 512, tile: 0.8, nx: 8, ny: 8, base: '#e9e3d4', jointC: '#d2cab9', joint: 0.0025, rough: 0.12, glossVar: 0.1, stone: 0.05, wavy: 0.5, tintVar: 0.07, hueVar: 0.03, seed: 441, ns: 5 }), { name: 'tileZellige', normalScale: V2(0.9), envMapIntensity: 1.0 }), 'wall');
+  M.tileZelligeSage = mark(new THREE.MeshStandardMaterial({ name: 'tileZelligeSage', map: M.tileZellige.map, roughnessMap: M.tileZellige.roughnessMap, normalMap: M.tileZellige.normalMap, normalScale: V2(0.9), color: new THREE.Color('#a9b49c'), roughness: 1, metalness: 0 }), 'wall');
+  });
+  lap('int:carrelages');
+  // béton ciré / microciment (salle d'eau)
+  lazy(['microcement'], () => {
+    const S = 512, a = fbm(S, S, { px: 2, oct: 5, seed: 451 }), b = fbm(S, S, { px: 8, oct: 4, seed: 452 }), hi = fbm(S, S, { px: 128, oct: 2, seed: 453 });
+    const base = hex('#c9c2b7'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      const trowel = sstep(0.45, 0.7, b[i]);
+      col.set(i, base, 1 + 0.09 * (a[i] - 0.5) - 0.04 * trowel + 0.02 * (hi[i] - 0.5));
+      rough[i] = 0.55 - 0.12 * trowel + 0.05 * (hi[i] - 0.5); hgt[i] = 0.3 * b[i] + 0.1 * hi[i];
+    }
+    M.microcement = mark(std(pbrSet(S, S, 2.0, col, rough, hgt, 0.8), { name: 'microcement', normalScale: V2(0.4) }), 'floor');
+  });
+
+  lap('int:microciment');
+  // ---- Bois de mobilier (fil selon v) ----
+  const woodGrain = (S, tile, early, late, seed, r0 = 0.5) => {
+    const f = fbm(S, S, { px: 128, py: 4, oct: 3, seed }), wv = fbm(S, S, { px: 16, py: 2, oct: 3, seed: seed + 1 }), lo = fbm(S, S, { px: 2, oct: 3, seed: seed + 2 });
+    const E = hex(early), L = hex(late), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const ph = (x / S) * 14 + 2.6 * wv[i];
+      const ln = Math.pow(0.5 + 0.5 * Math.sin(ph * 6.2832), 6) * (0.5 + 0.5 * f[i]);
+      col.set(i, mixc(E, L, clamp01(0.6 * ln + 0.35 * (f[i] - 0.5) + 0.2 * (lo[i] - 0.5))));
+      rough[i] = r0 + 0.1 * ln + 0.04 * (lo[i] - 0.5); hgt[i] = 0.04 * ln - 0.02 * f[i];
+    }
+    return pbrSet(S, S, tile, col, rough, hgt, 2);
+  };
+  lazy(['oakWood', 'walnutWood'], () => {
+  M.oakWood = mark(std(woodGrain(512, 1.0, '#c7a47c', '#97734f', 461, 0.5), { name: 'oakWood', normalScale: V2(0.5) }), 'wood');
+  M.walnutWood = mark(std(woodGrain(512, 1.0, '#7a573d', '#46301f', 471, 0.45), { name: 'walnutWood', normalScale: V2(0.5) }), 'wood');
+  });
+
+  lap('int:bois');
+  // ---- Textiles ----
+  {
+    // lin : armure toile neutre (teinte par .color)
+    const S = 256, slubU = fbm(S, S, { px: 1, py: 32, oct: 3, seed: 481 }), slubV = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 482 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 483 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), th = S / 48, w = [255, 255, 255];
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const tx = x / th, ty = y / th, over = ((Math.floor(tx) + Math.floor(ty)) & 1) === 0;
+      const hw = Math.sin(Math.PI * (tx % 1)) * (0.8 + 0.4 * slubU[i]), hf = Math.sin(Math.PI * (ty % 1)) * (0.8 + 0.4 * slubV[i]);
+      const h = over ? 0.55 + 0.45 * hw : 0.55 + 0.45 * hf;
+      col.set(i, w, 0.8 + 0.17 * h + 0.04 * (lo[i] - 0.5) + 0.05 * ((over ? slubU[i] : slubV[i]) - 0.5));
+      rough[i] = 0.92 + 0.06 * (1 - h); hgt[i] = h;
+    }
+    const set = pbrSet(S, S, 0.2, col, rough, hgt, 1.4);
+    const linen = (name, c) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.6), envMapIntensity: 0.5 }), 'fabric');
+    M.linenNatural = linen('linenNatural', '#d6ccbb');
+    M.linenWhite = linen('linenWhite', '#f1eee8');
+    M.linenSand = linen('linenSand', '#c2ae91');
+    M.linenSage = linen('linenSage', '#959f88');
+    M.linenTerracotta = linen('linenTerracotta', '#b36d4f');
+    M.linenCharcoal = linen('linenCharcoal', '#4d4c4a');
+    M.linenBlue = linen('linenBlue', '#6f7f8f');
+    // voilage translucide (rideaux) : ne pas lui faire porter d'ombre (castShadow = false)
+    M.curtainSheer = mark(new THREE.MeshStandardMaterial({ name: 'curtainSheer', map: set.map, normalMap: set.normalMap, color: new THREE.Color('#f4f1ea'), roughness: 1, metalness: 0, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 0.5 }), 'fabric');
+    M.curtainSheer.userData.noAO = true;
+    // abat-jour : lin clair, s'illumine le soir (viewer.js pilote emissiveIntensity selon l'heure)
+    M.lampShade = mark(new THREE.MeshStandardMaterial({ name: 'lampShade', map: set.map, color: new THREE.Color('#f2ebdf'), emissive: new THREE.Color('#ffc98a'), emissiveMap: set.map, emissiveIntensity: 0, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), 'lamp');
+    M.lampShade.userData.lampShade = true;
+  }
+  {
+  lap('int:lin');
+    // bouclé : boucles serrées (hauteur = petites bosses aléatoires)
+    const S = 512, r = mulberry32(491), hgt = new Float32Array(S * S), n = fbm(S, S, { px: 8, oct: 3, seed: 492 });
+    for (let k = 0; k < 9000; k++) {
+      const cx = r() * S, cy = r() * S, R = 2.5 + r() * 3.5, R2 = R * R, a = 0.6 + r() * 0.4;
+      for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
+        const d2 = (x - cx) ** 2 + (y - cy) ** 2; if (d2 > R2) continue;
+        const i = ((y + S) % S) * S + ((x + S) % S), ring = Math.sqrt(d2) / R;
+        hgt[i] = Math.max(hgt[i], a * (1 - Math.pow(Math.abs(ring - 0.6) / 0.4, 2)));
+      }
+    }
+    const col = new Buf(S, S), rough = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.74 + 0.24 * hgt[i] + 0.04 * (n[i] - 0.5)); rough[i] = 1; }
+    const set = pbrSet(S, S, 0.25, col, rough, hgt, 3);
+    M.boucle = mark(std(set, { name: 'boucle', color: new THREE.Color('#efe9de'), normalScale: V2(1), envMapIntensity: 0.4 }), 'fabric');
+    M.boucleOat = mark(std(set, { name: 'boucleOat', color: new THREE.Color('#d9ccb7'), normalScale: V2(1), envMapIntensity: 0.4 }), 'fabric');
+  }
+  {
+  lap('int:boucle');
+    // laine tissée (tapis) : boucles en rangs + chiné
+    const S = 512, a = fbm(S, S, { px: 2, oct: 4, seed: 501 }), hi = fbm(S, S, { px: 128, py: 64, oct: 2, seed: 502 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255], p = S / 96;
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const loop = Math.abs(Math.sin(Math.PI * x / p + ((y / p | 0) & 1) * 1.57)) * Math.abs(Math.sin(Math.PI * y / p));
+      const h = 0.5 * loop + 0.5 * hi[i];
+      col.set(i, w, 0.78 + 0.18 * h + 0.06 * (a[i] - 0.5)); rough[i] = 1; hgt[i] = h;
+    }
+    const set = pbrSet(S, S, 0.5, col, rough, hgt, 2.5);
+    M.rugWool = mark(std(set, { name: 'rugWool', color: new THREE.Color('#d8d0c3'), normalScale: V2(1), envMapIntensity: 0.3 }), 'fabric');
+    M.rugWoolGrey = mark(std(set, { name: 'rugWoolGrey', color: new THREE.Color('#a7a49e'), normalScale: V2(1), envMapIntensity: 0.3 }), 'fabric');
+  }
+  {
+  lap('int:laine');
+    // cuir pleine fleur (grain « pebble »)
+    const S = 512, c1 = fbm(S, S, { px: 32, oct: 2, seed: 511 }), c2 = fbm(S, S, { px: 96, oct: 2, seed: 512 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 513 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) {
+      const cell = 1 - Math.abs(2 * c1[i] - 1), fine = 1 - Math.abs(2 * c2[i] - 1), h = 0.6 * Math.pow(cell, 0.5) + 0.4 * fine;
+      col.set(i, w, 0.82 + 0.12 * h + 0.1 * (lo[i] - 0.5)); rough[i] = 0.42 + 0.18 * (1 - h) + 0.06 * (lo[i] - 0.5); hgt[i] = h;
+    }
+    const set = pbrSet(S, S, 0.3, col, rough, hgt, 1.6);
+    M.leatherCognac = mark(std(set, { name: 'leatherCognac', color: new THREE.Color('#9a5e3a'), normalScale: V2(0.6) }), 'leather');
+    M.leatherBlack = mark(std(set, { name: 'leatherBlack', color: new THREE.Color('#2a2624'), normalScale: V2(0.6) }), 'leather');
+    M.leatherCream = mark(std(set, { name: 'leatherCream', color: new THREE.Color('#e3d8c6'), normalScale: V2(0.6) }), 'leather');
+  }
+
+  lap('int:cuir');
+  // ---- Métaux ----
+  {
+    const S = 256, br = fbm(S, S, { px: 2, py: 256, oct: 2, seed: 521 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 522 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.97 + 0.03 * br[i]); rough[i] = 0.3 + 0.06 * br[i] + 0.03 * (lo[i] - 0.5); hgt[i] = br[i]; }
+    const set = pbrSet(S, S, 0.25, col, rough, hgt, 0.6);
+    M.brassBrushed = mark(std(set, { name: 'brassBrushed', color: new THREE.Color('#d4b27a'), metalness: 1, normalScale: V2(0.3) }), 'metal');
+    M.steelBrushed = mark(std(set, { name: 'steelBrushed', color: new THREE.Color('#c9cacb'), metalness: 1, normalScale: V2(0.3) }), 'metal');
+  }
+  M.blackMetal = mark(new THREE.MeshStandardMaterial({ name: 'blackMetal', color: 0x1c1c1d, roughness: 0.5, metalness: 0.35 }), 'metal');
+  M.chrome = mark(new THREE.MeshStandardMaterial({ name: 'chrome', color: 0xe6e7e8, roughness: 0.07, metalness: 1 }), 'metal');
+  M.mirror = mark(new THREE.MeshStandardMaterial({ name: 'mirror', color: 0xd9dcdc, roughness: 0.02, metalness: 1 }), 'metal');
+
+  lap('int:metaux');
+  // ---- Céramique, verre, pierre ----
+  M.ceramicWhite = mark(new THREE.MeshStandardMaterial({ name: 'ceramicWhite', color: 0xf3f1ec, roughness: 0.1, metalness: 0 }), 'ceramic');
+  {
+    const S = 256, wn = white(S * S, 531), lo = fbm(S, S, { px: 4, oct: 3, seed: 532 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { const sp = wn[i] > 0.985 ? 0.55 : 1; col.set(i, w, (0.92 + 0.06 * lo[i]) * sp); rough[i] = 0.7 + 0.08 * lo[i]; hgt[i] = lo[i] * 0.5 + (sp < 1 ? -0.2 : 0); }
+    const set = pbrSet(S, S, 0.25, col, rough, hgt, 1);
+    M.stoneware = mark(std(set, { name: 'stoneware', color: new THREE.Color('#dcd4c6'), normalScale: V2(0.4) }), 'ceramic');
+    M.stonewareDark = mark(std(set, { name: 'stonewareDark', color: new THREE.Color('#57514b'), normalScale: V2(0.4) }), 'ceramic');
+    M.terracotta = mark(std(set, { name: 'terracotta', color: new THREE.Color('#b8704d'), normalScale: V2(0.4) }), 'ceramic');
+  }
+  M.glassClear = mark(new THREE.MeshStandardMaterial({ name: 'glassClear', color: 0xe9f0ee, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false, envMapIntensity: 1.2 }), 'glass');
+  M.glassClear.userData.noAO = true;
+  lap('int:ceramique');
+  lazy(['marbleWhite'], () => {
+  {
+    // marbre blanc veiné (type Calacatta), poli
+    const S = 1024, a = fbm(S, S, { px: 2, oct: 6, seed: 541 }), b = fbm(S, S, { px: 4, oct: 5, seed: 542 }), c = fbm(S, S, { px: 16, oct: 3, seed: 543 });
+    const base = hex('#efece7'), vein = hex('#8c8a86'), gold = hex('#b9a58a'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const w1 = Math.abs(Math.sin((x / S * 2 + y / S * 1 + 2.4 * a[i]) * 3.1416 * 2));
+      const w2 = Math.abs(Math.sin((x / S * -1 + y / S * 2 + 3.0 * b[i]) * 3.1416 * 3));
+      const v1 = Math.pow(1 - w1, 18), v2 = Math.pow(1 - w2, 40) * 0.6;
+      const cloud = 0.04 * (c[i] - 0.5);
+      let cc = mixc(base, gold, sstep(0.0, 0.5, v1) * 0.35);
+      cc = mixc(cc, vein, clamp01(v1 * 0.8 + v2));
+      col.set(i, cc, 1 + cloud); rough[i] = 0.12 + 0.05 * c[i]; hgt[i] = 0.02 * c[i];
+    }
+    M.marbleWhite = mark(std(pbrSet(S, S, 1.2, col, rough, hgt, 0.5), { name: 'marbleWhite', normalScale: V2(0.2) }), 'stone');
+  }
+  });
+  lap('int:marbre');
+  lazy(['terrazzo'], () => {
+  {
+    // terrazzo clair à éclats
+    const S = 512, r = mulberry32(551), cv = makeCanvas(S, S), g = cv.getContext('2d');
+    g.fillStyle = '#e4ded4'; g.fillRect(0, 0, S, S);
+    const chips = ['#b7ab9b', '#8e8a84', '#c9a78f', '#f3f0ea', '#6f6a64', '#d2c3a8', '#9aa293'];
+    for (let k = 0; k < 2600; k++) {
+      const x = r() * S, y = r() * S, R = 1.5 + Math.pow(r(), 3) * 9, n = 5 + (r() * 4 | 0), a0 = r() * 6.28;
+      g.fillStyle = chips[(r() * chips.length) | 0];
+      for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        for (let j = 0; j < n; j++) { const a = a0 + j / n * 6.28, rr = R * (0.6 + r() * 0.5); g.lineTo(x + ox + Math.cos(a) * rr, y + oy + Math.sin(a) * rr); }
+        g.closePath(); g.fill();
+      }
+    }
+    const d = g.getImageData(0, 0, S, S).data, lo = fbm(S, S, { px: 4, oct: 3, seed: 552 }), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) { const l = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 765; rough[i] = 0.3 + 0.08 * lo[i]; hgt[i] = 0.1 * l + 0.05 * lo[i]; }
+    M.terrazzo = mark(new THREE.MeshStandardMaterial({ name: 'terrazzo', map: tex(cv, 0.6, true), roughnessMap: tex(canvasRGBA(S, S, grayData(rough)), 0.6), normalMap: tex(canvasRGBA(S, S, normalData(hgt, S, S, 1)), 0.6), normalScale: V2(0.3), roughness: 1, metalness: 0 }), 'stone');
+  }
+  });
+
+  lap('int:terrazzo');
+  // ---- Laques (façades de cuisine, placards) : unies, satinées ----
+  const lacquer = (name, c, r0 = 0.38) => mark(new THREE.MeshStandardMaterial({ name, color: new THREE.Color(c), roughness: r0, metalness: 0, envMapIntensity: 0.8 }), 'lacquer');
+  M.lacquerWhite = lacquer('lacquerWhite', '#ebe8e2');
+  M.lacquerGreige = lacquer('lacquerGreige', '#bfb5a7');
+  M.lacquerSage = lacquer('lacquerSage', '#86907e');
+  M.lacquerNavy = lacquer('lacquerNavy', '#2f3947');
+  M.lacquerBlack = lacquer('lacquerBlack', '#1f1f1f', 0.45);
+
+  // ---- Végétal d'intérieur (géométrie pleine : feuilles en plans/coques, double face) ----
+  M.plantLeaf = mark(new THREE.MeshStandardMaterial({ name: 'plantLeaf', color: 0x3e5a2e, roughness: 0.42, metalness: 0, side: THREE.DoubleSide }), 'plant');
+  M.plantLeafLight = mark(new THREE.MeshStandardMaterial({ name: 'plantLeafLight', color: 0x6b8a45, roughness: 0.5, metalness: 0, side: THREE.DoubleSide }), 'plant');
+  M.plantStem = mark(new THREE.MeshStandardMaterial({ name: 'plantStem', color: 0x5b5a3c, roughness: 0.7, metalness: 0 }), 'plant');
+  M.pottingSoil = M.soil;
+
+  // ---- Lumière ----
+  // ampoule / diffuseur : blanc le jour, incandescent le soir (piloté par viewer.js)
+  M.bulb = mark(new THREE.MeshStandardMaterial({ name: 'bulb', color: 0xf7f3ea, emissive: new THREE.Color('#ffd7a1'), emissiveIntensity: 0.15, roughness: 0.3, metalness: 0 }), 'lamp');
+  M.bulb.userData.bulb = true;
+  M.bulb.userData.noAO = true;
+
 }

@@ -9,7 +9,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 /* ------------------------------------------------------------------ */
@@ -292,6 +291,25 @@ function makeSky(withSunDisc) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Passe de sortie : tone mapping + sRGB, comme OutputPass, mais avec un */
+/* fondu continu ACES → AgX piloté par l'éclairage intérieur             */
+/* ------------------------------------------------------------------ */
+const TonePassShader = {
+  uniforms: { tDiffuse: { value: null }, toneMappingExposure: { value: 1 }, uAgx: { value: 0 }, uBaseAgx: { value: 0 } },
+  vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    #include <tonemapping_pars_fragment>
+    uniform sampler2D tDiffuse; uniform float uAgx, uBaseAgx; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float w = max(uAgx, uBaseAgx);
+      vec3 a = w < 0.999 ? ACESFilmicToneMapping(c.rgb) : vec3(0.0);
+      vec3 b = w > 0.001 ? AgXToneMapping(c.rgb) : vec3(0.0);
+      gl_FragColor = sRGBTransferOETF(vec4(mix(a, b, w), c.a));
+    }`,
+};
+
+/* ------------------------------------------------------------------ */
 /* Passe finale : vignette douce et légère saturation (espace sRGB)     */
 /* ------------------------------------------------------------------ */
 const FinishShader = {
@@ -441,6 +459,7 @@ async function start() {
   buildPost();
   setupControls();
   await setupNavigation();
+  setupInteriorLighting();
   applyHour(state.hour, true);
   onResize();
 
@@ -514,7 +533,8 @@ function buildPost() {
   bloomPass.enabled = q.bloom;
   composer.addPass(bloomPass);
 
-  outputPass = new OutputPass();
+  outputPass = new ShaderPass(TonePassShader);   // = OutputPass, avec fondu ACES ↔ AgX (intérieurs)
+  outputPass.material.toneMapped = false;        // jamais de second tone mapping automatique
   composer.addPass(outputPass);
   finishPass = new ShaderPass(FinishShader);
   composer.addPass(finishPass);
@@ -565,6 +585,9 @@ function patchGtaoGBuffer(pass) {
     scene.background = null;
     scene.traverseVisible((o) => {
       if (o.isLine || o.isPoints || o.isSprite || o.userData.noAO) { hidden.push(o); return; }
+      // pièces simulées d'interiors.js : masquées par shader dans la tranche de l'étage affiché ;
+      // le G-buffer ne voit pas ce masquage (l'AO dessinerait des meubles « fantômes ») → exclues dès qu'un étage est coupé
+      if (cfg.floor != null && o.isMesh && /^interieurs:/.test(o.name || '')) { hidden.push(o); return; }
       if (!o.isMesh) return;
       const m = o.material;
       // qualité basse : le feuillage instancié est exclu du G-buffer (moitié moins de sommets à traiter)
@@ -737,8 +760,11 @@ function applyHour(h, immediate = false) {
   }
   setInteriorGain(1 + 0.35 * dusk + 0.6 * night);
   renderer.toneMappingExposure = (PARAMS.exposure ?? LOOK.exposure) * (1 + 0.12 * dusk + 0.25 * night);
+  state.baseExposure = renderer.toneMappingExposure; state.baseHemi = hemi.intensity;
   if (finishPass) { const fu = finishPass.uniforms; fu.warm.value = LOOK.warm; fu.contrast.value = LOOK.contrast; fu.saturation.value = LOOK.sat; fu.greens.value = LOOK.greens; fu.lift.value = LOOK.lift; fu.skyPop.value = LOOK.skyPop; fu.shadeWB.value.set(...LOOK.shadeWB); }
   if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; }
+  if (IN.ready && lots) lampGlow(Math.max(THREE.MathUtils.smoothstep(h, 18.75, 19.75), 1 - s.day));
+  if (IN.ready && IN.k > 0) applyInterior();
   // arrière-plan : cubemap du ciel (peu coûteux)
   cubeCam.update(renderer, skyScene);
   renderer.shadowMap.needsUpdate = true;
@@ -1034,6 +1060,7 @@ function loop(now) {
   const orbit = !nav || nav.mode === 'orbit';
   if (nav && nav.update(dt)) invalidate();
   if (lots && lots.update && lots.update(dt)) invalidate();
+  if (stepInterior(dt)) invalidate();
   const animating = !!state.anim;
   if (!animating && orbit) {
     controls.autoRotate = ui.rotate.getAttribute('aria-pressed') === 'true';
@@ -1081,17 +1108,467 @@ function updateAoRadius() {
   const mode = nav && nav.getState ? nav.getState().mode : 'orbit';
   const indoor = !!(nav && nav.getState && nav.getState().indoor);
   let r;
-  if (mode === 'walk' || mode === 'look') r = indoor ? 0.22 : 0.35;
+  if (mode === 'walk' || mode === 'look') r = THREE.MathUtils.lerp(0.35, IN_LOOK.aoRadius, IN.k);
   else if (mode === 'drone') r = 0.9;
   else r = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.06, 0.25, 1.4);
   if (Math.abs(r - aoRadius) > 0.02) { aoRadius = r; gtaoPass.updateGtaoMaterial({ radius: r }); }
-  // en intérieur l'éclairage est déjà baké : l'AO écran ne fait qu'ajouter des halos gris
-  const blend = indoor ? 0.35 : 1;
+  // en intérieur (éclairage réel) : occlusion de contact plus courte, un peu atténuée
+  const blend = indoor ? +THREE.MathUtils.lerp(1, IN_LOOK.ao, IN.k).toFixed(3) : 1;
   if (blend !== aoBlend) { aoBlend = blend; gtaoPass.blendIntensity = blend; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Éclairage intérieur (visite à pied)                                 */
+/* - lumière du ciel : un projecteur ombré par baie du logement visité, */
+/*   placé dehors et tourné vers la pièce (les murs bloquent, pas de    */
+/*   fuite à travers les cloisons) ;                                    */
+/* - environnement « pièce » (PMREM d'une boîte claire percée d'une     */
+/*   fenêtre côté façade) pour le diffus et les reflets des matériaux   */
+/*   d'intérieur, au lieu du ciel extérieur ;                           */
+/* - lampes le soir : abat-jour et ampoules (M.lampShade, M.bulb) et    */
+/*   spots de plafond deviennent de vraies sources ;                    */
+/* - exposition, étalonnage, AO et biais d'ombre propres à l'intérieur. */
+/* ------------------------------------------------------------------ */
+const IN = {
+  ready: false, k: 0, target: 0, lotId: null, floor: null, key: '',
+  sky: [], lamps: [], downs: [], windows: null, lampPos: new Map(), envRT: null, envScene: null, envMats: null,
+  mats: new Set(), lastCheck: 0, skyColor: new THREE.Color(), on: false, roomEnvKey: '',
+};
+const IN_LOOK = {
+  exposure: 2.5,        // × exposition extérieure (l'appareil s'expose pour la pièce)
+  sky: 3.4,             // luminance du ciel vue par les baies
+  sun: 1.0,             // soleil direct (identique : la tache au sol doit « brûler » légèrement)
+  hemi: 0.12,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
+  env: 0.85,            // gain de l'environnement « pièce »
+  lift: 0.1, contrast: 0.22, sat: 1.12, warm: 0.3, vignette: 0.2,
+  lamp: 3.5, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
+  ao: 0.85, aoRadius: 0.55,
+  bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
+};
+try { if (URLP.has('inlook')) Object.assign(IN_LOOK, JSON.parse(URLP.get('inlook'))); } catch (e) { /* défaut */ }
+const N_SKY = 5, N_LAMP = 4, N_DOWN = 4;
+
+function setupInteriorLighting() {
+  const mk = (L) => { L.visible = false; scene.add(L); if (L.target) scene.add(L.target); return L; };
+  for (let i = 0; i < N_SKY; i++) {
+    const L = mk(new THREE.SpotLight(0xdfe8f4, 0, 0, 0.9, 0.85, 2));
+    L.castShadow = true;
+    L.shadow.mapSize.set(512, 512);
+    L.shadow.bias = -0.0006; L.shadow.normalBias = 0.02;
+    L.shadow.camera.near = 0.3; L.shadow.camera.far = 16;
+    L.shadow.autoUpdate = true;
+    IN.sky.push(L);
+  }
+  // rebond du sol éclairé par chaque baie : projecteur sans ombre posé au sol, tourné vers le plafond
+  IN.bounce = [];
+  for (let i = 0; i < N_SKY; i++) IN.bounce.push(mk(new THREE.SpotLight(0xfff1e0, 0, 5, 1.25, 1, 2)));
+  for (let i = 0; i < N_LAMP; i++) IN.lamps.push(mk(new THREE.PointLight(0xffcf9c, 0, 4.5, 2)));
+  for (let i = 0; i < N_DOWN; i++) IN.downs.push(mk(new THREE.SpotLight(0xffdbb0, 0, 4.5, 0.85, 0.9, 2)));
+  // les vitrages ne portent pas d'ombre : le soleil entre par les baies (et éclaire les coupes)
+  scene.traverse((o) => { if (o.isMesh && o.material && (o.material === M.glass || /:glass$/.test(o.name || ''))) o.castShadow = false; });
+  // environnement « pièce »
+  const es = new THREE.Scene();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(7, 2.7, 7), [0, 1, 2, 3, 4, 5].map(() => new THREE.MeshBasicMaterial({ side: THREE.BackSide })));
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.1), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const win2 = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.4), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const patch = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  es.add(box, win, win2, patch);
+  IN.envScene = { scene: es, box, win, win2, patch };
+  IN.ready = true;
+}
+
+// Vitrages du bâtiment regroupés en baies (rectangles verticaux alignés sur x ou z)
+function findWindows() {
+  if (IN.windows) return IN.windows;
+  const rects = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  building.updateMatrixWorld(true);
+  building.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || !(o.material === M.glass || /:glass$/.test(o.name || ''))) return;
+    const pos = o.geometry.attributes.position, idx = o.geometry.index, cnt = idx ? idx.count : pos.count;
+    for (let t = 0; t + 2 < cnt; t += 3) {
+      const ia = idx ? idx.getX(t) : t, ib = idx ? idx.getX(t + 1) : t + 1, ic = idx ? idx.getX(t + 2) : t + 2;
+      a.fromBufferAttribute(pos, ia).applyMatrix4(o.matrixWorld); b.fromBufferAttribute(pos, ib).applyMatrix4(o.matrixWorld); c.fromBufferAttribute(pos, ic).applyMatrix4(o.matrixWorld);
+      n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
+      const ax = Math.abs(n.x), az = Math.abs(n.z), ay = Math.abs(n.y);
+      if (ay > Math.max(ax, az)) continue;
+      const axis = ax > az ? 'x' : 'z', h = axis === 'x' ? 'z' : 'x';
+      const r = { axis, p: (a[axis] + b[axis] + c[axis]) / 3, u0: Math.min(a[h], b[h], c[h]), u1: Math.max(a[h], b[h], c[h]), y0: Math.min(a.y, b.y, c.y), y1: Math.max(a.y, b.y, c.y) };
+      if (r.u1 - r.u0 < 0.12 || r.y1 - r.y0 < 0.3) continue;
+      rects.push(r);
+    }
+  });
+  // fusion (meneaux, vantaux) : même plan à 12 cm près, rectangles jointifs à 15 cm près
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < rects.length && !merged; i++) for (let j = i + 1; j < rects.length; j++) {
+      const p = rects[i], q = rects[j];
+      if (p.axis !== q.axis || Math.abs(p.p - q.p) > 0.12) continue;
+      if (p.u0 > q.u1 + 0.15 || q.u0 > p.u1 + 0.15 || p.y0 > q.y1 + 0.15 || q.y0 > p.y1 + 0.15) continue;
+      p.u0 = Math.min(p.u0, q.u0); p.u1 = Math.max(p.u1, q.u1); p.y0 = Math.min(p.y0, q.y0); p.y1 = Math.max(p.y1, q.y1); p.p = (p.p + q.p) / 2;
+      rects.splice(j, 1); merged = true; break;
+    }
+  }
+  IN.windows = rects.map((r) => ({ ...r, w: r.u1 - r.u0, h: r.y1 - r.y0, cu: (r.u0 + r.u1) / 2, cy: (r.y0 + r.y1) / 2 }));
+  return IN.windows;
+}
+function pointInPoly(P, x, z) {
+  let ins = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const [xi, zi] = P[i], [xj, zj] = P[j];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ins = !ins;
+  }
+  return ins;
+}
+function roomsOfFloor(k) {
+  const out = [];
+  for (const L0 of allLots()) {
+    const L = lotData(L0.id);
+    if (!L || L.level !== k) continue;
+    for (const r of L.rooms || []) if (Array.isArray(r.poly)) out.push({ lot: String(L.id), name: r.name, poly: r.poly });
+  }
+  return out;
+}
+// lot (et pièce) contenant la caméra, sur l'étage visité
+function interiorAt(x, z, k) {
+  for (const r of roomsOfFloor(k)) if (pointInPoly(r.poly, x, z)) return r;
+  return null;
+}
+// centres des objets d'un matériau donné dans les maillages de l'étage (groupés par proximité)
+function clusterCenters(test, k, cell = 0.35) {
+  const out = [], seen = new Map(), v = new THREE.Vector3(), fy = lots.floorY(k);
+  lots.group.updateMatrixWorld(true);
+  lots.group.traverse((o) => {
+    if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (!mats.some(test) && !test(null, o)) return;
+    const pos = o.geometry.attributes.position;
+    const im = o.isInstancedMesh ? o.count : 0;
+    const add = (p) => {
+      if (p.y < fy - 0.1 || p.y > fy + 3.2) return;
+      const key = `${Math.floor(p.x / cell)},${Math.floor(p.y / cell)},${Math.floor(p.z / cell)}`;
+      let c = seen.get(key);
+      if (!c) { c = { x: 0, y: 0, z: 0, n: 0, minY: 1e9, maxY: -1e9 }; seen.set(key, c); }
+      c.x += p.x; c.y += p.y; c.z += p.z; c.n++; c.minY = Math.min(c.minY, p.y); c.maxY = Math.max(c.maxY, p.y);
+    };
+    const step = Math.max(1, Math.floor(pos.count / 6000));
+    if (im) {
+      const m4 = new THREE.Matrix4();
+      for (let i = 0; i < im; i++) { o.getMatrixAt(i, m4); m4.premultiply(o.matrixWorld); for (let j = 0; j < pos.count; j += Math.max(1, Math.floor(pos.count / 40))) add(v.fromBufferAttribute(pos, j).applyMatrix4(m4)); }
+    } else for (let j = 0; j < pos.count; j += step) add(v.fromBufferAttribute(pos, j).applyMatrix4(o.matrixWorld));
+  });
+  // fusion des cellules voisines
+  const cells = [...seen.values()];
+  const used = new Set();
+  for (let i = 0; i < cells.length; i++) {
+    if (used.has(i)) continue;
+    const g = { x: 0, y: 0, z: 0, n: 0, minY: 1e9, maxY: -1e9 }, stack = [i]; used.add(i);
+    while (stack.length) {
+      const c = cells[stack.pop()];
+      g.x += c.x; g.y += c.y; g.z += c.z; g.n += c.n; g.minY = Math.min(g.minY, c.minY); g.maxY = Math.max(g.maxY, c.maxY);
+      const cx = c.x / c.n, cy = c.y / c.n, cz = c.z / c.n;
+      for (let j = 0; j < cells.length; j++) {
+        if (used.has(j)) continue;
+        const d = cells[j];
+        if (Math.abs(d.x / d.n - cx) < cell * 1.6 && Math.abs(d.y / d.n - cy) < cell * 1.6 && Math.abs(d.z / d.n - cz) < cell * 1.6) { used.add(j); stack.push(j); }
+      }
+    }
+    out.push({ x: g.x / g.n, y: g.y / g.n, z: g.z / g.n, minY: g.minY, maxY: g.maxY });
+  }
+  return out;
+}
+function lampsOfFloor(k) {
+  if (IN.lampPos.has(k)) return IN.lampPos.get(k);
+  const isLamp = (m) => !!m && (m === M.lampShade || m === M.bulb || (m.userData && (m.userData.lamp || m.userData.lampShade || m.userData.bulb)) || /shade|bulb/i.test(m.name || ''));
+  const isSpot = (m, o) => (!!m && /spot/i.test(m.name || '')) || (!!o && /:walk:spot$/.test(o.name || ''));
+  let lamps = [], spots = [];
+  try { lamps = clusterCenters(isLamp, k, 0.3); spots = clusterCenters((m, o) => isSpot(m, o), k, 0.25); } catch (e) { /* pas de lampes */ }
+  const fy = lots.floorY(k);
+  // une ampoule au plafond (suspension) se comporte comme un spot ; un abat-jour bas comme une lampe
+  const r = { lamps: lamps.filter((l) => l.y < fy + 2.3), downs: spots.concat(lamps.filter((l) => l.y >= fy + 2.3)) };
+  IN.lampPos.set(k, r);
+  return r;
+}
+// matériaux propres aux intérieurs visités (non partagés avec l'extérieur) : environnement « pièce »
+function interiorMaterials() {
+  if (IN.envMats) return IN.envMats;
+  const inside = new Set(), outside = new Set();
+  const collect = (root, set) => root.traverse((o) => { if (o.isMesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m && !m.isShaderMaterial && 'envMap' in m) set.add(m); });
+  collect(lots.group, inside);
+  // plafonds de visite : lots.js y bake une occlusion uniforme de 0,78 (bord haut) qui les grise ;
+  // l'occlusion réelle vient désormais de la GTAO et des ombres → on la compense sur le matériau
+  lots.group.traverse((o) => { if (o.isMesh && /:walk:ceil$/.test(o.name || '') && o.material && !o.material.userData.ceilFix) { o.material.userData.ceilFix = true; o.material.color.multiplyScalar(1.22); } });
+  // voilages et objets translucides : pas d'ombre portée (le soleil filtre à travers)
+  lots.group.traverse((o) => { if (o.isMesh && o.castShadow) { const m = Array.isArray(o.material) ? o.material[0] : o.material; if (m && m.transparent && m.opacity < 0.95) o.castShadow = false; } });
+  collect(building, outside); collect(landscape, outside);
+  IN.envMats = [...inside].filter((m) => !outside.has(m) && !(m.transparent && m.opacity < 0.5 && m !== M.glassClear));
+  return IN.envMats;
+}
+function updateRoomEnv(outDir, s) {
+  const E = IN.envScene; if (!E) return;
+  const day = s.day, tw = s.twilight;
+  const sky = IN.skyColor;
+  // radiances (unités de la scène) : murs éclairés par la baie, sol chêne, fenêtre lumineuse
+  // tache de soleil dans la pièce : le rebond éclaircit toute la pièce
+  const sd = new THREE.Vector3(s.dir.x, 0, s.dir.z).normalize();
+  const facing = Math.max(0, sd.dot(outDir)) * THREE.MathUtils.smoothstep(s.elev, 2, 12);
+  const amb = (0.03 + 0.2 * day + 0.1 * facing * day) * IN_LOOK.env;
+  const wall = new THREE.Color('#e9e7e2').multiplyScalar(amb), ceil = new THREE.Color('#f3f2ee').multiplyScalar(amb * 0.75);
+  const floor = new THREE.Color('#c4b9ab').multiplyScalar(amb * 1.7);   // sol éclairé par les baies : rebond vers le plafond
+  const mats = E.box.material; // +x, -x, +y, -y, +z, -z
+  for (const i of [0, 1, 4, 5]) mats[i].color.copy(wall);
+  mats[2].color.copy(ceil); mats[3].color.copy(floor);
+  const winL = (0.3 + 2.4 * day + 0.3 * tw) * IN_LOOK.env;
+  E.win.material.color.copy(sky).multiplyScalar(winL);
+  E.win2.material.color.copy(sky).multiplyScalar(winL * 0.8);
+  E.patch.material.color.copy(s.color).lerp(new THREE.Color(1, 1, 1), 0.4).multiplyScalar(0.6 * facing * day * IN_LOOK.env);
+  E.patch.visible = facing > 0.02;
+  // orientation : fenêtre principale dans la direction de la façade du séjour, une seconde sur un côté
+  const ang = Math.atan2(outDir.x, outDir.z);
+  // la caméra du PMREM est à l'origine : boîte centrée (sol à −1,35 m, plafond à +1,35 m)
+  E.win.position.set(Math.sin(ang) * 3.49, -0.05, Math.cos(ang) * 3.49); E.win.lookAt(0, -0.05, 0);
+  E.win2.position.set(Math.cos(ang) * 3.49, 0.0, -Math.sin(ang) * 3.49); E.win2.lookAt(0, 0.0, 0);
+  E.patch.position.set(Math.sin(ang) * 1.4, -1.34, Math.cos(ang) * 1.4); E.patch.rotation.set(-Math.PI / 2, 0, ang);
+  const rt = pmrem.fromScene(E.scene, 0.02, 0.05, 20);
+  if (IN.envRT) IN.envRT.dispose();
+  IN.envRT = rt;
+}
+
+// baies du logement : un projecteur ombré par baie (les plus grandes d'abord)
+function assignSkyLights(lotId, k) {
+  const rooms = roomsOfFloor(k).filter((r) => r.lot === lotId);
+  const fy = lots.floorY(k), wins = findWindows().filter((w) => w.cy > fy + 0.3 && w.cy < fy + 2.9);
+  const picked = [];
+  for (const w of wins) {
+    // côté intérieur = celui qui tombe dans une pièce du logement
+    let inDir = 0, room = null;
+    for (const sg of [1, -1]) {
+      const px = w.axis === 'x' ? w.p + sg * 0.45 : w.cu, pz = w.axis === 'z' ? w.p + sg * 0.45 : w.cu;
+      const r = rooms.find((rr) => pointInPoly(rr.poly, px, pz));
+      if (r) { inDir = sg; room = r; break; }
+    }
+    if (!inDir) continue;
+    picked.push({ ...w, inDir, room, area: w.w * w.h });
+  }
+  picked.sort((p, q) => q.area - p.area);
+  const s = state.sun, main = picked[0];
+  const outDir = main ? (main.axis === 'x' ? new THREE.Vector3(-main.inDir, 0, 0) : new THREE.Vector3(0, 0, -main.inDir)) : new THREE.Vector3(0, 0, 1);
+  IN.outDir = outDir; IN.lotOutDir = outDir.clone();
+  IN.skyWins = picked.slice(0, N_SKY);
+  IN.sky.forEach((L, i) => {
+    const w = IN.skyWins[i];
+    L.userData.win = w || null;
+    if (!w) { L.intensity = 0; L.position.set(0, -500, 0); L.target.position.set(0, -501, 0); L.target.updateMatrixWorld(); return; }
+    const n = w.axis === 'x' ? new THREE.Vector3(w.inDir, 0, 0) : new THREE.Vector3(0, 0, w.inDir);
+    const c = w.axis === 'x' ? new THREE.Vector3(w.p, w.cy, w.cu) : new THREE.Vector3(w.cu, w.cy, w.p);
+    const half = 0.5 * Math.hypot(w.w, w.h), d = Math.max(0.9, 0.62 * Math.max(w.w, w.h));
+    // axe horizontal, plan proche juste derrière le vitrage : les menuiseries ne portent pas d'ombre
+    // « de ciel » (qui serait trop nette pour une source aussi étendue) ; les murs, eux, arrêtent la lumière
+    // source à hauteur de linteau : le ciel éclaire vers le bas, jamais le plafond en direct
+    // (au ras du plafond : le plafond ne reçoit que des rayons rasants, il est éclairé par le rebond)
+    L.position.copy(c).addScaledVector(n, -d); L.position.y = Math.max(w.y1 + 0.08, fy + (lots.walkCeilingY ? lots.walkCeilingY(k) - fy : 2.5) - 0.03);
+    L.target.position.copy(L.position).addScaledVector(n, 4);
+    L.target.updateMatrixWorld();
+    L.angle = Math.min(1.3, Math.atan(half / d) + 0.3);
+    L.penumbra = 0.9;
+    L.shadow.camera.near = d + 0.09; L.shadow.camera.far = d + 14;
+    L.shadow.camera.updateProjectionMatrix();
+    L.userData.n = n; L.userData.d = d;
+    const Bn = IN.bounce[i];
+    Bn.position.copy(c).addScaledVector(n, 1.1); Bn.position.y = fy + 0.15;
+    Bn.target.position.copy(Bn.position).addScaledVector(n, 1.2); Bn.target.position.y = fy + 3;
+    Bn.target.updateMatrixWorld();
+  });
+  IN.bounce.forEach((Bn, i) => { if (!IN.skyWins[i]) { Bn.position.set(0, -500, 0); Bn.target.position.set(0, -501, 0); Bn.target.updateMatrixWorld(); } });
+  // lampes du logement
+  const lp = lampsOfFloor(k);
+  const inLot = (p) => rooms.some((r) => pointInPoly(r.poly, p.x, p.z));
+  IN.lampList = lp.lamps.filter(inLot);
+  IN.downList = lp.downs.filter((p) => inLot(p) && p.y > fy + 2.2);
+}
+function placePracticals() {
+  const cx = camera.position.x, cz = camera.position.z;
+  const byDist = (arr) => arr.slice().sort((p, q) => Math.hypot(p.x - cx, p.z - cz) - Math.hypot(q.x - cx, q.z - cz));
+  const lamps = byDist(IN.lampList || []), downs = byDist(IN.downList || []);
+  IN.lamps.forEach((L, i) => {
+    const p = lamps[i]; L.userData.on = !!p;
+    if (p) L.position.set(p.x, (p.minY + p.maxY) / 2, p.z); else L.position.set(0, -500, 0);
+  });
+  IN.downs.forEach((L, i) => {
+    const p = downs[i]; L.userData.on = !!p;
+    if (p) { L.position.set(p.x, p.minY - 0.03, p.z); L.target.position.set(p.x, p.minY - 3, p.z); } else { L.position.set(0, -500, 0); L.target.position.set(0, -501, 0); }
+    L.target.updateMatrixWorld();
+  });
+}
+let lampMats = null;
+function lampGlow(t) {
+  if (!lampMats) {
+    lampMats = new Set();
+    if (M.lampShade) lampMats.add(M.lampShade);
+    if (M.bulb) lampMats.add(M.bulb);
+    lots.group.traverse((o) => { if (o.isMesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m && m.emissive && m.userData && (m.userData.lamp || m.userData.lampShade || m.userData.bulb)) lampMats.add(m); });
+    for (const m of lampMats) if (m.userData.baseEmissive == null) m.userData.baseEmissive = m === M.lampShade ? 1.4 : m === M.bulb ? 5 : (m.emissiveIntensity || 1);
+  }
+  for (const m of lampMats) {
+    const bulb = m === M.bulb || /bulb/i.test(m.name || '') || m.userData.bulb;
+    m.emissiveIntensity = m.userData.baseEmissive * (bulb ? 0.03 + 0.97 * t : t);
+  }
+}
+// baies de l'étage, côté intérieur résolu (toutes les pièces de tous les lots) — pour le fondu au passage d'une baie
+const floorWinCache = new Map();
+function windowsOfFloor(k) {
+  if (floorWinCache.has(k)) return floorWinCache.get(k);
+  const rooms = roomsOfFloor(k), fy = lots.floorY(k), out = [];
+  for (const w of findWindows()) {
+    if (w.cy < fy + 0.3 || w.cy > fy + 2.9) continue;
+    for (const sg of [1, -1]) {
+      const px = w.axis === 'x' ? w.p + sg * 0.45 : w.cu, pz = w.axis === 'z' ? w.p + sg * 0.45 : w.cu;
+      const r = rooms.find((rr) => pointInPoly(rr.poly, px, pz));
+      if (r) { out.push({ ...w, inDir: sg, room: r }); break; }
+    }
+  }
+  floorWinCache.set(k, out);
+  return out;
+}
+function interiorTarget() {
+  if (!nav || !nav.getState || cfg.immersive) return { t: 0 };
+  // étage visité : balade de la maquette, ou étage coupé en vue « visite » (expérience pilotée)
+  const k = cfg.walkFloor != null ? cfg.walkFloor : (cfg.viewMode === 'walk' ? cfg.floor : null);
+  if (k == null) return { t: 0 };
+  const st = nav.getState();
+  if (st.mode !== 'walk' && st.mode !== 'look') return { t: 0 };
+  const p = camera.position;
+  const fy = lots.floorY(k);
+  if (p.y < fy || p.y > fy + 3.2) return { t: 0 };
+  const r = interiorAt(p.x, p.z, k);
+  // au droit d'une baie : fondu continu selon la profondeur de la caméra (de 20 cm dehors à 50 cm dedans),
+  // pour que l'exposition ne saute pas quand on franchit le vitrage
+  let near = null, best = 9;
+  for (const w of windowsOfFloor(k)) {
+    const u = w.axis === 'x' ? p.z : p.x, d = ((w.axis === 'x' ? p.x : p.z) - w.p) * w.inDir;
+    if (u < w.u0 - 0.4 || u > w.u1 + 0.4 || d < -2.5 || d > 0.9 || p.y > w.y1 + 0.6) continue;
+    if (Math.abs(d) < best) { best = Math.abs(d); near = { w, d }; }
+  }
+  if (near) {
+    const x = THREE.MathUtils.clamp((near.d + 0.2) / 0.7, 0, 1), t = x * x * (3 - 2 * x);
+    return { t, lot: (r || near.w.room).lot, k, room: r || near.w.room };
+  }
+  return r ? { t: 1, lot: r.lot, k, room: r } : { t: 0 };
+}
+// appelée à chaque image (léger) : fondu intérieur/extérieur et réaffectation des sources
+function stepInterior(dt) {
+  if (!IN.ready || !lots) return false;
+  const now = performance.now();
+  let changed = false;
+  const T = interiorTarget();
+  IN.target = T.t;
+  if (T.t && (T.lot !== IN.lotId || T.k !== IN.floor)) IN.lastCheck = 0;
+  if (now - IN.lastCheck > 150) {
+    IN.lastCheck = now;
+    if (T.t && (T.lot !== IN.lotId || T.k !== IN.floor)) {
+      IN.lotId = T.lot; IN.floor = T.k;
+      assignSkyLights(T.lot, T.k);
+      IN.roomEnvKey = '';
+      renderer.shadowMap.needsUpdate = true;
+      changed = true;
+    }
+    if (IN.k > 0 && IN.lotId) placePracticals();
+    // exposition « de pièce » : l'appareil compense une pièce peu vitrée (rapport surface vitrée / surface au sol)
+    if (T.t && T.room) {
+      let A = 0; const P = T.room.poly;
+      for (let i = 0; i < P.length; i++) { const [x0, z0] = P[i], [x1, z1] = P[(i + 1) % P.length]; A += x0 * z1 - x1 * z0; }
+      A = Math.abs(A) / 2;
+      const wa = (IN.skyWins || []).filter((w) => w.room && w.room.name === T.room.name).reduce((a, w) => a + w.area, 0);
+      // environnement orienté vers la plus grande baie de la pièce occupée (sinon celle du logement)
+      const wr = (IN.skyWins || []).filter((w) => w.room && w.room.name === T.room.name).sort((a, b) => b.area - a.area)[0];
+      const od = wr ? (wr.axis === 'x' ? new THREE.Vector3(-wr.inDir, 0, 0) : new THREE.Vector3(0, 0, -wr.inDir)) : (IN.lotOutDir || IN.outDir);
+      if (od && (!IN.outDir || !od.equals(IN.outDir))) { IN.outDir = od.clone(); IN.roomEnvKey = ''; changed = true; }
+      IN.roomExp = THREE.MathUtils.clamp(Math.sqrt(0.2 / Math.max(0.04, wa / Math.max(1, A))), 1, 1.3);
+    }
+  }
+  const e0 = IN.roomExpCur ?? 1;
+  IN.roomExpCur = e0 + ((IN.roomExp ?? 1) - e0) * Math.min(1, dt * 2.5);
+  if (Math.abs(IN.roomExpCur - e0) > 0.002) changed = true;
+  const k0 = IN.k;
+  const rate = dt / 0.3;
+  IN.k = IN.target > IN.k ? Math.min(IN.target, IN.k + rate) : Math.max(IN.target, IN.k - rate);
+  if (IN.k !== k0 || changed) { applyInterior(); return true; }
+  return false;
+}
+function applyInterior() {
+  const k = IN.k, s = state.sun; if (!s) return;
+  const on = k > 0.001;
+  const sm = k * k * (3 - 2 * k);
+  // heure dorée : la lumière qui entre (ciel bas, façades et sol éclairés par le soleil couchant) se réchauffe
+  const gold = 1 - THREE.MathUtils.smoothstep(s.elev, 6, 28);
+  IN.skyColor.set('#dde6f2').lerp(new THREE.Color('#ffdcb8'), Math.max((1 - s.day) * 0.7, 0.75 * gold));
+  // qualité basse : trois baies ombrées seulement (les plus grandes)
+  const nSky = state.quality === 'low' ? 3 : N_SKY;
+  if (on !== IN.on || nSky !== IN.nSky) {
+    IN.on = on; IN.nSky = nSky;
+    IN.sky.forEach((L, i) => { L.visible = on && i < nSky; });
+    IN.bounce.forEach((L, i) => { L.visible = on && i < nSky; });
+    renderer.shadowMap.needsUpdate = true;
+    // environnement « pièce » pour les matériaux d'intérieur
+    if (on && !IN.envRT) IN.roomEnvKey = '';
+  }
+  if (on) {
+    const key = `${IN.lotId}|${state.hour.toFixed(2)}|${state.season}`;
+    if (key !== IN.roomEnvKey) { IN.roomEnvKey = key; updateRoomEnv(IN.outDir || new THREE.Vector3(0, 0, 1), s); }
+  }
+  const envOn = on && k > 0.5 && IN.envRT;
+  for (const m of interiorMaterials()) { const e = envOn ? IN.envRT.texture : null; if (m.envMap !== e) m.envMap = e; }
+  // lumière du ciel par les baies
+  const sd = new THREE.Vector3(s.dir.x, 0, s.dir.z); const sdl = sd.length() || 1; sd.divideScalar(sdl);
+  // ciel moins lumineux quand le soleil descend (heure dorée)
+  const eve = THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75);
+  const skyL = (0.04 * s.twilight + 0.36 * s.day * (0.55 + 0.45 * THREE.MathUtils.smoothstep(s.elev, 5, 30))) * IN_LOOK.sky * (1 - 0.3 * eve);
+  for (const L of IN.sky) {
+    const w = L.userData.win;
+    if (!w) { L.intensity = 0; const Bn = IN.bounce[IN.sky.indexOf(L)]; if (Bn) Bn.intensity = 0; continue; }
+    const outN = L.userData.n.clone().negate();
+    const sunSide = 1 + 0.7 * Math.max(0, outN.dot(sd)) * s.day;          // ciel plus lumineux côté soleil (et sol éclairé)
+    const dd = L.userData.d + 2.5;
+    L.intensity = skyL * w.area * sunSide * (dd * dd) / 6.25 * sm;
+    L.color.copy(IN.skyColor);
+    const Bn = IN.bounce[IN.sky.indexOf(L)];
+    if (Bn) { Bn.intensity = skyL * w.area * sunSide * IN_LOOK.bounce * sm; Bn.color.copy(IN.skyColor).lerp(new THREE.Color('#f3dcc0'), 0.5); }
+  }
+  // lampes le soir (≥ 19 h) — et un peu par temps sombre
+  const lampK = Math.max(eve, 1 - s.day) * sm;
+  // lampes allumées seulement le soir : en journée elles ne coûtent rien (≈ 2,5 ms/image évitées)
+  const practOn = on && lampK > 0.005;
+  for (const L of [...IN.lamps, ...IN.downs]) if (L.visible !== practOn) L.visible = practOn;
+  for (const L of IN.lamps) L.intensity = L.userData.on ? IN_LOOK.lamp * lampK : 0;
+  for (const L of IN.downs) L.intensity = L.userData.on ? IN_LOOK.down * lampK : 0;
+  // matériaux lumineux (abat-jour, ampoules) : éteints le jour, allumés le soir
+  lampGlow(Math.max(eve, 1 - s.day));
+  // exposition, ambiance, étalonnage (AgX en intérieur : blancs et bois plus neutres qu'ACES)
+  IN.agx = sm;   // fondu ACES → AgX dans la passe de sortie (pas de saut au passage de la baie)
+  const base = state.baseExposure ?? renderer.toneMappingExposure;
+  // le soir, l'appareil ne « rattrape » plus la baisse du jour : les lampes prennent le relais
+  renderer.toneMappingExposure = base * THREE.MathUtils.lerp(1, IN_LOOK.exposure * (IN.roomExpCur ?? 1) * (1 - 0.22 * eve), sm);
+  hemi.intensity = state.baseHemi * THREE.MathUtils.lerp(1, IN_LOOK.hemi, sm);
+  sun.shadow.normalBias = THREE.MathUtils.lerp(0.035, 0.012, sm);
+  sun.shadow.bias = THREE.MathUtils.lerp(-0.0003, -0.0002, sm);
+  if (finishPass) {
+    const fu = finishPass.uniforms, lerp = THREE.MathUtils.lerp;
+    fu.lift.value = lerp(LOOK.lift, IN_LOOK.lift, sm); fu.contrast.value = lerp(LOOK.contrast, IN_LOOK.contrast, sm);
+    fu.saturation.value = lerp(LOOK.sat, IN_LOOK.sat, sm); fu.warm.value = lerp(LOOK.warm, IN_LOOK.warm, sm);
+    fu.greens.value = lerp(LOOK.greens, 0.4, sm); fu.vignette.value = lerp(0.16, IN_LOOK.vignette, sm);
+  }
+  invalidate(60);
 }
 
 function render() {
   renderer.info.reset();
+  if (outputPass && outputPass.uniforms && outputPass.uniforms.uAgx) {
+    const u = outputPass.uniforms;
+    u.toneMappingExposure.value = renderer.toneMappingExposure;
+    u.uAgx.value = IN.agx || 0;
+    u.uBaseAgx.value = renderer.toneMapping === THREE.AgXToneMapping ? 1 : 0;
+  }
   updateAoRadius();
   composer.render();
 }
@@ -1140,6 +1617,7 @@ function setQuality(name, fromAuto = false) {
   }
   setCheapGlass(q.cheapGlass);
   renderer.shadowMap.needsUpdate = true;
+  if (IN.ready && IN.k > 0) applyInterior();
   onResize();
   updateQualityUI(fromAuto);
 }
@@ -1430,6 +1908,13 @@ function setSections(on) {
 async function precompileSections() {
   setSections(true);
   try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compilé à la volée */ }
+  // variante « visite » : sources intérieures allumées (évite un à-coup à l'entrée dans un logement)
+  const inL = [...IN.sky, ...(IN.bounce || [])];
+  if (inL.length) {
+    inL.forEach((L) => { L.visible = true; });
+    try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compilé à la volée */ }
+    inL.forEach((L) => { L.visible = false; });
+  }
   setSections(false);
 }
 const CUT_TOP = () => bounds.height + 1.6;
@@ -2463,6 +2948,9 @@ function api() {
     setFloor: (k, o) => setFloor(k, o), selectLot: (id, o) => selectLot(id, o), closeSheet, setAvailability, setNavMode,
     viewFromLot, visitLot, toggleLots, pickAt, takeLift, exitImmersive, solarPosition, updateLift,
     projectLot: (id) => { const L = lotData(id); if (!L) return null; const v = L.labelAnchor.clone().project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, z: v.z }; },
+    // éclairage intérieur : état et réglages en direct
+    interior: () => ({ k: IN.k, lot: IN.lotId, floor: IN.floor, windows: (IN.skyWins || []).map((w) => ({ axis: w.axis, p: +w.p.toFixed(2), cu: +w.cu.toFixed(2), w: +w.w.toFixed(2), h: +w.h.toFixed(2), inDir: w.inDir, room: w.room && w.room.name })), lamps: IN.lampList, downs: IN.downList, sky: IN.sky.map((L) => +L.intensity.toFixed(3)), look: { ...IN_LOOK } }),
+    tuneInterior: (o = {}) => { Object.assign(IN_LOOK, o); IN.roomEnvKey = ''; applyInterior(); return { ...IN_LOOK }; },
     // réglages en direct (mise au point de la lumière)
     tune: (o = {}) => {
       Object.assign(LOOK, o);

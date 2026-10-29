@@ -19,6 +19,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { drawParquet, mulberry32 } from './interiors.js';
 import { createCar } from './cars.js';
+import { decorMaterials, createDecor, furnishUpper } from './decor.js';
 
 // Gabarit de repli (identique à building.js passe 5) si building.js ne l'exporte pas
 const DEF_LAYOUT = {
@@ -41,6 +42,7 @@ const CUT = 1.2;            // plan de coupe : 1,2 m au-dessus du sol fini
 const WALL_T = 0.25;        // murs porteurs intérieurs (noyau, séparatifs)
 const PART_T = 0.08;        // cloisons
 const DOOR_H = 2.04;        // hauteur de passage des portes
+const SK_H = 0.07, SK_T = 0.012;  // plinthes : 7 cm × 12 mm
 
 // ---------- géométrie plane ----------
 const area = (P) => { let a = 0; for (let i = 0; i < P.length; i++) { const [x0, z0] = P[i], [x1, z1] = P[(i + 1) % P.length]; a += x0 * z1 - x1 * z0; } return a / 2; };
@@ -132,6 +134,10 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     lightF: basic('carLightF', 0xf3f1e6), lightR: basic('carLightR', 0xa3261f),
   };
   MAT.spot.color.setRGB(3.2, 2.9, 2.4);
+  // surfaces d'intérieur partagées (materials.js, réglées pour l'éclairage intérieur) quand elles existent
+  if (M) { if (M.oakParquet) MAT.parquet = M.oakParquet; if (M.wallPaint) MAT.wall = M.wallPaint; if (M.ceilingPaint) MAT.ceil = M.ceilingPaint; if (M.tileFloor) MAT.tile = M.tileFloor; }
+  // mobilier et décoration (decor.js) : matériaux propres, variantes par teinte de sommet
+  Object.assign(MAT, decorMaterials(THREE, M, std, { disposables }));
   for (const m of Object.values(MAT)) m.userData.lotsPlan = true;
   // variantes « visite » : mêmes couleurs et textures, éclairage baké (couleurs de sommet), non éclairées
   const WALK = {};
@@ -139,7 +145,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     if (WALK[k]) return WALK[k];
     const s = MAT[k];
     if (!s || s.isMeshBasicMaterial) return (WALK[k] = s);
-    const m = basic(s.name + 'Walk', s.color.getHex(), { map: s.map || null, vertexColors: true });
+    // visite éclairée : même matériau PBR (soleil, ombres, environnement), occlusion bakée en couleurs de sommet
+    const m = s.clone(); m.name = s.name + 'Walk'; m.vertexColors = true; m.userData = { ...s.userData }; disposables.push(m);
     // en visite, les doublages affleurent la face intérieure des façades : ils doivent toujours gagner
     // (sinon le bardage traverse en rayures sombres quand on bouge)
     Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
@@ -148,15 +155,24 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
 
   // ---------------------------------------------------------------- constructeur d'un étage
   function FloorBuilder(key) {
-    const fy = floorY(key), cy = fy + CUT, H = ceilH(key), buckets = {}, rooms = [], labels = [], colliders = [], lights = [], furniture = [];
+    const fy = floorY(key), cy = fy + CUT, H = ceilH(key), buckets = {}, rooms = [], labels = [], colliders = [], lights = [], furniture = [], skirts = [];
     let xf = null, tag = 'common', track = null;
+    const FIN = key >= 1 && key <= 3;                 // finitions (plinthes, chambranles, poignées) dans les logements
     const withTag = (t, fn) => { const p = tag; tag = t; fn(); tag = p; };
-    const push = (mk, g) => {
+    // tint : multiplicateur de couleur par objet (variantes d'un même matériau dans un seul appel de dessin) ;
+    // keepUV : conserve les UV propres de la géométrie (atlas, textures orientées) au lieu des UV « boîte » en mètres
+    let tint = [1, 1, 1];
+    const push = (mk, g, o = {}) => {
+      const keepUV = o.keepUV || (g.userData && g.userData.keepUV);
+      const tn = o.tint || g.userData.tint || tint;
       if (g.index) g = g.toNonIndexed();
       if (xf) g.applyMatrix4(xf);
       for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n);
       if (!g.attributes.normal) g.computeVertexNormals();
-      boxUV(g);
+      if (!keepUV || !g.attributes.uv) boxUV(g);
+      const n = g.attributes.position.count, tc = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { tc[i * 3] = tn[0]; tc[i * 3 + 1] = tn[1]; tc[i * 3 + 2] = tn[2]; }
+      g.setAttribute('tint', new THREE.BufferAttribute(tc, 3));
       g.clearGroups();
       const k = tag + '|' + mk;
       (buckets[k] || (buckets[k] = [])).push(g);
@@ -231,6 +247,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         flat('cut', rect(x0, x1, z0, z1), cy + 0.002);
       });
       if (faces && H > 0) walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
+      if (faces && H > 0 && FIN) skirts.push([x0, x1, z0, z1]);
       if (collide) colliders.push(...rectSegs(x0, x1, z0, z1));
     };
     const lintel = (axis, c0, c1, a, b) => {
@@ -265,7 +282,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // cloison / mur intérieur centré sur une ligne, avec portes {a, b, hinge:'a'|'b', side:±1}
     const partition = (axis, c, s0, s1, doors = [], t = PART_T) => {
       run(axis, c - t / 2, c + t / 2, s0, s1, doors.map(d => ({ a: d.a, b: d.b, type: 'void' })));
-      for (const d of doors) door(axis, c, d);
+      for (const d of doors) { door(axis, c, d); frame(axis, c, t, d); }
     };
     // vantail ouvert à 90° (plan : coupé à 1,2 m ; visite : 2,04 m) + arc de débattement au sol
     const door = (axis, c, d) => {
@@ -279,7 +296,33 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         if (axis === 'x') arc(hs, c, w, dir > 0 ? 0 : Math.PI, side > 0 ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? -Math.PI / 2 : Math.PI / 2));
         else arc(c, hs, w, dir > 0 ? Math.PI / 2 : -Math.PI / 2, side > 0 ? (dir > 0 ? -Math.PI / 2 : Math.PI / 2) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2));
       });
-      if (H > 0) walkOnly(() => leaf(DOOR_H - 0.01));
+      if (H > 0) walkOnly(() => {
+        const L = leaf(DOOR_H - 0.01);
+        if (!FIN) return;
+        // béquilles noires des deux côtés du vantail, près du chant libre
+        const xs = L.map(p => p[0]), zs = L.map(p => p[1]), lx0 = Math.min(...xs), lx1 = Math.max(...xs), lz0 = Math.min(...zs), lz1 = Math.max(...zs), y = 1.02;
+        if (axis === 'x') { const zf = side > 0 ? lz1 - 0.07 : lz0 + 0.07, dz = side > 0 ? -0.11 : 0.11; for (const [xa, xb] of [[lx0 - 0.012, lx0], [lx1, lx1 + 0.012]]) { B('black', xa, xb, y - 0.03, y + 0.03, zf - 0.03, zf + 0.03); const xo = xa < lx0 ? xa - 0.045 : xb + 0.045; B('black', Math.min(xo, xa < lx0 ? xa : xb), Math.max(xo, xa < lx0 ? xa : xb), y - 0.01, y + 0.01, zf - 0.01, zf + 0.01); B('black', xa < lx0 ? xo - 0.016 : xo, xa < lx0 ? xo : xo + 0.016, y - 0.011, y + 0.011, Math.min(zf, zf + dz), Math.max(zf, zf + dz)); } }
+        else { const xf2 = side > 0 ? lx1 - 0.07 : lx0 + 0.07, dx = side > 0 ? -0.11 : 0.11; for (const [za, zb] of [[lz0 - 0.012, lz0], [lz1, lz1 + 0.012]]) { B('black', xf2 - 0.03, xf2 + 0.03, y - 0.03, y + 0.03, za, zb); const zo = za < lz0 ? za - 0.045 : zb + 0.045; B('black', xf2 - 0.01, xf2 + 0.01, y - 0.01, y + 0.01, Math.min(zo, za < lz0 ? za : zb), Math.max(zo, za < lz0 ? za : zb)); B('black', Math.min(xf2, xf2 + dx), Math.max(xf2, xf2 + dx), y - 0.011, y + 0.011, za < lz0 ? zo - 0.016 : zo, za < lz0 ? zo : zo + 0.016); } }
+      });
+    };
+    // chambranles (3 pièces, 6 cm) sur les deux faces, interrupteur côté gâche ; c : axe du mur, t : épaisseur
+    const frame = (axis, c, t, d) => {
+      if (!FIN || H <= 0) return;
+      const a = d.a, b = d.b, W2 = 0.06, E = 0.014;
+      walkOnly(() => {
+        for (const sgn of [-1, 1]) {
+          const f = c + sgn * t / 2, g0 = Math.min(f, f + sgn * E), g1 = Math.max(f, f + sgn * E);
+          const pc = (s0, s1, y0, y1) => axis === 'x' ? B('skirt', s0, s1, y0, y1, g0, g1) : B('skirt', g0, g1, y0, y1, s0, s1);
+          pc(a - W2, a, 0, DOOR_H + W2); pc(b, b + W2, 0, DOOR_H + W2); pc(a - W2, b + W2, DOOR_H, DOOR_H + W2);
+          // ébrasement (fourrure) dans l'épaisseur du mur
+          if (sgn > 0) { if (axis === 'x') { B('skirt', a, a + 0.008, 0, DOOR_H, c - t / 2, c + t / 2); B('skirt', b - 0.008, b, 0, DOOR_H, c - t / 2, c + t / 2); B('skirt', a, b, DOOR_H - 0.008, DOOR_H, c - t / 2, c + t / 2); } else { B('skirt', c - t / 2, c + t / 2, 0, DOOR_H, a, a + 0.008); B('skirt', c - t / 2, c + t / 2, 0, DOOR_H, b - 0.008, b); B('skirt', c - t / 2, c + t / 2, DOOR_H - 0.008, DOOR_H, a, b); } }
+        }
+        // seuil en chêne dans l'épaisseur du mur (pas de jour sous la porte)
+        if (axis === 'x') B('wood', a, b, 0, 0.006, c - t / 2 - 0.002, c + t / 2 + 0.002); else B('wood', c - t / 2 - 0.002, c + t / 2 + 0.002, 0, 0.006, a, b);
+        // interrupteur (côté où s'ouvre la porte, côté gâche)
+        const side = d.side || 1, sw = d.hinge === 'b' ? a - W2 - 0.1 : b + W2 + 0.1, f = c + side * t / 2, g0 = Math.min(f, f + side * 0.009), g1 = Math.max(f, f + side * 0.009);
+        if (axis === 'x') B('skirt', sw - 0.04, sw + 0.04, 1.06, 1.14, g0, g1); else B('skirt', g0, g1, 1.06, 1.14, sw - 0.04, sw + 0.04);
+      });
     };
     const arc = (x, z, r, a0, da) => {
       const pos = [], n = 16;
@@ -306,6 +349,10 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           if (Hs.some(h => cs > h[0] && cs < h[1] && cyy > h[2] && cyy < h[3])) continue;
           if (axis === 'x') B('wall', ss[i], ss[i + 1], ys[j], ys[j + 1], c0, c1, '', 0.5);
           else B('wall', c0, c1, ys[j], ys[j + 1], ss[i], ss[i + 1], '', 0.5);
+          if (j === 0 && FIN) { // plinthe au pied du doublage, côté pièce
+            const f = cIn + dir * 0.012, g0 = Math.min(f, f + dir * SK_T), g1 = Math.max(f, f + dir * SK_T);
+            if (axis === 'x') B('skirt', ss[i], ss[i + 1], 0, Math.min(SK_H, ys[1]), g0, g1); else B('skirt', g0, g1, 0, Math.min(SK_H, ys[1]), ss[i], ss[i + 1]);
+          }
         }
       });
     };
@@ -443,7 +490,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       run('z', -3.3, -3.1, nS, nN, [{ a: nS + 0.1, b: -9.45, type: 'void' }]);
     };
 
-    return { key, fy, cy, H, B, RB, CY, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, planOnly, walkOnly, furniture };
+    const setTint = (c) => { const p = tint; tint = c ? (Array.isArray(c) ? c : [c.r, c.g, c.b]) : [1, 1, 1]; return p; };
+    const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
+    return { key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
   function rectSegs(x0, x1, z0, z1) { return [{ a: [x0, z0], b: [x1, z0] }, { a: [x1, z0], b: [x1, z1] }, { a: [x1, z1], b: [x0, z1] }, { a: [x0, z1], b: [x0, z0] }]; }
@@ -506,9 +555,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.core();
     P.room('Palier', rect(-1.4 + WALL_T / 2, 2.2 - WALL_T / 2, -11.4 + WALL_T / 2, -9.4 - WALL_T / 2), 'concrete', null, [0.4, -10.4]);
     P.run('x', -9.4 - WALL_T / 2, -9.4 + WALL_T / 2, -1.4, IN, [{ a: 0.75, b: 1.65, type: 'void' }]);
-    P.door('x', -9.4 + WALL_T / 2, { a: 0.75, b: 1.65, hinge: 'b', side: 1 });
+    P.door('x', -9.4 + WALL_T / 2, { a: 0.75, b: 1.65, hinge: 'b', side: 1 }); P.frame('x', -9.4, WALL_T, { a: 0.75, b: 1.65, hinge: 'b', side: 1 });
     P.run('x', -11.4 - WALL_T / 2, -11.4 + WALL_T / 2, -1.4, 2.2 + WALL_T / 2, [{ a: -0.3, b: 0.6, type: 'void' }]);
-    P.door('x', -11.4 - WALL_T / 2, { a: -0.3, b: 0.6, hinge: 'a', side: -1 });
+    P.door('x', -11.4 - WALL_T / 2, { a: -0.3, b: 0.6, hinge: 'a', side: -1 }); P.frame('x', -11.4, WALL_T, { a: -0.3, b: 0.6, hinge: 'a', side: -1 });
     P.run('z', 2.2 - WALL_T / 2, 2.2 + WALL_T / 2, -11.4, -9.4, []);
 
     // ===== lot A =====
@@ -533,25 +582,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.partition('x', -7.6, 1.9, 2.11, []);
     P.walkOnly(() => P.B('wall', 0.7, 1.9, DOOR_H + 0.1, P.H, -7.64, -7.56, 'py', 0.5));    // retombée de l'entrée
     P.partition('z', 0.51, -9.275, -7.64, [{ a: -8.75, b: -8.0, hinge: 'b', side: -1 }]);
-    P.at(-0.92 + 0.3, -6.4, Math.PI / 2, () => F.kitchen(2.2));
-    P.at(0.6, -6.4, Math.PI / 2, () => F.island(1.6));
-    P.at(0.9, -3.0, 0, () => F.dining(1.8, 0.9, 6));
-    P.at(3.4, -5.86 + 0.48, 0, () => F.sofa(2.4));
-    P.at(3.4, -4.45, 0, () => F.coffee(1.1, 0.55));
-    P.at(3.4, -4.6, 0, () => F.rug(2.6, 1.8));
-    P.at(2.2, -4.3, Math.PI / 2 + 0.3, () => F.armchair());
-    F.plant(IN - 0.35, -2.05, 1.1); F.plant(-0.55, -2.0, 0.9);
-    P.at(-3.3, -3.94, 0, () => F.bed(suite ? 1.8 : 1.6));
-    P.at(-IN + 0.32, -1.3, Math.PI / 2, () => F.wardrobe(1.6));
-    P.at(-4.25, -7.475 + 0.02, 0, () => F.bed(1.4));
-    P.at(-5.25, -4.9, Math.PI / 2, () => F.desk(1.0));
-    P.at(3.4, -5.94 - 0.02, Math.PI, () => F.bed(1.4));
-    F.plant(2.55, -8.9, 0.8);
-    P.at(-1.95, -6.95, 0, () => F.bath());
-    P.at(-1.6, -5.55, Math.PI, () => F.vanity(0.9));
-    P.at(-0.84, -8.83, Math.PI / 2, () => F.shower(0.85));
-    P.at(0.0, -9.0, 0, () => F.wc());
-    P.at(-0.05, -7.95, Math.PI, () => F.vanity(0.6));
+    // retombée plâtre le long de la façade droite : masque la sous-face des dalles de balcon (retour jusqu'à z = −11)
+    {
+      const xr = (LY.slab.retX ?? 4.8) - 0.03, zr = LY.slab.retZ ?? -11, yb = 2.37;
+      for (const [z0, z1] of [[-2.8, -1.62], [-5.86, -4.6], [-7.2, -5.94], [-9.275, -9.0], [Math.max(zr - 0.06, -11.525), -9.525]]) if (z1 > zr - 0.1) P.walkOnly(() => P.B('wall', xr, IN, yb, P.H, Math.max(z0, zr - 0.06), z1, 'py'));
+    }
+    const D = createDecor(THREE, P, { CUT });
+    furnishUpper(THREE, P, D, { suite });
 
     // ===== lot B =====
     const zC = LY.loggias.C;
@@ -570,22 +607,6 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.partition('x', -15.91, -IN, 1.34, [{ a: -2.45, b: -1.7, hinge: 'a', side: -1 }]);
     P.partition('z', -0.71, -19 + T, -15.95, [{ a: -17.0, b: -16.2, hinge: 'b', side: 1 }]);
     P.partition('z', 1.34, -19 + T, -13.9, []);
-    P.at(4.0, -9.525 - 0.3, Math.PI, () => F.kitchen(3.0));
-    P.at(3.95, -10.9, Math.PI, () => F.island(1.6));
-    P.at(2.9, -13.1, 0, () => F.dining(1.6, 0.85, 4));
-    P.at(3.0, -19 + T + 0.48, 0, () => F.sofa(2.2));
-    P.at(3.0, -17.2, 0, () => F.coffee(1.0, 0.55));
-    P.at(3.0, -17.3, 0, () => F.rug(2.4, 1.7));
-    P.at(2.0, -15.6, 0.5, () => F.armchair());
-    F.plant(rx - 0.3, -14.0, 1.1);
-    P.at(-4.05, -11.55, Math.PI, () => F.bed(1.4));
-    P.at(-IN + 0.32, -14.6, Math.PI / 2, () => F.wardrobe(1.4));
-    P.at(-3.2, -19 + T + 0.02, 0, () => F.bed(1.6));
-    P.at(1.08, -17.25, -Math.PI / 2, () => F.shelves(2.4, 0.4));
-    P.at(-1.02, -15.6, 0, () => F.wc());
-    P.at(0.85, -14.45, Math.PI / 2, () => F.shower(0.85));
-    P.at(0.0, -15.62, 0, () => F.vanity(0.6));
-    P.at(-1.2, -11.85, 0, () => F.wardrobe(1.8, 0.5));
 
     // garde-corps des balcons et de la loggia C (collisions de la balade)
     const s = LY.slab, e = 0.07;
@@ -684,24 +705,24 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   // éclairage baké : ambiance (occlusion près du sol, du plafond et des murs) + spots chauds
   function bake(g, P) {
     const pos = g.attributes.position, nor = g.attributes.normal, col = new Float32Array(pos.count * 3), H = P.H || 2.6;
+    const tn = g.attributes.tint ? g.attributes.tint.array : new Float32Array(pos.count * 3).fill(1);
     const segs = P.colliders;
     for (let i = 0; i < pos.count; i++) {
       _p.fromBufferAttribute(pos, i); _n.fromBufferAttribute(nor, i);
       const y = _p.y - P.fy;
       let occ = (1 - 0.32 * Math.exp(-Math.max(0, y) / 0.25)) * (1 - 0.22 * Math.exp(-Math.max(0, H - y) / 0.3));
       if (_n.y > 0.5 && y < 0.05) { let d = 9; for (const s of segs) d = Math.min(d, segDist(_p.x, _p.z, s)); occ *= 1 - 0.32 * Math.exp(-d / 0.28); }
-      const a = 0.5 * occ * (0.85 + 0.15 * _n.y);
-      let r = a, gg = a * 0.95, b = a * 0.88;
-      for (const L of P.lights) {
-        const lx = L.x - _p.x, ly = L.y - _p.y, lz = L.z - _p.z, d2 = lx * lx + ly * ly + lz * lz, dl = Math.sqrt(d2) || 1;
-        const k = L.I * Math.max(0.15, (_n.x * lx + _n.y * ly + _n.z * lz) / dl) / (1 + d2 / L.r2);
-        r += k; gg += k * 0.84; b += k * 0.66;
-      }
-      col[i * 3] = r; col[i * 3 + 1] = gg; col[i * 3 + 2] = b;
+      // matériaux éclairés : la couleur de sommet ne porte que l'occlusion (et la teinte de l'objet)
+      const a = occ, ti = i * 3;
+      col[ti] = a * tn[ti]; col[ti + 1] = a * tn[ti + 1]; col[ti + 2] = a * tn[ti + 2];
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
+  // petits objets : pas d'ombre portée (économise les passes d'ombre des projecteurs de baie)
+  const NO_CAST = new Set(['ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
   function finish(P) {
+    // plinthes au pied des cloisons et murs intérieurs (4 faces, retours compris)
+    if (P.skirts.length) P.walkOnly(() => { for (const [x0, x1, z0, z1] of P.skirts) { const e = SK_T, h = SK_H; P.B('skirt', x0 - e, x1 + e, 0, h, z0 - e, z0); P.B('skirt', x0 - e, x1 + e, 0, h, z1, z1 + e); P.B('skirt', x0 - e, x0, 0, h, z0, z1); P.B('skirt', x1, x1 + e, 0, h, z0, z1); } });
     const root = new THREE.Group(); root.name = 'plan:' + P.key;
     const gPlan = new THREE.Group(); gPlan.name = 'plan:' + P.key + ':coupe';
     const gWalk = new THREE.Group(); gWalk.name = 'plan:' + P.key + ':visite'; gWalk.visible = false;
@@ -714,12 +735,15 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       if (!mat) continue;
       const geo = mergeGeometries(list, false); for (const x of list) x.dispose();
       if (tag !== 'plan' && !mat.isMeshBasicMaterial) bake(geo, P);
+      geo.deleteAttribute('tint');
       geo.computeBoundingSphere();
       const walkM = walkMat(mk);
       const mesh = new THREE.Mesh(geo, tag === 'walk' ? walkM : mat);
       mesh.name = `lots:${P.key}:${tag}:${mk}`;
-      mesh.castShadow = false; mesh.receiveShadow = false;
-      if (['glass', 'arc', 'cut', 'sill', 'rail', 'screen', 'spot'].includes(mk)) mesh.userData.noAO = true;
+      // visite : les intérieurs reçoivent le soleil des baies ; meubles et cloisons portent ombre
+      const lit = tag !== 'plan' && !mat.isMeshBasicMaterial && !mat.transparent;
+      mesh.castShadow = lit && !NO_CAST.has(mk); mesh.receiveShadow = lit;
+      if (['glass', 'arc', 'cut', 'sill', 'rail', 'screen', 'spot', 'contact', 'sheer', 'glassClear'].includes(mk)) mesh.userData.noAO = true;
       if (tag === 'plan') gPlan.add(mesh); else if (tag === 'walk') gWalk.add(mesh); else { root.add(mesh); common.push({ mesh, plan: mat, walk: walkM }); }
     }
     const lg = new THREE.Group(); lg.name = 'labels:' + P.key;
