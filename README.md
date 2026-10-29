@@ -1,16 +1,11 @@
-# Canopée — site et maquette 3D temps réel
+# Neokrome .tech
 
-Site vitrine d'une résidence et configurateur 3D (Three.js) : coupe par étage, fiches de lots, disponibilités, visite à pied, drone, course du soleil.
+Site de Neokrome, maquettes 3D immobilières temps réel, et de sa réalisation Canopée.
 
-- `index.html` — site vitrine
-- `3d/` — maquette 3D temps réel (`3d/index.html`), données des lots dans `3d/lots.json`
-- `img/` — visuels
-- `video/` — scénarios et scripts de génération des films (les MP4 ne sont pas versionnés)
+- `index.html`, `solutions.html`, `demo.html`, `contact.html` — site Neokrome (styles et scripts dans `assets/`)
+- `canopee/` — site du programme Canopée, réalisé par Neokrome
+- `canopee/3d/` — maquette 3D temps réel (configurateur de lots, visite, drone, soleil) ; données des lots dans `canopee/3d/lots.json`
+- `3d/` — redirection de l'ancienne adresse de la maquette
+- `video/` — scénarios et scripts de génération des films (les MP4 sources ne sont pas versionnés)
 
-Aucune étape de compilation : servir le dossier avec n'importe quel serveur statique, par exemple :
-
-```bash
-python3 -m http.server 8760
-```
-
-Lots, surfaces, prix et disponibilités sont des données d'exemple.
+Aucune étape de compilation : servir le dossier avec un serveur statique, par exemple `python3 -m http.server 8760`.

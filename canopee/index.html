@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canopée — Résidence</title>
+<meta name="description" content="Canopée, résidence de six appartements avec toit-terrasse jardin. Explorez le bâtiment sous tous les angles.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111613'/%3E%3Cpath d='M9 25V10h14v15M9 15h14M9 20h14' stroke='%23d8bd8c' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<script>document.documentElement.classList.add("js")</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* palette */
+  --paper:#f6f3ec; --paper-2:#efe9de; --card:#fffdf9;
+  --ink:#16191d; --ink-2:#3c4148; --muted:#5f646b; --line:rgba(22,25,29,.12);
+  --slate:#2a2e33; --night:#111613; --night-2:#1a211d;
+  --forest:#2f4a3a;
+  --brass:#b08d57; --brass-ink:#80612f; --brass-2:#d8bd8c;
+  --ok:#2f4a3a; --ok-bg:#e4ebe5;
+  --res:#7f5617; --res-bg:#f6ecd8;
+  --sold:#8f3f30; --sold-bg:#f5e4df;
+  /* typographie */
+  --serif:"Instrument Serif",Georgia,serif;
+  --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --fs-display:clamp(84px,13vw,200px);
+  --fs-h2:clamp(44px,5.6vw,80px);
+  --fs-h3:clamp(30px,2.8vw,42px);
+  --fs-num:clamp(48px,5vw,72px);
+  --fs-h4:26px;
+  --fs-lead:clamp(17px,1.35vw,19px);
+  --fs-small:14px; --fs-micro:12px; --fs-eyebrow:11px;
+  /* grille et rythme */
+  --pad:clamp(20px,5vw,72px);
+  --gutter:max(var(--pad), calc(50% - 660px + var(--pad)));
+  --section:clamp(104px,11vw,168px);
+  --ease:cubic-bezier(.2,.7,.1,1);
+  --focus:var(--ink);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:88px;-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:lining-nums}
+img{display:block;max-width:100%}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+p{text-wrap:pretty}
+.dark{--focus:var(--brass-2)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
+.skip{position:fixed;left:16px;top:-80px;z-index:100;background:var(--ink);color:#fff;padding:12px 18px;border-radius:999px;text-decoration:none;transition:top .3s}
+.skip:focus{top:16px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{padding-inline:var(--gutter)}
+section{position:relative}
+
+.eyebrow{display:flex;align-items:center;gap:12px;font-size:var(--fs-eyebrow);letter-spacing:.22em;text-transform:uppercase;font-weight:600;color:var(--brass-ink)}
+.eyebrow::before{content:"";width:28px;height:1px;background:currentColor}
+.dark .eyebrow{color:var(--brass-2)}
+.h2{font-family:var(--serif);font-weight:400;font-size:var(--fs-h2);line-height:1;letter-spacing:-.01em;text-wrap:balance;margin-top:18px}
+.h2 em{font-style:italic;color:var(--forest)}
+.dark .h2 em{color:var(--brass-2)}
+.lead{font-size:var(--fs-lead);color:var(--ink-2);line-height:1.6;max-width:54ch}
+.dark .lead{color:rgba(255,255,255,.8)}
+.ln{display:block;overflow:hidden;padding-bottom:.08em;margin-bottom:-.08em}
+.ln>span{display:block}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:12px 22px;border-radius:999px;font-weight:500;font-size:14.5px;text-decoration:none;transition:transform .35s var(--ease),background .3s,color .3s,border-color .3s}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .35s var(--ease)}
+.btn:hover svg{transform:translateX(3px)}
+.btn-light{background:#fff;color:var(--ink)}
+.btn-light:hover{transform:translateY(-2px)}
+.btn-ghost{border:1px solid rgba(255,255,255,.6);color:#fff}
+.btn-ghost:hover{background:rgba(255,255,255,.12)}
+.btn-dark{background:var(--slate);color:#fff}
+.btn-dark:hover{background:var(--forest)}
+.btn-line{border:1px solid rgba(22,25,29,.25);color:var(--ink)}
+.btn-line:hover{border-color:var(--ink)}
+.tag-ex{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-micro);font-weight:500;color:var(--muted);border:1px dashed rgba(22,25,29,.3);border-radius:999px;padding:4px 11px}
+
+/* apparitions */
+.js .reveal{opacity:0;transform:translateY(24px);transition:opacity 1s var(--ease),transform 1s var(--ease);transition-delay:calc(var(--i,0) * 90ms)}
+.js .reveal.in{opacity:1;transform:none}
+.js .h2 .ln>span{transform:translateY(105%);transition:transform 1.1s var(--ease)}
+.js .h2 .ln:nth-child(2)>span{transition-delay:.1s}
+.js .in .h2 .ln>span,.js .h2.in .ln>span{transform:none}
+
+/* ---------- header ---------- */
+.hdr{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;align-items:center;gap:28px;padding:18px var(--gutter);color:#fff;transition:background .45s,color .45s,padding .45s,box-shadow .45s}
+.hdr.solid{background:rgba(246,243,236,.88);backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);color:var(--ink);padding-top:12px;padding-bottom:12px;box-shadow:0 1px 0 var(--line)}
+.hdr.solid.on-dark{background:rgba(17,22,19,.72);color:#fff;box-shadow:0 1px 0 rgba(255,255,255,.08);--focus:var(--brass-2)}
+.logo{display:flex;align-items:baseline;gap:10px;text-decoration:none}
+.logo b{font-family:var(--serif);font-weight:400;font-size:30px;line-height:1}
+.logo span{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;opacity:.8}
+.nav{display:flex;gap:26px;margin-left:auto;font-size:14px}
+.nav a{text-decoration:none;opacity:.86;position:relative;padding:6px 0}
+.nav a::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:currentColor;transform:scaleX(0);transition:transform .35s var(--ease);transform-origin:left}
+.nav a:hover{opacity:1}
+.nav a:hover::after,.nav a.on::after{transform:scaleX(1)}
+.hdr .cta{min-height:42px;padding:10px 18px;font-size:13.5px;background:#fff;color:var(--ink)}
+.hdr.solid:not(.on-dark) .cta{background:var(--slate);color:#fff}
+.hdr:not(.solid),.hero{--focus:#fff}
+.burger{display:none;margin-left:auto;width:44px;height:44px;border-radius:50%;border:1px solid currentColor;place-items:center}
+.burger svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round}
+.menu{position:fixed;inset:0;z-index:60;background:var(--night);color:#fff;display:flex;flex-direction:column;padding:20px var(--pad);transform:translateY(-100%);visibility:hidden;transition:transform .6s var(--ease),visibility 0s .6s;--focus:var(--brass-2)}
+.menu.open{transform:none;visibility:visible;transition:transform .6s var(--ease)}
+.menu .top{display:flex;justify-content:space-between;align-items:center}
+.menu .burger{display:grid}
+.menu nav{display:grid;gap:4px;margin-top:48px}
+.menu nav a{font-family:var(--serif);font-size:44px;text-decoration:none;line-height:1.2}
+
+/* ---------- hero ---------- */
+.hero{height:100svh;min-height:620px;overflow:hidden;color:#fff;background:var(--night)}
+.hero-img{position:absolute;inset:0}
+.hero-img img{width:100%;height:100%;object-fit:cover;object-position:50% 6%;transform:scale(1.08);animation:heroZoom 16s var(--ease) forwards}
+@keyframes heroZoom{to{transform:scale(1)}}
+.hero::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(10,14,12,.62) 0%,rgba(10,14,12,.22) 42%,rgba(10,14,12,0) 62%),
+  linear-gradient(180deg,rgba(10,14,12,.42) 0%,rgba(10,14,12,0) 20%,rgba(10,14,12,0) 52%,rgba(10,14,12,.78) 100%)}
+.hero-in{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:0 var(--gutter) clamp(36px,7vh,80px);display:grid;grid-template-columns:1fr auto;align-items:end;gap:32px}
+.hero .eyebrow{color:rgba(255,255,255,.88)}
+.hero h1{font-family:var(--serif);font-weight:400;font-size:var(--fs-display);line-height:.9;padding-bottom:.06em;letter-spacing:-.02em;margin-top:16px}
+.hero .sub{font-size:clamp(16px,1.5vw,20px);max-width:42ch;margin-top:24px;opacity:.94;text-shadow:0 1px 14px rgba(0,0,0,.4)}
+.hero-ctas{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px}
+.hero-facts{display:grid;gap:16px;text-align:right}
+.hero-facts div{border-top:1px solid rgba(255,255,255,.4);padding-top:10px;min-width:190px}
+.hero-facts b{font-family:var(--serif);font-weight:400;font-size:40px;line-height:1;display:block}
+.hero-facts span{font-size:var(--fs-micro);letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+.scroll-cue{position:absolute;left:50%;bottom:22px;z-index:2;transform:translateX(-50%);width:22px;height:36px;border:1.5px solid rgba(255,255,255,.6);border-radius:12px}
+.scroll-cue::after{content:"";position:absolute;left:50%;top:7px;width:3px;height:7px;margin-left:-1.5px;border-radius:2px;background:#fff;animation:cue 2s infinite}
+@keyframes cue{0%{opacity:0;transform:translateY(0)}30%{opacity:1}100%{opacity:0;transform:translateY(12px)}}
+.anim-in{opacity:0;transform:translateY(30px);animation:in 1.3s var(--ease) forwards}
+@keyframes in{to{opacity:1;transform:none}}
+
+/* ---------- l'ascension ---------- */
+.ascent{height:300vh;background:var(--night);color:#fff}
+.pin{position:sticky;top:0;height:100svh;overflow:hidden}
+.asc-img{position:absolute;inset:0;will-change:opacity,transform}
+.asc-img img{width:100%;height:100%;object-fit:cover}
+.asc-img:nth-child(1) img{object-position:50% 20%}
+.pin::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,14,12,.6),rgba(10,14,12,.12) 50%,rgba(10,14,12,0) 70%),linear-gradient(0deg,rgba(10,14,12,.45),rgba(10,14,12,0) 35%);pointer-events:none}
+.asc-text{position:absolute;left:var(--gutter);bottom:clamp(48px,12vh,120px);z-index:2;max-width:min(560px,80%)}
+.asc-step{position:absolute;left:0;bottom:0;opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.asc-step.on{opacity:1;transform:none;position:relative}
+.asc-step .k{font-size:var(--fs-micro);letter-spacing:.22em;text-transform:uppercase;color:var(--brass-2);font-weight:600}
+.asc-step p{font-family:var(--serif);font-size:clamp(36px,4.6vw,64px);line-height:1.02;margin-top:12px;text-wrap:balance}
+.alti{position:absolute;right:var(--gutter);top:50%;transform:translateY(-50%);z-index:2;height:min(56vh,440px);display:flex;gap:14px}
+.alti .rail{position:relative;width:1px;background:rgba(255,255,255,.3)}
+.alti .rail i{position:absolute;left:-4px;width:9px;height:9px;border-radius:50%;background:var(--brass-2);box-shadow:0 0 0 6px rgba(216,189,140,.2);bottom:0;transform:translateY(50%)}
+.alti ol{list-style:none;display:flex;flex-direction:column-reverse;justify-content:space-between;font-size:var(--fs-micro);letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.55)}
+.alti li{transform:translateY(50%);transition:color .4s}
+.alti li:last-child{transform:translateY(-50%)}
+.alti li:nth-child(2){transform:none}
+.alti li.on{color:#fff}
+
+/* ---------- maquette 3D ---------- */
+.maq{background:var(--night);color:#fff}
+.maq-link{position:relative;display:block;height:min(92svh,860px);min-height:520px;overflow:hidden;text-decoration:none;color:#fff}
+.maq-link img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scale(1.03);transition:transform 1.6s var(--ease)}
+.maq-link:hover img{transform:scale(1)}
+.maq-link::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,14,12,.72) 0%,rgba(10,14,12,.3) 45%,rgba(10,14,12,0) 70%)}
+.maq-in{position:absolute;left:0;right:0;bottom:clamp(40px,8vh,90px);z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:18px}
+.maq-t{font-family:var(--serif);font-size:var(--fs-h2);line-height:1;max-width:14ch}
+.maq-t em{color:var(--brass-2)}
+.maq-p{max-width:40ch;font-size:var(--fs-lead);color:rgba(255,255,255,.88)}
+.maq-btn{margin-top:6px}
+.maq-link:hover .maq-btn{transform:translateY(-2px)}
+.maq-link:focus-visible{outline-offset:-6px}
+
+/* ---------- le projet ---------- */
+.intro{padding-block:var(--section)}
+.manifest{font-family:var(--serif);font-size:clamp(32px,3.6vw,52px);line-height:1.12;max-width:24ch;margin-top:28px;text-wrap:balance}
+.manifest em{color:var(--forest)}
+.intro .cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(30px,6vw,96px);margin-top:clamp(36px,5vw,64px)}
+.figures{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);margin-top:clamp(56px,7vw,96px)}
+.figures div{padding:26px 22px 4px 0;border-right:1px solid var(--line)}
+.figures div:last-child{border-right:0}
+.figures div+div{padding-left:22px}
+.figures b{font-family:var(--serif);font-weight:400;font-size:var(--fs-num);line-height:1;display:block}
+.figures span{color:var(--muted);font-size:var(--fs-small)}
+
+/* ---------- explorer ---------- */
+.explorer{background:var(--night);color:#fff;padding-block:var(--section) 0}
+.ex-head{display:flex;align-items:end;justify-content:space-between;gap:24px;padding-bottom:32px}
+.ex-head .lead{max-width:40ch;font-size:15.5px}
+.ex-shell{position:relative;height:calc(100svh - 104px);max-height:880px;min-height:520px;scroll-margin-top:88px}
+.ex-stage{position:absolute;inset:0 var(--gutter);border-radius:22px;overflow:hidden;background:var(--night-2);touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.ex-stage.drag{cursor:grabbing}
+.ex-stage.zoom{cursor:zoom-out;touch-action:none}
+.ex-layer{position:absolute;inset:0;overflow:hidden;will-change:transform,opacity}
+.ex-layer img{width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;transition:transform .6s var(--ease);-webkit-user-drag:none}
+.ex-layer.kb img{animation:kb 7.5s linear forwards}
+@keyframes kb{from{transform:scale(1)}to{transform:scale(1.07)}}
+.ex-stage.zoom .ex-layer.top img{animation:none;transform:scale(2.2);transition:transform .45s var(--ease),transform-origin .08s linear}
+.ex-shade{position:absolute;inset:0;pointer-events:none;z-index:3;background:radial-gradient(90% 60% at 0% 0%,rgba(0,0,0,.6),rgba(0,0,0,0) 70%),linear-gradient(180deg,rgba(0,0,0,0) 58%,rgba(0,0,0,.62))}
+.ex-ui{position:absolute;inset:0 var(--gutter);pointer-events:none;z-index:4}
+.ex-ui .ia{pointer-events:auto}
+.glass{background:rgba(14,18,16,.5);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border:1px solid rgba(255,255,255,.14)}
+.ex-cap{position:absolute;left:30px;top:28px;max-width:min(460px,58%);pointer-events:none}
+.ex-cap .n{font-size:var(--fs-micro);letter-spacing:.2em;color:var(--brass-2);font-weight:600}
+.ex-cap h3{font-family:var(--serif);font-weight:400;font-size:var(--fs-h3);line-height:1.02;margin-top:8px;text-shadow:0 1px 14px rgba(0,0,0,.45)}
+.ex-cap p{font-size:15px;color:rgba(255,255,255,.92);margin-top:8px;text-shadow:0 1px 12px rgba(0,0,0,.55)}
+.ex-map{position:absolute;right:24px;top:22px;border-radius:20px;padding:12px 12px 8px;width:216px}
+.ex-map svg{width:100%;height:auto;display:block;overflow:visible}
+.ex-map .lbl{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.65);margin-bottom:6px}
+.cam{cursor:pointer;outline:none}
+.cam .dot{fill:#fff;opacity:.6;transition:opacity .3s}
+.cam .num{fill:rgba(255,255,255,.7);font:600 7px var(--sans);transition:fill .3s}
+.cam:hover .dot,.cam:focus-visible .dot{opacity:1}
+.cam:focus-visible .dot{stroke:#fff;stroke-width:3}
+.cam.on .dot{fill:var(--brass-2);opacity:1}
+.cam.on .num{fill:var(--brass-2)}
+.cam .halo{fill:var(--brass-2);opacity:0}
+.cam.on .halo{opacity:.25;animation:halo 2s infinite}
+@keyframes halo{0%{r:6}100%{r:14;opacity:0}}
+.cone{transition:transform .8s var(--ease),opacity .4s;transform-origin:110px 110px}
+.ex-nav{position:absolute;top:50%;transform:translateY(-50%);width:56px;height:56px;border-radius:50%;display:grid;place-items:center;transition:background .3s}
+.ex-nav:hover{background:rgba(255,255,255,.2)}
+.ex-nav svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ex-prev{left:20px}.ex-next{right:20px}
+.ex-bottom{position:absolute;left:24px;right:24px;bottom:22px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.strip{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:6px;border-radius:16px;flex:0 1 auto;min-width:0;scroll-behavior:smooth}
+.strip::-webkit-scrollbar{display:none}
+.thumb{flex:0 0 auto;width:96px;aspect-ratio:4/3;border-radius:10px;overflow:hidden;position:relative;opacity:.58;transition:opacity .3s,box-shadow .3s}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb b{position:absolute;left:6px;top:4px;font-size:10px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.thumb:hover{opacity:.92}
+.thumb[aria-pressed="true"]{opacity:1;box-shadow:0 0 0 2px var(--brass-2)}
+.thumb:focus-visible{outline-color:#fff}
+.tools{display:flex;gap:4px;padding:6px;border-radius:16px}
+.tool{height:44px;min-width:44px;padding:0 12px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:500;transition:background .25s,color .25s}
+.tool:hover{background:rgba(255,255,255,.12)}
+.tool[aria-pressed="true"]{background:var(--brass-2);color:var(--ink)}
+.tool svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.prog{position:absolute;left:0;right:0;top:0;height:2px;background:rgba(255,255,255,.12);z-index:5}
+.prog i{display:block;height:100%;width:0;background:var(--brass-2)}
+.ex-foot{display:flex;justify-content:space-between;gap:20px;padding-top:22px;padding-bottom:var(--section);color:rgba(255,255,255,.6);font-size:13px}
+.kbd{display:inline-block;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:0 6px;font-size:11.5px;margin:0 2px}
+.touch-hint{display:none}
+.ex-shell:fullscreen,.ex-shell:-webkit-full-screen{max-height:none;height:100vh;background:#000}
+.ex-shell:fullscreen .ex-stage,.ex-shell:fullscreen .ex-ui,.ex-shell:-webkit-full-screen .ex-stage,.ex-shell:-webkit-full-screen .ex-ui{inset:0;border-radius:0}
+
+/* ---------- logements ---------- */
+.homes{padding-block:var(--section)}
+.sec-head{display:flex;justify-content:space-between;align-items:end;gap:24px;flex-wrap:wrap}
+.homes-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:clamp(28px,4vw,64px);margin-top:48px;align-items:start}
+.facade-col{position:sticky;top:96px}
+.facade{position:relative;border-radius:22px;overflow:hidden;background:var(--paper-2);aspect-ratio:4/5}
+.facade img{width:100%;height:100%;object-fit:cover}
+.facade svg{position:absolute;inset:0;width:100%;height:100%}
+.facade .hit{fill:transparent;cursor:pointer}
+.facade .lbl{font-family:var(--serif);font-size:4.2px;fill:#fff}
+.facade .edge{stroke:var(--brass-2);stroke-width:.3}
+.facade-cap{display:flex;justify-content:space-between;gap:12px;margin-top:14px;color:var(--muted);font-size:var(--fs-small)}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
+.chip{min-height:44px;border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-size:13.5px;font-weight:500;background:var(--card);transition:.25s}
+.chip:hover{border-color:rgba(22,25,29,.35)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.stack{display:grid;gap:8px}
+.lvl-row{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:stretch}
+.lvl-row .lv{font-family:var(--serif);font-size:var(--fs-h4);line-height:1;display:flex;align-items:center;color:var(--ink-2)}
+.lvl-row .cells{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cell{min-height:84px;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:14px 16px;text-align:left;display:grid;grid-template-columns:1fr auto;align-items:start;gap:10px;transition:border-color .25s,box-shadow .3s,transform .3s var(--ease),opacity .3s}
+button.cell:hover{border-color:rgba(22,25,29,.35);transform:translateY(-1px)}
+.cell[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink),0 14px 30px rgba(22,25,29,.10)}
+.cell.dim{opacity:.6}
+.cell .nm{font-weight:600;font-size:15px;display:block}
+.cell .ty{color:var(--muted);font-size:13px;white-space:nowrap}
+.cell.span2{grid-column:1/-1}
+.cell.common{background:transparent;border-style:dashed}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.st.ok{background:var(--ok-bg);color:var(--ok)}.st.res{background:var(--res-bg);color:var(--res)}.st.sold{background:var(--sold-bg);color:var(--sold)}
+.detail{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:28px 28px 24px}
+.detail .top{display:flex;justify-content:space-between;align-items:start;gap:16px}
+.detail h3{font-family:var(--serif);font-weight:400;font-size:var(--fs-h3);line-height:1}
+.detail .ty{color:var(--muted);margin-top:8px}
+.specs{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--line);border-radius:14px;overflow:hidden;margin-top:22px}
+.specs div{background:var(--card);padding:14px 14px 12px}
+.specs b{display:block;font-family:var(--serif);font-weight:400;font-size:var(--fs-h4);line-height:1.05}
+.specs span{color:var(--muted);font-size:12.5px}
+.detail ul{list-style:none;margin-top:18px;display:grid;gap:8px;color:var(--ink-2);font-size:15px}
+.detail li{display:flex;gap:10px;align-items:baseline}
+.detail li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--brass);flex:0 0 auto;transform:translateY(-2px)}
+.detail .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}
+.swap{animation:swap .5s var(--ease)}
+@keyframes swap{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---------- architecture ---------- */
+.arch{padding-block:0 var(--section)}
+.arch .sec-head{border-top:1px solid var(--line);padding-top:var(--section)}
+.arch-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:clamp(14px,1.6vw,22px);margin-top:clamp(40px,5vw,64px)}
+.arch-card{position:relative;border-radius:22px;overflow:hidden;min-height:340px;color:#fff;background:var(--night-2)}
+.arch-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform 1.4s var(--ease)}
+.arch-card:hover img{transform:scale(1.04)}
+.arch-card::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 42%,rgba(0,0,0,.68))}
+.arch-card .tx{position:absolute;left:24px;right:24px;bottom:22px;z-index:2}
+.arch-card h3{font-family:var(--serif);font-weight:400;font-size:clamp(28px,2.4vw,34px);line-height:1.05}
+.arch-card p{font-size:var(--fs-small);opacity:.9;margin-top:6px;max-width:40ch}
+.js .arch-card.reveal{clip-path:inset(12% 0 0 0 round 22px);transform:none;transition:clip-path 1.3s var(--ease),opacity 1s var(--ease);transition-delay:calc(var(--i,0) * 90ms)}
+.js .arch-card.reveal.in{clip-path:inset(0 round 22px)}
+.a1{grid-column:span 7;min-height:560px}.a2{grid-column:span 5;min-height:560px}
+.a3{grid-column:span 4}.a4{grid-column:span 4}.a5{grid-column:span 4}
+.a2 img{object-position:78% 50%}
+.a3 img{object-position:30% 50%}
+.a4 img{object-position:50% 40%}
+
+/* ---------- prestations ---------- */
+.feat{background:var(--paper-2);padding-block:var(--section)}
+.feat-grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(36px,6vw,96px);align-items:start}
+.feat-title{position:sticky;top:120px}
+.feat-list{counter-reset:f;border-bottom:1px solid var(--line)}
+.feat-item{display:grid;grid-template-columns:64px 1fr 1.3fr;gap:24px;padding:30px 0;border-top:1px solid var(--line)}
+.feat-item::before{content:counter(f,decimal-leading-zero);counter-increment:f;font-family:var(--serif);font-size:var(--fs-h4);color:var(--brass-ink);line-height:1.1}
+.feat-item h3{font-family:var(--serif);font-weight:400;font-size:var(--fs-h4);line-height:1.1;transition:font-style .2s}
+.feat-item:hover h3{font-style:italic}
+.feat-item p{color:var(--ink-2);font-size:15px}
+
+/* ---------- contact ---------- */
+.contact{background:var(--forest);color:#fff;padding-block:var(--section)}
+.contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(36px,6vw,96px);align-items:start}
+.office{margin-top:36px;padding-top:24px;border-top:1px solid rgba(255,255,255,.22);display:flex;gap:20px;align-items:center}
+.office img{width:104px;height:104px;border-radius:50%;object-fit:cover;flex:0 0 auto}
+.office b{font-family:var(--serif);font-weight:400;font-size:var(--fs-h4);display:block}
+.office span{color:rgba(255,255,255,.78);font-size:var(--fs-small)}
+form{display:grid;grid-template-columns:1fr 1fr;gap:22px 24px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field.full{grid-column:1/-1}
+.field label{font-size:var(--fs-micro);letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.8)}
+.field input,.field select,.field textarea{font:inherit;font-size:16px;color:#fff;background:transparent;border:0;border-bottom:1px solid rgba(255,255,255,.5);border-radius:0;padding:12px 0;transition:border-color .25s}
+.field select{appearance:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='white' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") right 4px center no-repeat}
+.field select option{color:var(--ink)}
+.field ::placeholder{color:rgba(255,255,255,.62)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-bottom-color:var(--brass-2);box-shadow:0 1px 0 var(--brass-2)}
+.field textarea{min-height:96px;resize:vertical}
+.field [aria-invalid="true"]{border-bottom-color:#ffb4a2}
+.err{color:#ffd2c7;font-size:13px}
+.form-foot{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-top:4px}
+.form-foot small{color:rgba(255,255,255,.7);font-size:12.5px;max-width:38ch}
+.sent{grid-column:1/-1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:16px 18px;font-size:15px}
+.sent[hidden]{display:none}
+
+/* ---------- pied de page ---------- */
+footer{background:var(--night);color:rgba(255,255,255,.7);padding-top:clamp(64px,8vw,104px);overflow:hidden}
+.foot-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;padding-bottom:40px;border-bottom:1px solid rgba(255,255,255,.12)}
+.foot-cols h4{font-size:var(--fs-eyebrow);letter-spacing:.2em;text-transform:uppercase;color:var(--brass-2);font-weight:600;margin-bottom:10px}
+.foot-cols p{font-size:var(--fs-small)}
+.legal{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;padding-top:20px;font-size:12.5px;color:rgba(255,255,255,.55)}
+.wordmark{font-family:var(--serif);font-size:24vw;line-height:.78;letter-spacing:-.03em;height:15.5vw;overflow:hidden;margin-top:clamp(28px,4vw,56px);text-align:center;white-space:nowrap;background:linear-gradient(180deg,var(--brass-2),rgba(63,98,80,.9) 80%);-webkit-background-clip:text;background-clip:text;color:transparent;user-select:none}
+
+/* ---------- responsive ---------- */
+@media (max-width:1080px){
+  .nav{display:none}
+  .burger{display:grid}
+  .hdr .cta{display:none}
+  .homes-grid,.contact-grid,.intro .cols,.feat-grid{grid-template-columns:1fr}
+  .facade-col,.feat-title{position:static}
+  .facade{aspect-ratio:4/3}
+  .a1,.a2{grid-column:span 12;min-height:440px}
+  .a3,.a4,.a5{grid-column:span 12}
+}
+@media (max-width:760px){
+  .hero-in{grid-template-columns:1fr}
+  .hero-facts,.scroll-cue{display:none}
+  .hero-ctas{flex-wrap:nowrap}
+  .hero-ctas .btn{flex:1;padding:12px 10px;white-space:nowrap;font-size:14px}
+  .hero-ctas .btn svg{display:none}
+  .hero::after{background:linear-gradient(180deg,rgba(10,14,12,.45) 0,rgba(10,14,12,0) 22%,rgba(10,14,12,.15) 40%,rgba(10,14,12,.85) 66%)}
+  .ascent{height:240vh}
+  .alti{right:16px;height:40vh}
+  .alti ol{display:none}
+  .figures{grid-template-columns:1fr 1fr}
+  .figures div:nth-child(2){border-right:0}
+  .figures div:nth-child(3){padding-left:0}
+  .figures div:nth-child(n+3){border-top:1px solid var(--line)}
+  .ex-head{flex-direction:column;align-items:flex-start}
+  .ex-shell{height:auto;max-height:none;min-height:0}
+  .ex-stage{position:relative;inset:auto;margin:0 12px;aspect-ratio:4/3;border-radius:16px}
+  .ex-ui{position:static;pointer-events:auto}
+  .ex-cap{position:static;max-width:none;padding:18px var(--pad) 4px}
+  .ex-cap h3,.ex-cap p{text-shadow:none}
+  .ex-map,.ex-nav{display:none}
+  .ex-bottom{position:static;margin:12px 12px 0;flex-direction:column;align-items:stretch;gap:8px}
+  .strip{flex:1 1 auto}
+  .thumb{width:72px}
+  .tools{justify-content:space-between}
+  .tool .t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .ex-shade{background:none}
+  .ex-foot{flex-direction:column}
+  .lvl-row{grid-template-columns:48px 1fr}
+  .lvl-row .lv{font-size:20px}
+  .cell{grid-template-columns:1fr;padding:12px}
+  .specs b{font-size:22px}
+  form{grid-template-columns:1fr}
+  .feat-item{grid-template-columns:44px 1fr}
+  .feat-item p{grid-column:2}
+  .foot-cols{grid-template-columns:1fr}
+  .office img{width:72px;height:72px}
+}
+@media (hover:none){
+  .key-hint{display:none}
+  .touch-hint{display:inline}
+}
+@media (prefers-reduced-motion:reduce){
+  html,.strip{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .js .reveal,.anim-in,.js .h2 .ln>span{opacity:1;transform:none}
+  .js .arch-card.reveal{clip-path:none}
+  .hero-img img{transform:none}
+  .ascent{height:auto}
+  .pin{position:relative;height:auto;display:grid}
+  .asc-img{position:relative;height:70vh}
+  .pin::after,.alti{display:none}
+  .asc-text{position:static;max-width:none;padding:32px var(--gutter)}
+  .asc-step{position:static;opacity:1;transform:none;margin-bottom:24px}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#projet">Aller au contenu</a>
+
+<header class="hdr" id="hdr">
+  <a class="logo" href="#top" aria-label="Canopée, retour en haut"><b>Canopée</b><span>Résidence</span></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#maquette">Maquette 3D</a>
+    <a href="#projet">Le projet</a>
+    <a href="#explorer">Rendus</a>
+    <a href="#logements">Logements</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#prestations">Prestations</a>
+  </nav>
+  <a class="btn cta" href="#contact">Être rappelé</a>
+  <button class="burger" id="burger" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16"/></svg></button>
+</header>
+
+<div class="menu" id="menu" role="dialog" aria-modal="true" aria-label="Menu" inert>
+  <div class="top"><span class="logo"><b>Canopée</b></span><button class="burger" id="menuClose" aria-label="Fermer le menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <nav aria-label="Sections">
+    <a href="#maquette">Maquette 3D</a><a href="#projet">Le projet</a><a href="#explorer">Rendus</a><a href="#logements">Logements</a><a href="#architecture">Architecture</a><a href="#prestations">Prestations</a><a href="#contact">Contact</a>
+  </nav>
+</div>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="hero" aria-label="Canopée">
+    <div class="hero-img"><img src="img/p01.jpg" alt="Façade de la résidence Canopée côté rue, balcons plantés et toit-terrasse" fetchpriority="high"></div>
+    <div class="hero-in">
+      <div>
+        <div class="eyebrow anim-in" style="animation-delay:.2s">Résidence neuve · Toit-terrasse jardin</div>
+        <h1 class="anim-in" style="animation-delay:.35s">Canopée</h1>
+        <p class="sub anim-in" style="animation-delay:.55s">Une architecture nette posée dans les arbres. Des balcons plantés, un jardin sur le toit, et la lumière sur trois façades.</p>
+        <div class="hero-ctas anim-in" style="animation-delay:.75s">
+          <a class="btn btn-light" href="3d/index.html"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Maquette 3D</a>
+          <a class="btn btn-ghost" href="#logements">Les logements</a>
+        </div>
+      </div>
+      <div class="hero-facts anim-in" style="animation-delay:.9s">
+        <div><b>T3 → T4</b><span>77 et 80 m²</span></div>
+        <div><b>79 m²</b><span>de toit-terrasse privatif</span></div>
+      </div>
+    </div>
+    <div class="scroll-cue" aria-hidden="true"></div>
+  </section>
+
+  <!-- MAQUETTE 3D -->
+  <section class="maq dark" id="maquette" aria-label="Maquette 3D">
+    <a class="maq-link" href="3d/index.html">
+      <img src="img/3d-poster.jpg" alt="Aperçu de la maquette 3D de Canopée vue en survol" loading="lazy">
+      <span class="maq-in wrap">
+        <span class="eyebrow">Maquette 3D temps réel</span>
+        <span class="maq-t">Tournez autour,<br><em>entrez dans les étages.</em></span>
+        <span class="maq-p">Le bâtiment recréé en 3D : changez l'heure du soleil, isolez un étage, survolez le toit-terrasse.</span>
+        <span class="btn btn-light maq-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Entrer dans la maquette</span>
+      </span>
+    </a>
+  </section>
+
+  <!-- L'ASCENSION -->
+  <section class="ascent dark" id="ascent" aria-label="De la rue au toit">
+    <div class="pin">
+      <div class="asc-img"><img src="img/p01.jpg" alt="Au niveau de la rue : la façade et ses balcons" loading="lazy"></div>
+      <div class="asc-img"><img src="img/p03.jpg" alt="En survol : le toit-terrasse apparaît" loading="lazy"></div>
+      <div class="asc-img"><img src="img/p08.jpg" alt="Vu du ciel : le jardin suspendu" loading="lazy"></div>
+      <div class="asc-text" aria-live="off">
+        <div class="asc-step on"><div class="k">Au pied</div><p>Une façade nette, des balcons comme des jardinières.</p></div>
+        <div class="asc-step"><div class="k">Au-dessus</div><p>Le toit-terrasse se dévoile, salon d'été et prairie.</p></div>
+        <div class="asc-step"><div class="k">Vu du ciel</div><p>Un jardin suspendu, au-dessus des arbres.</p></div>
+      </div>
+      <div class="alti" aria-hidden="true">
+        <ol><li class="on">Rue</li><li>Survol</li><li>Zénith</li></ol>
+        <div class="rail"><i id="altiDot"></i></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LE PROJET -->
+  <section class="intro" id="projet">
+    <div class="wrap">
+      <div class="eyebrow reveal">01 — Le projet</div>
+      <p class="manifest reveal">Six appartements sur trois niveaux, au-dessus d'un socle de garages, et <em>un jardin posé sur le toit.</em></p>
+      <div class="cols">
+        <p class="lead reveal">Côté rue, de larges balcons plantés prolongent les séjours. Côté jardin, une façade blanche rythmée de fenêtres ouvre sur la verdure.</p>
+        <p class="lead reveal">Chaque appartement est traversant ou bi-orienté et dispose d'un espace extérieur. L'attique profite en plus d'un toit-terrasse privatif.</p>
+      </div>
+      <div class="figures">
+        <div class="reveal"><b>6</b><span>appartements, du T3 au T4</span></div>
+        <div class="reveal"><b>3</b><span>niveaux sur rez-de-chaussée</span></div>
+        <div class="reveal"><b>100 %</b><span>des logements avec un extérieur</span></div>
+        <div class="reveal"><b>4</b><span>garages fermés</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- EXPLORER -->
+  <section class="explorer dark" id="explorer" aria-label="Explorer le bâtiment">
+    <div class="wrap ex-head">
+      <div>
+        <div class="eyebrow reveal">02 — Les rendus</div>
+        <h2 class="h2 reveal"><span class="ln"><span>Les rendus,</span></span><span class="ln"><span><em>sous tous les angles.</em></span></span></h2>
+      </div>
+      <p class="lead reveal">Glissez pour passer d'un point de vue au suivant, choisissez une caméra sur le plan, ou lancez la visite guidée. La loupe révèle chaque détail.</p>
+    </div>
+    <div class="ex-shell" id="exShell">
+      <div class="ex-stage" id="exStage" role="region" aria-label="Visionneuse, 8 points de vue. Flèches gauche et droite pour changer de vue." tabindex="0">
+        <div class="ex-layer" id="layA"><img alt="" draggable="false"></div>
+        <div class="ex-layer" id="layB" aria-hidden="true"><img alt="" draggable="false"></div>
+        <div class="ex-shade"></div>
+        <div class="prog"><i id="prog"></i></div>
+      </div>
+      <div class="ex-ui">
+        <div class="ex-cap" id="exCap" aria-live="polite">
+          <div class="n" id="exN">01 / 08</div>
+          <h3 id="exT">Façade sur rue</h3>
+          <p id="exD"></p>
+        </div>
+        <div class="ex-map glass ia">
+          <div class="lbl"><span>Points de vue</span><span id="exAlt">Sol</span></div>
+          <svg viewBox="0 0 220 220" role="group" aria-label="Plan des points de vue">
+            <defs><linearGradient id="coneG" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#d8bd8c" stop-opacity=".5"/><stop offset="1" stop-color="#d8bd8c" stop-opacity="0"/></linearGradient></defs>
+            <circle cx="110" cy="110" r="92" fill="none" stroke="rgba(255,255,255,.14)" stroke-dasharray="2 4"/>
+            <circle cx="110" cy="110" r="60" fill="none" stroke="rgba(255,255,255,.1)" stroke-dasharray="2 4"/>
+            <rect x="20" y="168" width="180" height="12" rx="2" fill="rgba(255,255,255,.08)"/>
+            <g class="cone" id="cone"><path d="M110 110 L96 200 A90 90 0 0 0 124 200 Z" fill="url(#coneG)"/></g>
+            <rect x="88" y="68" width="44" height="84" rx="2" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.5)"/>
+            <rect x="90" y="70" width="40" height="44" rx="1" fill="rgba(122,170,120,.45)"/>
+            <rect x="88" y="146" width="44" height="6" fill="rgba(255,255,255,.55)"/>
+            <text x="110" y="199" text-anchor="middle" font-size="7" fill="rgba(255,255,255,.6)" letter-spacing="2" font-family="Inter,sans-serif">RUE</text>
+            <g id="cams"></g>
+          </svg>
+        </div>
+        <button class="ex-nav ex-prev glass ia" id="exPrev" aria-label="Vue précédente"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="ex-nav ex-next glass ia" id="exNext" aria-label="Vue suivante"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+        <div class="ex-bottom">
+          <div class="strip glass ia" id="strip" role="group" aria-label="Choisir une vue"></div>
+          <div class="tools glass ia">
+            <button class="tool" id="tTour" aria-pressed="false"><svg viewBox="0 0 24 24" id="tourIco" aria-hidden="true"><path d="M8 5.5v13l10-6.5z"/></svg><span class="t">Visite guidée</span></button>
+            <button class="tool" id="tZoom" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4M8.5 11h5M11 8.5v5"/></svg><span class="t">Loupe</span></button>
+            <button class="tool" id="tFs" aria-label="Plein écran"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wrap ex-foot">
+      <span><span class="key-hint">Glisser, molette horizontale ou <span class="kbd">←</span> <span class="kbd">→</span> pour circuler · <span class="kbd">Z</span> loupe · <span class="kbd">Espace</span> visite guidée</span><span class="touch-hint">Glissez sur l'image pour changer de vue · touchez la loupe pour agrandir</span></span>
+      <span>Visuels d'ambiance non contractuels</span>
+    </div>
+  </section>
+
+  <!-- LOGEMENTS -->
+  <section class="homes" id="logements">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <div class="eyebrow reveal">03 — Logements</div>
+          <h2 class="h2 reveal"><span class="ln"><span>Choisissez</span></span><span class="ln"><span><em>votre étage.</em></span></span></h2>
+        </div>
+        <span class="tag-ex reveal">Lots et surfaces d'exemple, à remplacer par la grille réelle</span>
+      </div>
+      <div class="homes-grid">
+        <div class="facade-col reveal">
+          <div class="facade">
+            <img src="img/p01.jpg" alt="Façade sur rue ; le niveau sélectionné est mis en lumière">
+            <svg viewBox="0 0 100 75" preserveAspectRatio="xMidYMid slice" id="facadeSvg" aria-hidden="true">
+              <defs><mask id="hole"><rect width="100" height="75" fill="#fff"/><rect id="holeR" x="25.5" y="0" width="50" height="10" rx=".6" fill="#000"/></mask></defs>
+              <rect width="100" height="75" fill="rgba(12,16,14,.55)" mask="url(#hole)"/>
+              <line class="edge" id="edgeT" x1="25.5" x2="75.5" y1="0" y2="0"/>
+              <line class="edge" id="edgeB" x1="25.5" x2="75.5" y1="0" y2="0"/>
+              <text class="lbl" id="holeL" x="27.5" y="5">R+2</text>
+              <g id="hits"></g>
+            </svg>
+          </div>
+          <div class="facade-cap"><span id="facadeCap">2ᵉ étage</span><span>Touchez un niveau ou choisissez un lot</span></div>
+        </div>
+        <div>
+          <div class="filters reveal" id="filters" role="group" aria-label="Filtrer les logements"></div>
+          <div class="stack reveal" id="stack"></div>
+          <div class="detail reveal" id="detail" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="arch" id="architecture">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <div class="eyebrow reveal">04 — Architecture</div>
+          <h2 class="h2 reveal"><span class="ln"><span>Trois matières,</span></span><span class="ln"><span><em>une silhouette.</em></span></span></h2>
+        </div>
+        <p class="lead reveal" style="max-width:44ch">Un enduit blanc lumineux, un bardage anthracite qui dessine les volumes, et le végétal partout où il peut s'installer.</p>
+      </div>
+      <div class="arch-grid">
+        <figure class="arch-card a1 reveal"><img src="img/p03.jpg" alt="Survol de la façade principale et du toit-terrasse" loading="lazy" style="object-position:50% 35%"><figcaption class="tx"><h3>Le toit-terrasse jardin</h3><p>Pergola, cuisine d'été et prairie plantée : un étage de plus, à ciel ouvert.</p></figcaption></figure>
+        <figure class="arch-card a2 reveal"><img src="img/p02.jpg" alt="Balcons plantés à l'angle de la résidence" loading="lazy"><figcaption class="tx"><h3>Balcons plantés</h3><p>Des jardinières intégrées aux garde-corps pour une intimité végétale.</p></figcaption></figure>
+        <figure class="arch-card a3 reveal"><img src="img/p07.jpg" alt="Façade blanche côté jardin" loading="lazy"><figcaption class="tx"><h3>Façade jardin</h3><p>Fenêtres régulières et noyau anthracite.</p></figcaption></figure>
+        <figure class="arch-card a4 reveal"><img src="img/p08.jpg" alt="Vue zénithale du toit-terrasse" loading="lazy"><figcaption class="tx"><h3>Vu du ciel</h3><p>Une toiture entièrement aménagée.</p></figcaption></figure>
+        <figure class="arch-card a5 reveal"><img src="img/p05.jpg" alt="Survol côté jardin, dans les arbres" loading="lazy"><figcaption class="tx"><h3>Dans la verdure</h3><p>Un jardin planté tout autour.</p></figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRESTATIONS -->
+  <section class="feat" id="prestations">
+    <div class="wrap feat-grid">
+      <div class="feat-title">
+        <div class="eyebrow reveal">05 — Prestations</div>
+        <h2 class="h2 reveal"><span class="ln"><span>Le soin</span></span><span class="ln"><span><em>du détail.</em></span></span></h2>
+        <p class="lead reveal" style="margin-top:22px">Confort au quotidien et sobriété énergétique. Liste d'exemple, à ajuster selon la notice descriptive.</p>
+      </div>
+      <div class="feat-list">
+        <div class="feat-item reveal"><h3>Grandes baies</h3><p>Menuiseries aluminium noir, vitrage toute hauteur dans les séjours.</p></div>
+        <div class="feat-item reveal"><h3>Toiture végétalisée</h3><p>Rétention des eaux de pluie, fraîcheur l'été et biodiversité.</p></div>
+        <div class="feat-item reveal"><h3>Lumière naturelle</h3><p>Trois orientations, aucune pièce de vie en second jour.</p></div>
+        <div class="feat-item reveal"><h3>Garages fermés</h3><p>Portes sectionnelles motorisées, pré-équipement pour borne de recharge.</p></div>
+        <div class="feat-item reveal"><h3>Pompe à chaleur</h3><p>Chauffage et eau chaude performants, plancher chauffant.</p></div>
+        <div class="feat-item reveal"><h3>Accès connecté</h3><p>Visiophone et ouverture du hall depuis le smartphone.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section class="contact dark" id="contact">
+    <div class="wrap contact-grid">
+      <div>
+        <div class="eyebrow reveal">06 — Contact</div>
+        <h2 class="h2 reveal"><span class="ln"><span>Parlons de</span></span><span class="ln"><span><em>votre projet.</em></span></span></h2>
+        <p class="lead reveal" style="margin-top:22px">Un conseiller vous rappelle pour une présentation détaillée, les plans et la grille de prix.</p>
+        <div class="office reveal">
+          <img src="img/p08-thumb.jpg" alt="" loading="lazy">
+          <div><b>Espace de vente</b><span>Sur rendez-vous · adresse et téléphone à compléter</span></div>
+        </div>
+      </div>
+      <form class="reveal" id="form" novalidate>
+        <div class="field"><label for="fNom">Nom <span aria-hidden="true">*</span></label><input id="fNom" name="nom" autocomplete="name" required aria-describedby="eNom"><p class="err" id="eNom" hidden></p></div>
+        <div class="field"><label for="fTel">Téléphone</label><input id="fTel" name="tel" type="tel" autocomplete="tel"></div>
+        <div class="field full"><label for="fMail">E-mail <span aria-hidden="true">*</span></label><input id="fMail" name="email" type="email" autocomplete="email" required aria-describedby="eMail"><p class="err" id="eMail" hidden></p></div>
+        <div class="field full"><label for="fLot">Logement qui vous intéresse</label><select id="fLot" name="lot"><option value="">Je ne sais pas encore</option></select></div>
+        <div class="field full"><label for="fMsg">Message</label><textarea id="fMsg" name="message" placeholder="Vos questions, vos disponibilités…"></textarea></div>
+        <div class="form-foot">
+          <small>* Champs obligatoires. Formulaire de démonstration : rien n'est envoyé tant qu'il n'est pas relié à votre messagerie.</small>
+          <button class="btn btn-light" type="submit">Être rappelé <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="sent" id="sent" role="status" hidden></div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="dark">
+  <div class="wrap">
+    <div class="foot-cols">
+      <div><h4>Promoteur</h4><p>À compléter</p></div>
+      <div><h4>Architecte</h4><p>À compléter</p></div>
+      <div><h4>Espace de vente</h4><p>Sur rendez-vous · coordonnées à compléter</p></div>
+    </div>
+    <div class="legal"><span>Nom, adresse, lots et prestations provisoires · Visuels d'ambiance non contractuels</span><span>Mentions légales · Permis de construire n° à compléter</span><a href="../index.html" style="color:rgba(255,255,255,.75)">Maquette 3D et site : un produit Neokrome</a></div>
+  </div>
+  <div class="wordmark" aria-hidden="true">Canopée</div>
+</footer>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const smooth = reduce ? "auto" : "smooth";
+const pad2 = n => String(n).padStart(2, "0");
+
+/* ================= vues ================= */
+const VIEWS = [
+  {id:"p01", t:"Façade sur rue",            d:"Le socle des garages, puis trois niveaux de balcons plantés.", az:0,   alt:"g"},
+  {id:"p02", t:"À l'angle",                 d:"Les balcons filants et le volume anthracite du côté rue.",    az:40,  alt:"g"},
+  {id:"p03", t:"Survol de la façade",       d:"Le toit-terrasse apparaît : pergola, salon et prairie.",       az:-18, alt:"a"},
+  {id:"p04", t:"Trois-quarts aérien",       d:"La façade blanche se dévoile le long du jardin.",              az:-44, alt:"a"},
+  {id:"p05", t:"Côté jardin, vu d'en haut", d:"Une toiture entièrement plantée au-dessus des arbres.",        az:-68, alt:"a"},
+  {id:"p06", t:"Côté jardin, plus près",    d:"Le rythme des fenêtres et le noyau anthracite.",               az:-80, alt:"a2"},
+  {id:"p07", t:"Façade jardin",             d:"À hauteur de promeneur, au milieu des massifs.",               az:-100,alt:"g"},
+  {id:"p08", t:"Vu du ciel",                d:"Le plan du toit-terrasse, entre prairie et salon d'été.",      az:0,   alt:"z"},
+];
+const N = VIEWS.length;
+const ALT = {g:{r:92,l:"Sol"}, a:{r:62,l:"Survol"}, a2:{r:48,l:"Survol bas"}, z:{r:0,l:"Zénith"}};
+const src = (v, thumb) => `img/${v.id}${thumb ? "-thumb" : ""}.jpg`;
+const mod = i => ((i % N) + N) % N;
+
+/* ================= en-tête, menu ================= */
+const hdr = $("hdr"), burger = $("burger"), menu = $("menu"), mClose = $("menuClose");
+const onScroll = () => hdr.classList.toggle("solid", scrollY > innerHeight * 0.6);
+addEventListener("scroll", onScroll, {passive:true}); onScroll();
+const darkSecs = new Set();
+// en-tête sombre quand il passe au-dessus d'une section sombre
+const darkIo = new IntersectionObserver(es => {
+  es.forEach(e => e.isIntersecting ? darkSecs.add(e.target) : darkSecs.delete(e.target));
+  hdr.classList.toggle("on-dark", darkSecs.size > 0);
+}, {rootMargin:"0px 0px -94% 0px"});
+document.querySelectorAll("section.dark, footer.dark").forEach(el => darkIo.observe(el));
+function setMenu(open, refocus = true){
+  menu.classList.toggle("open", open); menu.inert = !open;
+  burger.setAttribute("aria-expanded", open);
+  document.body.style.overflow = open ? "hidden" : "";
+  if (open) mClose.focus(); else if (refocus) burger.focus();
+}
+burger.onclick = () => setMenu(true);
+mClose.onclick = () => setMenu(false);
+menu.querySelectorAll("a").forEach(a => a.onclick = () => setMenu(false, false));
+menu.addEventListener("keydown", e => {
+  if (e.key === "Escape") return setMenu(false);
+  if (e.key !== "Tab") return;
+  const f = [...menu.querySelectorAll("a,button")], first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+});
+matchMedia("(min-width:1081px)").addEventListener("change", e => { if (e.matches && menu.classList.contains("open")) setMenu(false, false); });
+
+/* apparitions, avec décalage entre éléments voisins */
+document.querySelectorAll(".reveal").forEach(el => {
+  const sibs = [...el.parentElement.children].filter(c => c.classList.contains("reveal"));
+  el.style.setProperty("--i", Math.min(sibs.indexOf(el), 5));
+});
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold:.12, rootMargin:"0px 0px -6% 0px"});
+document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+const navLinks = [...document.querySelectorAll(".nav a")];
+const secIo = new IntersectionObserver(es => es.forEach(e => {
+  if (e.isIntersecting) navLinks.forEach(a => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
+}), {rootMargin:"-45% 0px -50% 0px"});
+["maquette","projet","explorer","logements","architecture","prestations","contact"].forEach(id => secIo.observe($(id)));
+
+/* ================= l'ascension ================= */
+const ascent = $("ascent"), ascImgs = [...ascent.querySelectorAll(".asc-img")], ascSteps = [...ascent.querySelectorAll(".asc-step")];
+const altiItems = [...ascent.querySelectorAll(".alti li")], altiDot = $("altiDot");
+let ascRaf = 0, ascStep = 0;
+function ascUpdate(){
+  ascRaf = 0;
+  const r = ascent.getBoundingClientRect(), total = r.height - innerHeight;
+  if (total <= 0) return;
+  const p = Math.max(0, Math.min(1, -r.top / total)), t = p * 2;
+  ascImgs.forEach((el, k) => {
+    const f = k === 0 ? 1 : Math.max(0, Math.min(1, (t - (k - 1)) * 1.4 - 0.2));
+    const own = Math.max(0, Math.min(1, t - k + 1));
+    el.style.opacity = f;
+    el.style.transform = `scale(${1.14 - 0.14 * Math.min(1, own) + (k === 0 ? 0.06 * Math.min(1, t) : 0)})`;
+  });
+  altiDot.style.bottom = (p * 100) + "%";
+  const s = Math.min(2, Math.round(t));
+  if (s !== ascStep){
+    ascStep = s;
+    ascSteps.forEach((el, k) => el.classList.toggle("on", k === s));
+    altiItems.forEach((el, k) => el.classList.toggle("on", k === s));
+  }
+}
+if (!reduce){
+  addEventListener("scroll", () => { if (!ascRaf) ascRaf = requestAnimationFrame(ascUpdate); }, {passive:true});
+  addEventListener("resize", ascUpdate);
+  ascUpdate();
+}
+
+/* ================= visionneuse ================= */
+const stage = $("exStage"), shell = $("exShell"), cap = $("exCap");
+const layers = [$("layA"), $("layB")];
+const exN = $("exN"), exT = $("exT"), exD = $("exD"), exAlt = $("exAlt");
+const strip = $("strip"), cone = $("cone"), camsG = $("cams");
+const tTour = $("tTour"), tZoom = $("tZoom"), tFs = $("tFs"), prog = $("prog"), tourIco = $("tourIco");
+const TOUR_MS = 6500;
+let top = 0, cur = -1, want = -1, busy = false, pending = null, tour = null, tourT0 = 0;
+
+const cache = new Map();
+function load(v){
+  if (!cache.has(v.id)){
+    const im = new Image(); im.decoding = "async"; im.src = src(v);
+    cache.set(v.id, (im.decode ? im.decode() : new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; }))
+      .then(() => true, () => { cache.delete(v.id); return false; }));
+  }
+  return cache.get(v.id);
+}
+
+VIEWS.forEach((v, i) => {
+  const b = document.createElement("button");
+  b.className = "thumb"; b.setAttribute("aria-pressed", "false"); b.setAttribute("aria-label", `Vue ${i+1} : ${v.t}`);
+  b.innerHTML = `<img src="${src(v, true)}" alt="" loading="lazy"><b aria-hidden="true">${pad2(i+1)}</b>`;
+  b.onclick = () => { stopTour(); go(i); };
+  strip.appendChild(b);
+  const r = ALT[v.alt].r, a = v.az * Math.PI / 180;
+  const x = 110 + r * Math.sin(a), y = 110 + r * Math.cos(a);
+  const nx = v.alt === "z" ? 122 : x + 11 * Math.sin(a + (v.alt === "g" ? 0 : 0.5)), ny = v.alt === "z" ? 98 : y + 11 * Math.cos(a + (v.alt === "g" ? 0 : 0.5)) + 2.5;
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("class", "cam"); g.setAttribute("tabindex", "0"); g.setAttribute("role", "button");
+  g.setAttribute("aria-label", `Vue ${i+1} : ${v.t}`); g.setAttribute("aria-pressed", "false");
+  const cx = v.alt === "z" ? 110 : x, cy = v.alt === "z" ? 110 : y;
+  g.innerHTML = `<circle cx="${cx}" cy="${cy}" r="13" fill="transparent"/><circle class="halo" cx="${cx}" cy="${cy}" r="6"/>`
+    + (v.alt === "z" ? `<circle cx="110" cy="110" r="9" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="1.2"/>` : "")
+    + `<circle class="dot" cx="${cx}" cy="${cy}" r="${v.alt === "z" ? 4.5 : 5}"/><text class="num" x="${nx}" y="${ny}" text-anchor="middle">${i+1}</text>`;
+  g.addEventListener("click", () => { stopTour(); go(i); });
+  g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); e.stopPropagation(); stopTour(); go(i); } });
+  camsG.appendChild(g);
+});
+const thumbs = [...strip.children], cams = [...camsG.children];
+
+function mark(i){
+  thumbs.forEach((t, k) => t.setAttribute("aria-pressed", k === i));
+  cams.forEach((c, k) => { c.classList.toggle("on", k === i); c.setAttribute("aria-pressed", k === i); });
+  const t = thumbs[i];
+  if (t) strip.scrollTo({left: t.offsetLeft - strip.clientWidth/2 + t.clientWidth/2, behavior: smooth});
+}
+function caption(v, i){
+  exN.textContent = `${pad2(i+1)} / ${pad2(N)}`;
+  exT.textContent = v.t; exD.textContent = v.d; exAlt.textContent = ALT[v.alt].l;
+  cone.style.opacity = v.alt === "z" ? 0 : 1;
+  cone.style.transform = `rotate(${-v.az}deg) scale(${Math.max(ALT[v.alt].r, 1) / 92})`;
+  if (!reduce && cur >= 0) [exN, exT, exD].forEach((el, k) => el.animate(
+    [{opacity:0, transform:"translateY(10px)"}, {opacity:1, transform:"none"}],
+    {duration:700, delay:120 + k * 70, easing:"cubic-bezier(.2,.7,.1,1)", fill:"backwards"}));
+}
+function flush(){ if (pending){ const [j, d] = pending; pending = null; go(j, d); } }
+
+async function go(i, dir){
+  i = mod(i);
+  if (busy){ pending = [i, dir]; mark(i); return; }
+  if (i === cur){ mark(i); return; }
+  busy = true; want = i;
+  exitZoom();
+  mark(i);
+  const v = VIEWS[i];
+  if (!(await load(v))){
+    busy = false; want = cur; if (cur >= 0) mark(cur);
+    return flush();
+  }
+  if (dir === undefined) dir = cur < 0 ? 0 : (mod(i - cur) <= N / 2 ? 1 : -1);
+  caption(v, i);
+  const inL = layers[1 - top], outL = layers[top];
+  const img = inL.querySelector("img");
+  img.src = src(v); img.alt = `${v.t}. ${v.d}`; img.style.transformOrigin = "";
+  inL.classList.remove("kb");
+  inL.style.transition = "none";
+  inL.style.zIndex = 2; outL.style.zIndex = 1;
+  inL.style.opacity = 0;
+  inL.style.transform = `translateX(${dir * 4}%) scale(1.06)`;
+  inL.getBoundingClientRect();
+  const dur = reduce ? 0 : 1100;
+  inL.style.transition = `opacity ${dur * .75}ms var(--ease), transform ${dur}ms var(--ease)`;
+  outL.style.transition = `transform ${dur}ms var(--ease)`;
+  inL.style.opacity = 1; inL.style.transform = "none";
+  outL.style.transform = `translateX(${-dir * 3}%) scale(1.02)`;
+  inL.classList.add("top"); outL.classList.remove("top");
+  inL.removeAttribute("aria-hidden"); outL.setAttribute("aria-hidden", "true");
+  outL.classList.remove("kb");
+  if (tour){ void inL.offsetWidth; inL.classList.add("kb"); }
+  top = 1 - top; cur = i;
+  load(VIEWS[mod(i + 1)]); load(VIEWS[mod(i - 1)]);
+  setTimeout(() => { busy = false; flush(); }, dur ? 520 : 0);
+}
+const base = () => pending ? pending[0] : (want < 0 ? cur : want);
+const next = () => go(base() + 1, 1), prev = () => go(base() - 1, -1);
+$("exNext").onclick = () => { stopTour(); next(); };
+$("exPrev").onclick = () => { stopTour(); prev(); };
+
+/* glisser / swipe */
+let px = null, py = 0, pdx = 0, horiz = null, zs = null, zo = {x:50, y:50};
+const zoomed = () => stage.classList.contains("zoom");
+const topImg = () => layers[top].querySelector("img");
+stage.addEventListener("pointerdown", e => {
+  if (e.button > 0) return;
+  if (zoomed()){
+    if (e.pointerType !== "mouse"){ zs = {x:e.clientX, y:e.clientY, ox:zo.x, oy:zo.y, moved:false}; try { stage.setPointerCapture(e.pointerId); } catch {} }
+    return;
+  }
+  px = e.clientX; py = e.clientY; pdx = 0; horiz = null;
+});
+stage.addEventListener("pointermove", e => {
+  if (zoomed()){
+    if (zs){
+      const r = stage.getBoundingClientRect(), dx = e.clientX - zs.x, dy = e.clientY - zs.y;
+      if (Math.hypot(dx, dy) > 6) zs.moved = true;
+      zo.x = Math.max(0, Math.min(100, zs.ox - dx / r.width * 100));
+      zo.y = Math.max(0, Math.min(100, zs.oy - dy / r.height * 100));
+      topImg().style.transformOrigin = `${zo.x}% ${zo.y}%`;
+    } else if (e.pointerType === "mouse") zoomAt(e);
+    return;
+  }
+  if (px === null) return;
+  pdx = e.clientX - px;
+  const pdy = e.clientY - py;
+  if (horiz === null && Math.hypot(pdx, pdy) > 8){
+    horiz = Math.abs(pdx) > Math.abs(pdy);
+    if (horiz){ try { stage.setPointerCapture(e.pointerId); } catch {} stage.classList.add("drag"); stopTour(); }
+  }
+  if (horiz && !busy){
+    const L = layers[top];
+    L.style.transition = "none";
+    L.style.transform = `translateX(${pdx * 0.12}px) scale(${1 + Math.min(Math.abs(pdx), 300) / 6000})`;
+  }
+});
+const endSwipe = () => {
+  if (zs){ if (!zs.moved) exitZoom(); zs = null; return; }
+  if (px === null) return;
+  const was = horiz; px = null; stage.classList.remove("drag");
+  if (!was) return;
+  const L = layers[top];
+  L.style.transition = "transform .5s var(--ease)"; L.style.transform = "none";
+  if (Math.abs(pdx) > Math.min(90, stage.clientWidth * 0.08)) pdx < 0 ? next() : prev();
+};
+stage.addEventListener("pointerup", endSwipe);
+stage.addEventListener("pointercancel", endSwipe);
+stage.addEventListener("dblclick", e => { stopTour(); toggleZoom(e); });
+let wheelAcc = 0, wheelT = 0, wheelLock = false;
+stage.addEventListener("wheel", e => {
+  if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return; // laisse défiler la page
+  e.preventDefault();
+  const now = performance.now();
+  if (now - wheelT > 260){ wheelAcc = 0; wheelLock = false; }
+  wheelT = now;
+  if (wheelLock) return; // reste du même geste (inertie du trackpad)
+  wheelAcc += e.deltaX;
+  if (Math.abs(wheelAcc) > 80){ stopTour(); wheelAcc > 0 ? next() : prev(); wheelLock = true; }
+}, {passive:false});
+
+/* loupe */
+function zoomAt(e){
+  const r = stage.getBoundingClientRect();
+  zo.x = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+  zo.y = Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100));
+  topImg().style.transformOrigin = `${zo.x}% ${zo.y}%`;
+}
+function toggleZoom(e){
+  const on = !zoomed();
+  if (on){ if (e && e.clientX !== undefined) zoomAt(e); else { zo = {x:50, y:50}; topImg().style.transformOrigin = "50% 50%"; } }
+  stage.classList.toggle("zoom", on); tZoom.setAttribute("aria-pressed", on);
+}
+function exitZoom(){
+  if (!zoomed()) return;
+  stage.classList.remove("zoom"); tZoom.setAttribute("aria-pressed", "false");
+}
+tZoom.onclick = () => { stopTour(); toggleZoom(); };
+
+/* visite guidée */
+function startTour(){
+  if (tour) return;
+  exitZoom();
+  tTour.setAttribute("aria-pressed", "true"); tourIco.innerHTML = '<path d="M8 5v14M16 5v14"/>';
+  cap.setAttribute("aria-live", "off");
+  const L0 = layers[top]; L0.classList.remove("kb"); void L0.offsetWidth; L0.classList.add("kb");
+  tourT0 = performance.now();
+  const step = t => {
+    if (!tour) return;
+    const p = (t - tourT0) / TOUR_MS;
+    prog.style.width = Math.min(100, p * 100) + "%";
+    if (p >= 1){ tourT0 = t; next(); }
+    tour = requestAnimationFrame(step);
+  };
+  tour = requestAnimationFrame(step);
+}
+function stopTour(){
+  if (!tour) return;
+  cancelAnimationFrame(tour); tour = null;
+  layers.forEach(L => L.classList.remove("kb"));
+  tTour.setAttribute("aria-pressed", "false"); tourIco.innerHTML = '<path d="M8 5.5v13l10-6.5z"/>';
+  cap.setAttribute("aria-live", "polite");
+  prog.style.width = 0;
+}
+tTour.onclick = () => tour ? stopTour() : startTour();
+tTour.setAttribute("aria-label", "Visite guidée");
+tZoom.setAttribute("aria-label", "Loupe");
+
+/* plein écran */
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+if (!shell.requestFullscreen && !shell.webkitRequestFullscreen) tFs.hidden = true;
+tFs.onclick = () => {
+  if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else (shell.requestFullscreen || shell.webkitRequestFullscreen).call(shell);
+};
+
+/* clavier */
+let exVisible = false;
+new IntersectionObserver(es => { const e = es[es.length - 1]; exVisible = e.intersectionRatio > 0.5; if (!exVisible) stopTour(); }, {threshold:[0, .5, 1]}).observe(shell);
+addEventListener("keydown", e => {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target.closest?.("input,textarea,select") || menu.classList.contains("open")) return;
+  const inShell = shell.contains(e.target);
+  if (!inShell && !(exVisible && e.target === document.body)) return;
+  const onCtl = e.target.closest?.("button,a,[role=button]");
+  if (e.key === "ArrowRight"){ e.preventDefault(); stopTour(); next(); }
+  else if (e.key === "ArrowLeft"){ e.preventDefault(); stopTour(); prev(); }
+  else if (onCtl) return; // Espace et Entrée gardent leur rôle sur les boutons
+  else if (e.key === " "){ e.preventDefault(); tour ? stopTour() : startTour(); }
+  else if (e.key === "z" || e.key === "Z"){ stopTour(); toggleZoom(); }
+  else if ((e.key === "f" || e.key === "F") && !tFs.hidden) tFs.click();
+  else if (e.key === "Escape") exitZoom();
+});
+go(0, 0);
+const goFromPage = i => {
+  shell.scrollIntoView({behavior: smooth, block: "center"});
+  setTimeout(() => { stopTour(); go(i); }, reduce ? 0 : 650);
+};
+
+/* ================= logements (données d'exemple) ================= */
+// même données que 3d/lots.json (source unique de la maquette 3D)
+const LOTS = [
+  {n:"301", lv:3, typo:"T3", surf:80, ext:[{v:"3 m²", l:"loggia"}], ori:"Nord, Est et Ouest", st:"sold", side:"jardin", view:6, prix:null, feats:["Séjour-cuisine de 33,5 m²","Deux chambres de 13 m²","Grand dressing, salle d'eau et WC séparé"]},
+  {n:"302", lv:3, typo:"T4", surf:77, ext:[{v:"31 m²", l:"balcon filant et loggias"},{v:"79 m²", l:"toit-terrasse privatif"}], ori:"Sud et Est", st:"ok", side:"rue", view:0, roofView:7, prix:760000, feats:["Attique avec toit-terrasse privatif de 79 m²","Suite parentale de 16 m²","Séjour-cuisine de 30,6 m² sur le balcon"]},
+  {n:"201", lv:2, typo:"T4", surf:77, ext:[{v:"31 m²", l:"balcon filant et loggias"}], ori:"Sud et Est", st:"ok", side:"rue", view:0, prix:485000, feats:["Séjour-cuisine de 30,6 m² sur le balcon","Trois chambres","Salle de bains et salle d'eau"]},
+  {n:"202", lv:2, typo:"T3", surf:80, ext:[{v:"3 m²", l:"loggia"}], ori:"Nord, Est et Ouest", st:"ok", side:"jardin", view:6, prix:460000, feats:["Séjour-cuisine de 33,5 m² sur le jardin","Deux chambres de 13 m²","Grand dressing"]},
+  {n:"101", lv:1, typo:"T4", surf:77, ext:[{v:"31 m²", l:"balcon filant et loggias"}], ori:"Sud et Est", st:"res", side:"rue", view:0, prix:470000, feats:["Séjour-cuisine de 30,6 m² sur le balcon","Trois chambres","Salle de bains et salle d'eau"]},
+  {n:"102", lv:1, typo:"T3", surf:80, ext:[{v:"3 m²", l:"loggia"}], ori:"Nord, Est et Ouest", st:"ok", side:"jardin", view:6, prix:445000, feats:["Calme absolu côté jardin","Deux chambres de 13 m²","Grand dressing"]},
+];
+const ST = {ok:["ok","Disponible"], res:["res","Réservé"], sold:["sold","Vendu"]};
+// niveaux mesurés sur la photo de façade (en % de la hauteur de l'image)
+const LEVELS = [
+  {lv:4, name:"Toit", y:4,  h:9,  label:"Toit-terrasse"},
+  {lv:3, name:"R+3",  y:13, h:18, label:"3ᵉ étage"},
+  {lv:2, name:"R+2",  y:31, h:18, label:"2ᵉ étage"},
+  {lv:1, name:"R+1",  y:49, h:18, label:"1ᵉʳ étage"},
+  {lv:0, name:"RDC",  y:67, h:19, label:"Rez-de-chaussée"},
+];
+const lvOf = lv => LEVELS.find(L => L.lv === lv);
+let selLot = "201", selLv = 2, filt = "Tous";
+
+/* projecteur sur la façade */
+const holeR = $("holeR"), edgeT = $("edgeT"), edgeB = $("edgeB"), holeL = $("holeL");
+let hole = {y: 31 * .75, h: 18 * .75}, holeAnim = 0;
+function setHole(y, h){
+  holeR.setAttribute("y", y); holeR.setAttribute("height", h);
+  edgeT.setAttribute("y1", y); edgeT.setAttribute("y2", y);
+  edgeB.setAttribute("y1", y + h); edgeB.setAttribute("y2", y + h);
+  holeL.setAttribute("y", y + Math.min(h - 1.2, 5));
+}
+function moveHole(L){
+  const to = {y: L.y * .75, h: L.h * .75}, from = {...hole}, t0 = performance.now();
+  holeL.textContent = L.name;
+  cancelAnimationFrame(holeAnim);
+  const step = t => {
+    const p = reduce ? 1 : Math.min(1, (t - t0) / 600), k = 1 - Math.pow(1 - p, 3);
+    hole = {y: from.y + (to.y - from.y) * k, h: from.h + (to.h - from.h) * k};
+    setHole(hole.y, hole.h);
+    if (p < 1) holeAnim = requestAnimationFrame(step);
+  };
+  holeAnim = requestAnimationFrame(step);
+}
+$("hits").innerHTML = LEVELS.map(L => `<rect class="hit" data-lv="${L.lv}" x="25.5" y="${L.y * .75}" width="50" height="${L.h * .75}"/>`).join("");
+$("hits").querySelectorAll(".hit").forEach(r => r.addEventListener("click", () => selectLevel(+r.dataset.lv)));
+
+/* filtres + empilement (construit une fois, puis seulement mis à jour : le focus clavier est conservé) */
+const filtersEl = $("filters");
+["Tous","T3","T4","Disponibles"].forEach(f => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = f; b.dataset.f = f; b.setAttribute("aria-pressed", f === filt);
+  b.onclick = () => { filt = f; updateStack(); };
+  filtersEl.appendChild(b);
+});
+const match = l => filt === "Tous" || l.typo === filt || (filt === "Disponibles" && l.st === "ok");
+const roofLot = LOTS.find(l => l.roofView !== undefined);
+const cellLot = l => `<button class="cell" data-n="${l.n}" data-lv="${l.lv}" aria-pressed="false">
+    <span><span class="nm">${l.n} · ${l.typo}</span><span class="ty">${l.surf} m² · ${l.side}</span></span>
+    <span class="st ${ST[l.st][0]}">${ST[l.st][1]}</span></button>`;
+$("stack").innerHTML = [
+  `<div class="lvl-row"><div class="lv">Toit</div><div class="cells"><button class="cell span2" data-n="${roofLot.n}" data-lv="4" aria-pressed="false"><span><span class="nm">Toit-terrasse privatif</span><span class="ty">79 m² · rattaché au ${roofLot.n}</span></span><span class="st ${ST[roofLot.st][0]}">${ST[roofLot.st][1]}</span></button></div></div>`,
+  ...[3, 2, 1].map(lv => `<div class="lvl-row"><div class="lv">R+${lv}</div><div class="cells">${LOTS.filter(l => l.lv === lv).map(cellLot).join("")}</div></div>`),
+  `<div class="lvl-row"><div class="lv">RDC</div><div class="cells"><button class="cell common" data-lv="0" aria-pressed="false"><span><span class="nm">Hall &amp; vélos</span><span class="ty">accès sécurisé</span></span></button><button class="cell common" data-lv="0" data-garage="1" aria-pressed="false"><span><span class="nm">4 garages</span><span class="ty">fermés, en option</span></span></button></div></div>`
+].join("");
+const cells = [...document.querySelectorAll("#stack .cell")];
+cells.forEach(c => c.onclick = () => +c.dataset.lv === 0 ? selectLevel(0) : selectLot(c.dataset.n, +c.dataset.lv));
+function updateStack(){
+  filtersEl.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.f === filt));
+  cells.forEach(c => {
+    const l = LOTS.find(x => x.n === c.dataset.n);
+    const on = +c.dataset.lv === selLv && (selLv === 0 || c.dataset.n === selLot);
+    c.setAttribute("aria-pressed", on);
+    c.classList.toggle("dim", l ? !match(l) : filt !== "Tous");
+  });
+}
+function selectLevel(lv){
+  if (lv === 0){ selLot = null; selLv = 0; updateStack(); highlight(); detailRdc(); return; }
+  if (lv === 4) return selectLot(roofLot.n, 4);
+  const l = LOTS.find(x => x.lv === lv && x.st === "ok") || LOTS.find(x => x.lv === lv);
+  selectLot(l.n, lv);
+}
+function selectLot(n, lv){
+  const l = LOTS.find(x => x.n === n);
+  selLot = n; selLv = lv ?? l.lv;
+  updateStack(); highlight(); renderDetail(l);
+}
+function highlight(){
+  const L = lvOf(selLv);
+  moveHole(L);
+  $("facadeCap").textContent = L.label;
+}
+const detail = $("detail");
+function renderDetail(l){
+  const rooms = +l.typo.slice(1), roof = selLv === 4;
+  detail.innerHTML = `<div class="swap">
+    <div class="top"><div><h3>${roof ? "Toit-terrasse du " : "Lot "}${l.n}</h3><div class="ty">${l.typo} · ${rooms} pièces · ${roof ? "3ᵉ étage + toit-terrasse" : lvOf(l.lv).label}</div></div>
+      <span class="st ${ST[l.st][0]}">${ST[l.st][1]}</span></div>
+    <div class="specs">
+      <div><b>${l.surf} m²</b><span>surface habitable</span></div>
+      ${l.ext.map(e => `<div><b>${e.v}</b><span>${e.l}</span></div>`).join("")}
+      <div><b>${l.ori}</b><span>orientation</span></div>
+      <div><b>${l.prix ? (l.prix / 1000).toLocaleString("fr-FR") + " k€" : l.st === "sold" ? "Vendu" : "Sur demande"}</b><span>prix d'exemple</span></div>
+    </div>
+    <ul>${l.feats.map(f => `<li>${f}</li>`).join("")}</ul>
+    <div class="acts">
+      <a class="btn btn-dark" href="#contact" data-interest="${l.n}">${l.st === "sold" ? "Être prévenu·e d'une revente" : "Je suis intéressé·e"} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      <a class="btn btn-line" href="3d/index.html?lot=${l.n}">Voir dans la maquette 3D</a>
+      <button class="btn btn-line" data-view="${roof ? l.roofView : l.view}">Voir sur les rendus</button>
+    </div></div>`;
+  detail.querySelector("[data-interest]")?.addEventListener("click", () => {
+    $("fLot").value = l.n;
+    if (l.st === "sold" && !$("fMsg").value) $("fMsg").value = `Je souhaite être prévenu·e si le lot ${l.n} se libère.`;
+  });
+  detail.querySelector("[data-view]").onclick = e => goFromPage(+e.currentTarget.dataset.view);
+}
+function detailRdc(){
+  detail.innerHTML = `<div class="swap"><div class="top"><div><h3>Rez-de-chaussée</h3><div class="ty">Parties communes et stationnements</div></div></div>
+    <ul><li>Hall d'entrée vitré avec visiophone</li><li>Local vélos et poussettes</li><li>4 garages fermés à portes motorisées, en option</li></ul>
+    <div class="acts"><button class="btn btn-line" data-view="0">Voir la façade</button></div></div>`;
+  detail.querySelector("[data-view]").onclick = () => goFromPage(0);
+}
+const fLot = $("fLot");
+LOTS.slice().sort((a, b) => a.n.localeCompare(b.n)).forEach(l => fLot.insertAdjacentHTML("beforeend", `<option value="${l.n}">Lot ${l.n} — ${l.typo}, ${l.surf} m²${l.st === "sold" ? " (vendu : être prévenu·e d'une revente)" : ""}</option>`));
+setHole(hole.y, hole.h);
+const urlLot = new URLSearchParams(location.search).get("lot");
+const urlParams = new URLSearchParams(location.search);
+if (urlLot && LOTS.some(l => l.n === urlLot)){
+  selectLot(urlLot);
+  fLot.value = urlLot;
+  // lot vendu : on garde l'intention de l'acheteur (revente) dans le message
+  if (LOTS.find(l => l.n === urlLot).st === "sold" || urlParams.get("revente")) {
+    const msg = $("fMsg");
+    if (!msg.value) msg.value = `Je souhaite être prévenu·e si le lot ${urlLot} se libère.`;
+  }
+} else selectLot("201");
+
+/* ================= formulaire (démonstration) ================= */
+const form = $("form"), sent = $("sent");
+const setErr = (el, msg) => {
+  const p = $(el.getAttribute("aria-describedby"));
+  el.setAttribute("aria-invalid", !!msg); p.textContent = msg || ""; p.hidden = !msg;
+};
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const nom = form.nom.value.trim(), mail = form.email.value.trim(), okMail = /^\S+@\S+\.\S+$/.test(mail);
+  setErr(form.nom, nom ? "" : "Indiquez votre nom.");
+  setErr(form.email, okMail ? "" : "Saisissez une adresse e-mail valide, par exemple nom@domaine.fr.");
+  if (!nom || !okMail){ sent.hidden = true; (!nom ? form.nom : form.email).focus(); return; }
+  sent.textContent = `Merci ${nom}. Votre demande est prête, mais ce formulaire de démonstration ne l'envoie pas encore : il faudra le relier à votre messagerie.`;
+  sent.hidden = false;
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canopée — Maquette 3D</title>
+<meta name="description" content="Canopée en 3D temps réel : tournez autour de la résidence, choisissez un étage et faites varier la lumière du jour.">
+<meta name="theme-color" content="#111613">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111613'/%3E%3Cpath d='M9 25V10h14v15M9 15h14M9 20h14' stroke='%23d8bd8c' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* palette du site */
+  --ink:#16191d; --night:#111613; --night-2:#1a211d; --forest:#2f4a3a;
+  --brass:#b08d57; --brass-2:#d8bd8c;
+  --serif:"Instrument Serif",Georgia,serif;
+  --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --ease:cubic-bezier(.2,.7,.1,1);
+  --pad:clamp(14px,2.2vw,28px);
+  --glass-bg:rgba(14,18,16,.52);
+  --glass-line:rgba(255,255,255,.14);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--night);color:#fff;font-family:var(--sans);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--brass-2);outline-offset:3px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:fixed;left:16px;top:-80px;z-index:100;background:#fff;color:var(--ink);padding:12px 18px;border-radius:999px;text-decoration:none;transition:top .3s}
+.skip:focus{top:16px}
+
+/* scène */
+#app{position:fixed;inset:0;overflow:hidden}
+#scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none;cursor:grab}
+#scene.drag{cursor:grabbing}
+.shade{position:absolute;inset:0;pointer-events:none;background:
+  linear-gradient(180deg,rgba(8,11,9,.3) 0%,rgba(8,11,9,0) 18%),
+  linear-gradient(0deg,rgba(8,11,9,.38) 0%,rgba(8,11,9,0) 22%)}
+.ui{position:absolute;inset:0;pointer-events:none;transition:opacity .6s var(--ease)}
+.ui > *{pointer-events:auto}
+body.noui .ui,body.noui .shade{display:none}
+.glass{background:var(--glass-bg);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border:1px solid var(--glass-line)}
+
+/* en-tête */
+.top{position:absolute;z-index:3;left:var(--pad);right:var(--pad);top:calc(var(--pad) + env(safe-area-inset-top,0px));display:flex;align-items:flex-start;justify-content:space-between;gap:16px;pointer-events:none}
+.top > *{pointer-events:auto}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none;padding:6px 14px 6px 8px;border-radius:999px;transition:background .3s}
+.brand:hover{background:rgba(255,255,255,.08)}
+.brand .back{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.35)}
+.brand svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.brand b{font-family:var(--serif);font-weight:400;font-size:30px;line-height:1}
+.brand span.k{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;opacity:.82}
+.tools{display:flex;gap:4px;padding:6px;border-radius:16px;position:relative}
+.tool{height:44px;min-width:44px;padding:0 12px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:500;transition:background .25s,color .25s}
+.tool:hover{background:rgba(255,255,255,.12)}
+.tool[aria-pressed="true"],.tool[aria-expanded="true"]{background:var(--brass-2);color:var(--ink)}
+.tool svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.tool[hidden]{display:none}
+
+/* panneau qualité */
+.qpanel{position:absolute;right:0;top:calc(100% + 8px);width:250px;border-radius:16px;padding:14px;display:grid;gap:4px;z-index:5}
+.qpanel[hidden]{display:none}
+.qpanel .lbl{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.65);margin-bottom:6px}
+.qpanel .lbl output{letter-spacing:.04em;font-variant-numeric:tabular-nums;color:var(--brass-2);font-weight:600;font-size:12px}
+.opt{min-height:40px;border-radius:10px;padding:8px 12px;text-align:left;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;transition:background .25s}
+.opt:hover{background:rgba(255,255,255,.1)}
+.opt[aria-pressed="true"]{background:rgba(216,189,140,.18);color:var(--brass-2)}
+.opt[aria-pressed="true"]::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--brass-2)}
+.qpanel .note{font-size:12px;color:rgba(255,255,255,.62);margin-top:6px;line-height:1.45}
+
+/* légende de la vue */
+.cap{position:absolute;left:calc(var(--pad) + 8px);top:calc(var(--pad) + 74px + env(safe-area-inset-top,0px));max-width:min(440px,46vw);pointer-events:none}
+.cap .n{font-size:11px;letter-spacing:.2em;color:var(--brass-2);font-weight:600;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.55),0 0 14px rgba(0,0,0,.35)}
+.cap h1{font-family:var(--serif);font-weight:400;font-size:clamp(30px,3vw,46px);line-height:1.02;margin-top:6px;text-shadow:0 1px 18px rgba(0,0,0,.45)}
+.cap p{font-size:15px;color:rgba(255,255,255,.9);margin-top:8px;text-shadow:0 1px 12px rgba(0,0,0,.6);max-width:38ch}
+.cap.swap{animation:swap .6s var(--ease)}
+@keyframes swap{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* étages (droite) */
+.floors{position:fixed;z-index:2;right:var(--pad);top:calc(var(--pad) + 220px + env(safe-area-inset-top,0px));max-height:calc(100vh - var(--pad) * 2 - 234px - var(--dock-h,110px));overflow-y:auto;scrollbar-width:none;border-radius:18px;padding:12px 8px 8px;display:flex;flex-direction:column;gap:3px;width:150px;transition:right .45s var(--ease),width .3s var(--ease)}
+@media (max-height:760px) and (min-width:761px){
+  .minimap{display:none}
+  .floors{top:calc(var(--pad) + 72px);max-height:calc(100vh - var(--pad) * 2 - 86px - var(--dock-h,110px));padding:8px 6px 6px}
+  .floors .plabel{display:none}
+  .lvl{min-height:36px;padding:4px 10px;font-size:13px}
+  .lvl small{font-size:11px}
+  .lots{overflow-y:auto;scrollbar-width:thin}
+  .lots .llist{overflow:visible;flex:none}
+  .lots .legend{padding-bottom:6px}
+  .sun{padding:8px 14px 8px}
+  .sun output{font-size:24px}
+  .sun .scale span:nth-child(2){display:none}
+  .seasons{margin-top:4px}
+  .seasons button{min-height:26px}
+  .sheet .facts b{font-size:19px}
+}
+body.sheet-open .floors{right:calc(var(--pad) + 400px);top:calc(var(--pad) + 86px + env(safe-area-inset-top,0px));width:70px;padding:8px 5px;border-radius:14px 0 0 14px;border-right:0}
+body.sheet-open .floors .plabel,body.sheet-open .lvl small,body.sheet-open .lvl i{display:none}
+body.sheet-open .lvl{grid-template-columns:1fr;justify-items:center;padding:6px 4px;font-size:13px;min-height:40px}
+body.sheet-open .lvl.ext{font-size:0;gap:0}
+body.sheet-open .lvl.ext svg{width:16px;height:16px}
+.flist{display:flex;flex-direction:column;gap:3px}
+.plabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.65);padding:0 8px 6px;display:flex;justify-content:space-between;align-items:center}
+.lvl{min-height:44px;border-radius:10px;padding:6px 10px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 8px;font-size:14px;font-weight:500;text-align:left;transition:background .25s,color .25s}
+.lvl small{grid-column:1/-1;font-size:11.5px;font-weight:500;color:rgba(255,255,255,.6);line-height:1.1}
+.lvl small b{color:#7fd19c;font-weight:600}
+.lvl i{width:18px;height:2px;border-radius:2px;background:rgba(255,255,255,.35);transition:background .25s,width .35s var(--ease)}
+.lvl:hover{background:rgba(255,255,255,.1)}
+.lvl[aria-pressed="true"]{background:var(--brass-2);color:var(--ink)}
+.lvl[aria-pressed="true"] small,.lvl[aria-pressed="true"] small b{color:rgba(22,25,29,.75)}
+.lvl[aria-pressed="true"] i{background:var(--ink);width:26px}
+.lvl.ext{font-size:12.5px;color:rgba(255,255,255,.8);margin-top:4px;border-top:1px solid rgba(255,255,255,.12);border-radius:0 0 10px 10px;display:flex;justify-content:center;gap:6px}
+.lvl.ext svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7}
+.lvl.ext[aria-pressed="true"]{background:transparent;color:rgba(255,255,255,.45)}
+
+/* barre du bas */
+.dock{position:absolute;left:var(--pad);right:var(--pad);bottom:calc(var(--pad) + var(--safe-b));display:flex;align-items:flex-end;justify-content:space-between;gap:14px;pointer-events:none}
+.dock > *{pointer-events:auto}
+.tabs{display:none}
+.views{display:flex;gap:8px;padding:6px;border-radius:16px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:0 1 auto;scroll-behavior:smooth}
+.views::-webkit-scrollbar{display:none}
+.vbtn{flex:0 0 auto;width:92px;border-radius:10px;overflow:hidden;position:relative;aspect-ratio:4/3;opacity:.6;transition:opacity .3s,box-shadow .3s;background:var(--night-2)}
+.vbtn img{width:100%;height:100%;object-fit:cover;display:block}
+.vbtn b{position:absolute;left:6px;top:4px;font-size:10px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+.vbtn span{position:absolute;left:0;right:0;bottom:0;padding:10px 6px 4px;font-size:10.5px;line-height:1.2;text-align:left;background:linear-gradient(0deg,rgba(0,0,0,.66),rgba(0,0,0,0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbtn:hover{opacity:.92}
+.vbtn[aria-pressed="true"]{opacity:1;box-shadow:0 0 0 2px var(--brass-2)}
+.vbtn:focus-visible{outline-color:#fff;outline-offset:2px}
+
+.sun{border-radius:16px;padding:12px 16px 10px;width:300px;flex:0 0 auto}
+.sun .row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.sun .plabel{padding:0}
+.sun output{font-family:var(--serif);font-size:28px;line-height:1;font-variant-numeric:tabular-nums}
+.sun .scale{display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px}
+.range{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin-top:6px;cursor:pointer;--p:75%}
+.range:focus-visible{outline-offset:2px}
+.range::-webkit-slider-runnable-track{height:3px;border-radius:3px;background:linear-gradient(90deg,var(--brass-2) var(--p),rgba(255,255,255,.22) var(--p))}
+.range::-moz-range-track{height:3px;border-radius:3px;background:rgba(255,255,255,.22)}
+.range::-moz-range-progress{height:3px;border-radius:3px;background:var(--brass-2)}
+.range::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;margin-top:-8.5px;border-radius:50%;background:#fff;border:0;box-shadow:0 0 0 5px rgba(216,189,140,.28),0 2px 8px rgba(0,0,0,.35)}
+.range::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:0;box-shadow:0 0 0 5px rgba(216,189,140,.28)}
+
+.hint{position:absolute;left:50%;bottom:calc(var(--pad) + 124px + var(--safe-b));transform:translateX(-50%);font-size:12.5px;color:rgba(255,255,255,.82);padding:8px 14px;border-radius:999px;white-space:nowrap;transition:opacity .8s var(--ease);pointer-events:none}
+.hint.off{opacity:0}
+.kbd{display:inline-block;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:0 5px;font-size:11px;margin:0 1px}
+.touch .k-only{display:none}
+.notouch .t-only{display:none}
+
+/* mode de navigation (centre) */
+.navmode{display:flex;gap:2px;padding:5px;border-radius:999px;margin:0 auto;flex:0 0 auto}
+.navmode button{height:40px;padding:0 16px 0 12px;border-radius:999px;display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;color:rgba(255,255,255,.82);transition:background .25s,color .25s}
+.navmode button:hover{background:rgba(255,255,255,.1);color:#fff}
+.navmode button[aria-checked="true"]{background:var(--brass-2);color:var(--ink)}
+.navmode svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tool .q{min-width:76px;text-align:left}
+body.lots-open .cap{left:calc(var(--pad) + 360px)}
+@media (min-width:761px){body.sheet-open .cap{max-width:max(260px,min(440px,calc(100vw - 820px)))}}
+
+/* panneau logements (gauche) */
+.lots{position:fixed;z-index:2;left:var(--pad);top:calc(var(--pad) + 70px + env(safe-area-inset-top,0px));bottom:calc(var(--dock-h,120px) + var(--pad) + 14px);width:340px;border-radius:20px;display:none;flex-direction:column;overflow:hidden}
+body.lots-open .lots{display:flex;animation:slideL .5s var(--ease)}
+@keyframes slideL{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}
+body:not(.m-orbit) .lots{bottom:calc(var(--dock-h,120px) + var(--pad) + 200px)}
+@media (min-width:761px){
+  body.sheet-open.lots-open .lots{width:76px;animation:none}
+  body.sheet-open .lots .lhead p,body.sheet-open .lots .legend,body.sheet-open .lots .filters,body.sheet-open .lots .cmpbar,body.sheet-open .lots .lsort,
+  body.sheet-open .lcard .ti,body.sheet-open .lcard .su,body.sheet-open .lcard .pr,body.sheet-open #lotsClose{display:none}
+  body.sheet-open .lots .lhead{padding:12px 6px 6px;justify-content:center}
+  body.sheet-open .lots .lhead h2{font-size:0}
+  body.sheet-open .lots .lhead h2::after{content:"Lots";font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-family:var(--sans);color:rgba(255,255,255,.65)}
+  body.sheet-open .lcard{grid-template-columns:1fr;justify-items:center;padding:8px 4px;position:relative}
+  body.sheet-open .lcard .num{font-size:24px;min-width:0}
+  body.sheet-open .lcard::after{content:"";position:absolute;right:6px;top:8px;width:6px;height:6px;border-radius:50%;background:var(--sc,#888)}
+  body.sheet-open.lots-open .cap{left:calc(var(--pad) + 96px)}
+}
+.lsort{display:flex;align-items:center;gap:8px;padding:8px 16px 0;font-size:12px;color:rgba(255,255,255,.7)}
+.lsort select{font:inherit;font-size:12.5px;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}
+.lsort select option{color:var(--ink)}
+.lhead{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 16px 8px 18px}
+.lhead h2{font-family:var(--serif);font-weight:400;font-size:30px;line-height:1}
+.lhead p{font-size:12.5px;color:rgba(255,255,255,.7);margin-top:4px}
+.x{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;transition:background .25s}
+.x:hover{background:rgba(255,255,255,.12)}
+.x svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+.legend{display:flex;gap:12px;flex-wrap:wrap;padding:0 18px 10px;font-size:12px;color:rgba(255,255,255,.78)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--c,#888);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#888) 25%,transparent)}
+.filters{display:grid;gap:8px;padding:10px 14px 12px;border-top:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.08)}
+.frow{display:flex;gap:6px;flex-wrap:wrap}
+.chip{min-height:32px;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:background .25s,border-color .25s,color .25s}
+.chip:hover{border-color:rgba(255,255,255,.4)}
+.chip[aria-pressed="true"]{background:#fff;color:var(--ink);border-color:#fff}
+.chip svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linejoin:round}
+.chip.fav[aria-pressed="true"] svg{fill:var(--brass)}
+.chip.fav{justify-self:start}
+.frange{display:grid;grid-template-columns:1fr auto;align-items:center;font-size:12px;color:rgba(255,255,255,.75);padding:0 2px}
+.frange output{color:var(--brass-2);font-weight:600;font-variant-numeric:tabular-nums}
+.frange .range{grid-column:1/-1;margin-top:0;height:22px}
+.llist{list-style:none;overflow-y:auto;padding:8px;display:grid;gap:6px;align-content:start;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}
+.lcard{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:center;width:100%;text-align:left;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);transition:background .25s,border-color .25s,opacity .3s}
+.lcard:hover,.lcard.hov{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}
+.lcard[aria-current="true"]{border-color:var(--brass-2);background:rgba(216,189,140,.12)}
+.lcard.out{opacity:.38}
+.lcard .num{grid-column:1;grid-row:1/3;font-family:var(--serif);font-size:30px;line-height:1;min-width:46px}
+.lcard .ti{grid-column:2;grid-row:1;font-weight:600;font-size:14px}
+.lcard .su{grid-column:2;grid-row:2;font-size:12px;color:rgba(255,255,255,.66)}
+.lcard .pr{grid-column:3;grid-row:1/3;text-align:right;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.lcard .pr small{display:block;font-weight:500;margin-top:3px}
+.stt{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--c)}
+.stt::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+.lempty{padding:18px;font-size:13px;color:rgba(255,255,255,.65);text-align:center}
+.cmpbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(255,255,255,.1);font-size:12.5px}
+.cmpbar[hidden]{display:none}
+.cmpbar span{flex:1;color:rgba(255,255,255,.8)}
+.btn-b{min-height:36px;padding:6px 14px;border-radius:999px;background:var(--brass-2);color:var(--ink);font-weight:600;font-size:13px}
+.btn-b:disabled{opacity:.45;cursor:default}
+.lnk{font-size:12.5px;color:rgba(255,255,255,.7);text-decoration:underline;text-underline-offset:3px}
+
+/* fiche logement (droite) */
+.sheet{position:fixed;z-index:4;right:var(--pad);top:calc(var(--pad) + 70px + env(safe-area-inset-top,0px));bottom:calc(var(--dock-h,120px) + var(--pad) + 14px);width:392px;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;background:rgba(14,18,16,.72)}
+.sheet[hidden]{display:none}
+.sheet:not([hidden]){animation:slideR .5s var(--ease)}
+@keyframes slideR{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.sh-in{overflow-y:auto;padding:20px 20px 18px;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}
+.sh-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.sh-k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--brass-2);font-weight:600}
+.sh-top h2{font-family:var(--serif);font-weight:400;font-size:42px;line-height:1;margin-top:6px}
+.sh-top h2 em{font-style:italic;color:var(--brass-2)}
+#shT:focus{outline:none}
+.sh-sub{font-size:14px;color:rgba(255,255,255,.78);margin-top:6px}
+.sh-acts{display:flex;gap:4px}
+.ib{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.18);transition:background .25s,border-color .25s,color .25s}
+.ib:hover{border-color:rgba(255,255,255,.5)}
+.ib svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ib[aria-pressed="true"]{color:var(--brass-2);border-color:var(--brass-2)}
+.ib.star[aria-pressed="true"] svg{fill:var(--brass-2)}
+.price{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.price b{font-family:var(--serif);font-weight:400;font-size:32px;line-height:1;font-variant-numeric:lining-nums}
+.price.sold b{color:#e7a493}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,.1);border-radius:14px;overflow:hidden;margin-top:12px}
+.facts div{background:rgba(18,22,20,.92);padding:10px 12px}
+.facts b{display:block;font-family:var(--serif);font-weight:400;font-size:22px;line-height:1.1}
+.facts span{font-size:11.5px;color:rgba(255,255,255,.65)}
+.sh-h{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.62);margin:18px 0 8px;font-weight:600}
+.plan{border-radius:14px;background:#f4f1ea;padding:10px;color:var(--ink)}
+.plan svg{display:block;width:100%;height:auto;max-height:300px}
+.rooms{list-style:none;display:grid;gap:2px;font-size:13.5px}
+.rooms li{display:flex;justify-content:space-between;gap:10px;padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.07)}
+.rooms li span:last-child{color:rgba(255,255,255,.7);font-variant-numeric:tabular-nums}
+.exts{display:flex;flex-wrap:wrap;gap:6px}
+.exts span{font-size:12.5px;padding:5px 10px;border-radius:999px;background:rgba(127,209,156,.12);color:#bfe8cd}
+.cta{display:grid;gap:8px}
+.sh-foot{flex:0 0 auto;padding:12px 16px 14px;border-top:1px solid rgba(255,255,255,.1);background:rgba(12,15,13,.6)}
+.sh-foot .sh-note{margin-top:8px;text-align:center}
+.rooms-d summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.62);margin:18px 0 8px;font-weight:600}
+.rooms-d summary::-webkit-details-marker{display:none}
+.rooms-d summary::after{content:"+";font-size:16px;letter-spacing:0;color:var(--brass-2)}
+.rooms-d[open] summary::after{content:"−"}
+.plan + .sh-h{margin-top:12px}
+.cta .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn-l{min-height:46px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:500;border:1px solid rgba(255,255,255,.3);text-decoration:none;transition:background .25s,border-color .25s}
+.btn-l:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.6)}
+.btn-l svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.btn-l.main{background:#fff;color:var(--ink);border-color:#fff}
+.btn-l.main:hover{background:var(--brass-2);border-color:var(--brass-2)}
+.btn-l:disabled{opacity:.45;cursor:default}
+.sh-note{font-size:11.5px;color:rgba(255,255,255,.5);margin-top:12px}
+
+/* étiquettes 3D et infobulle */
+.labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+body.noui .labels{display:none}
+.l3{position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:7px;padding:5px 11px 5px 7px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap;background:rgba(14,18,16,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.18);box-shadow:0 6px 18px rgba(0,0,0,.25);transition:opacity .3s,border-color .25s,background .25s;will-change:transform}
+.l3::after{content:"";position:absolute;left:50%;bottom:-7px;width:1px;height:7px;background:rgba(255,255,255,.5)}
+.l3 .dot{width:9px;height:9px}
+.l3 small{font-weight:500;font-size:11.5px;color:rgba(255,255,255,.78)}
+.l3.dim{opacity:.55}
+.l3.dim:hover{opacity:1}
+.l3:hover,.l3.hov{border-color:var(--brass-2);background:rgba(30,32,28,.9)}
+.l3.sel{background:var(--brass-2);color:var(--ink);border-color:var(--brass-2)}
+.l3.sel small{color:rgba(22,25,29,.7)}
+.l3.out{opacity:.35}
+.l3.hide{opacity:0;pointer-events:none}
+.rl{position:absolute;left:0;top:0;pointer-events:none;padding:2px 7px;border-radius:7px;font-size:11px;font-weight:600;line-height:1.25;white-space:nowrap;color:#1f2124;background:rgba(250,248,242,.86);box-shadow:0 2px 8px rgba(0,0,0,.18);transition:opacity .25s}
+.rl small{font-weight:500;color:#5f646b;font-size:11px}
+.rl.hide{opacity:0}
+.tip{position:fixed;z-index:30;left:0;top:0;pointer-events:none;padding:8px 12px;border-radius:12px;font-size:12.5px;line-height:1.35;background:rgba(14,18,16,.86);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 10px 26px rgba(0,0,0,.3)}
+.tip b{font-family:var(--serif);font-weight:400;font-size:20px;margin-right:6px}
+.tip[hidden]{display:none}
+.tip .stt{margin-left:4px}
+.tip em{display:block;font-style:normal;color:rgba(255,255,255,.6);font-size:11.5px;margin-top:2px}
+
+/* mini-carte */
+.minimap{position:fixed;z-index:2;right:var(--pad);top:calc(var(--pad) + 72px + env(safe-area-inset-top,0px));width:132px;height:132px;border-radius:50%;overflow:hidden;transition:opacity .4s}
+.minimap svg{width:100%;height:100%;display:block}
+.minimap .mm-n{display:none}
+.minimap{overflow:visible!important}
+.minimap svg{border-radius:50%}
+.minimap .mm-cap{position:absolute;top:calc(100% + 4px);left:-20px;right:-20px;text-align:center;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.7);text-shadow:0 1px 4px rgba(0,0,0,.6)}
+body.sheet-open .minimap{opacity:0;pointer-events:none}
+
+/* joystick (nav.js) : au-dessus du dock, masqué en orbite quand un panneau est ouvert */
+.navroot{position:fixed;left:0;right:0;bottom:calc(var(--dock-h,120px) + var(--pad) + var(--safe-b));height:0;z-index:3;pointer-events:none}
+.navroot > *{pointer-events:none}
+body.m-orbit.lots-open .cnv-joy,body.m-orbit.sheet-open .cnv-btns{display:none}
+body.noui .navroot{display:none}
+@media (hover:hover) and (pointer:fine){body.m-orbit .cnv-btns{display:none}}
+@media (min-width:761px){body.cut-on .dock > .views{display:none}}
+/* vue depuis le lot : interface immersive */
+.backbtn{position:fixed;z-index:6;left:50%;top:calc(var(--pad) + 4px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;align-items:center;gap:10px;height:46px;padding:0 20px 0 14px;border-radius:999px;font-size:14px;font-weight:600}
+.backbtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.immersive .backbtn{display:inline-flex}
+body.immersive .top,body.immersive .lots,body.immersive .floors,body.immersive .sheet,body.immersive .dock > .views,body.immersive .dock .tabs,body.immersive .labels,body.immersive .hint,body.immersive .lift{display:none!important}
+body.immersive .cap{top:calc(var(--pad) + 64px)}
+body.immersive .dock .sun{display:block!important}
+/* ascenseur (balade) */
+.lift{position:fixed;z-index:5;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,110px) + var(--pad) + 18px);display:flex;align-items:center;gap:6px;padding:6px 6px 6px 14px;border-radius:999px;font-size:13px}
+.lift[hidden]{display:none}
+.lift b{font-weight:600;margin-right:4px;display:inline-flex;align-items:center;gap:6px}
+.lift b svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7}
+.lift span{display:flex;gap:4px}
+.lift button{min-height:38px;min-width:44px;padding:0 12px;border-radius:999px;font-weight:600;background:rgba(255,255,255,.08)}
+.lift button:hover{background:var(--brass-2);color:var(--ink)}
+/* message discret */
+.toast{position:fixed;z-index:40;left:50%;top:calc(var(--pad) + 74px);transform:translateX(-50%);padding:10px 16px;border-radius:999px;font-size:13.5px;transition:opacity .5s}
+.toast[hidden]{display:none}
+/* soleil : saison, heure dorée et heure bleue */
+.seasons{display:flex;gap:2px;margin-top:8px}
+.seasons button{flex:1;min-height:30px;border-radius:8px;font-size:11.5px;font-weight:500;color:rgba(255,255,255,.75);background:rgba(255,255,255,.05)}
+.seasons button[aria-pressed="true"]{background:rgba(216,189,140,.2);color:var(--brass-2)}
+.sunbar{height:4px;border-radius:3px;margin:2px 0 0;background:rgba(255,255,255,.12)}
+.sun .scale span i{font-style:normal;color:var(--brass-2)}
+
+/* dialogues */
+.modal{margin:auto;border:1px solid rgba(255,255,255,.16);border-radius:22px;background:rgba(18,22,20,.94);color:#fff;padding:22px 24px 20px;width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.modal::backdrop{background:rgba(6,9,7,.55);backdrop-filter:blur(3px)}
+.modal[open]{animation:swap .4s var(--ease)}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.mh h2{font-family:var(--serif);font-weight:400;font-size:34px;line-height:1}
+.hgrid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.hgrid h3{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass-2);margin-bottom:8px}
+.hgrid dl{display:grid;grid-template-columns:minmax(118px,auto) 1fr;gap:8px 12px;font-size:13.5px;align-items:baseline}
+.hgrid dd{color:rgba(255,255,255,.8)}
+.hnote{margin-top:16px;font-size:12.5px;color:rgba(255,255,255,.6)}
+.cmptable table{width:100%;border-collapse:collapse;font-size:14px}
+.cmptable th,.cmptable td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}
+.cmptable thead th{font-family:var(--serif);font-weight:400;font-size:30px}
+.cmptable tbody th{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.6);font-weight:600;width:28%}
+.cmptable .best{color:#9fe0b5}
+
+/* chargement */
+.loader{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:radial-gradient(120% 90% at 50% 40%,#1c2520 0%,var(--night) 70%);transition:opacity 1s var(--ease),visibility 0s 1s}
+.loader.done{opacity:0;visibility:hidden}
+.loader .in{width:min(340px,80vw);text-align:center}
+.loader .eyebrow{display:inline-flex;align-items:center;gap:12px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:600;color:var(--brass-2)}
+.loader .eyebrow::before,.loader .eyebrow::after{content:"";width:22px;height:1px;background:currentColor}
+.loader h2{font-family:var(--serif);font-weight:400;font-size:clamp(56px,10vw,92px);line-height:.95;margin-top:14px;letter-spacing:-.01em}
+.loader h2 em{color:var(--brass-2)}
+.bar{height:2px;background:rgba(255,255,255,.14);margin-top:30px;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--brass-2);transition:width .5s var(--ease)}
+.loader .st{display:flex;justify-content:space-between;margin-top:12px;font-size:12.5px;color:rgba(255,255,255,.66);font-variant-numeric:tabular-nums}
+.loader .err{margin-top:18px;font-size:14px;color:#ffd2c7;line-height:1.5}
+.loader .err a{color:var(--brass-2)}
+
+/* écrans moyens */
+@media (max-width:1100px){
+  .sun{width:250px}
+  .vbtn{width:78px}
+}
+@media (max-width:1400px) and (min-width:761px){
+  .tool .t{display:none}
+  .tool{padding:0 11px}
+  .brand span.k{display:none}
+}
+/* écrans moyens : la fiche et le panneau ne peuvent coexister */
+@media (max-width:1180px) and (min-width:761px){
+  body.sheet-open.lots-open .lots{display:none}
+  body.sheet-open.lots-open .cap{left:calc(var(--pad) + 8px)}
+  .navmode button span{display:none}
+  .navmode button{padding:0 12px}
+}
+/* mobile : barre du bas compacte à onglets */
+@media (max-width:760px), (max-height:520px) and (max-width:1000px){
+  :root{--pad:12px}
+  .brand{padding:4px 10px 4px 4px;gap:9px}
+  .brand .back{width:30px;height:30px}
+  .brand b{font-size:24px}
+  .brand span.k{display:none}
+  .tool .t{display:none}
+  .tool{height:40px;min-width:40px;padding:0 10px}
+  #tLots,#tRotate{display:none}
+  .tools{padding:4px;border-radius:14px}
+  .navmode{position:absolute;left:50%;transform:translateX(-50%);top:52px;padding:3px;margin:0}
+  .navmode button{height:34px;padding:0 12px 0 9px;font-size:12.5px;gap:6px}
+  .navmode svg{width:16px;height:16px}
+  .cap{top:calc(var(--pad) + 100px + env(safe-area-inset-top,0px));max-width:calc(100% - 2 * var(--pad))}
+  body.lots-open .cap{left:calc(var(--pad) + 8px)}
+  .cap h1{font-size:25px;text-shadow:0 1px 3px rgba(0,0,0,.6),0 2px 22px rgba(0,0,0,.55)}
+  .cap .n{font-size:10.5px}
+  .shade{background:linear-gradient(180deg,rgba(8,11,9,.55) 0%,rgba(8,11,9,0) 26%),linear-gradient(0deg,rgba(8,11,9,.38) 0%,rgba(8,11,9,0) 22%)}
+  .lift{bottom:calc(var(--dock-h,150px) + var(--pad) + 12px);max-width:94vw;overflow-x:auto;white-space:nowrap;padding-left:10px}
+  .lift b{font-size:0;gap:0}
+  .lift b svg{width:18px;height:18px}
+  .toast{top:calc(var(--pad) + 100px)}
+  .backbtn{top:calc(var(--pad) + 6px)}
+  .cap p{display:none}
+  .minimap{display:none}
+  .hint{bottom:calc(var(--dock-h,150px) + var(--pad) + 12px + var(--safe-b));font-size:12px;white-space:normal;text-align:center;width:max-content;max-width:88vw}
+  .dock{flex-direction:column;align-items:stretch;gap:0;border-radius:18px;padding:6px;background:var(--glass-bg);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border:1px solid var(--glass-line)}
+  .dock > .glass{background:none;border:0;backdrop-filter:none;-webkit-backdrop-filter:none}
+  .dock .pane{display:none}
+  .dock .pane.on{display:flex}
+  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;order:2;margin-top:4px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px}
+  .tab{min-height:42px;border-radius:10px;font-size:12.5px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:6px;color:rgba(255,255,255,.8)}
+  .tab svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .tab[aria-expanded="true"]{background:rgba(216,189,140,.18);color:var(--brass-2)}
+  .views{padding:2px;border-radius:12px}
+  .vbtn{width:68px}
+  .vbtn span{display:none}
+  .floors{position:static;transform:none;width:auto;flex-direction:row;padding:2px;gap:4px}
+  body.sheet-open .floors{right:auto}
+  .floors .plabel{display:none}
+  .flist{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1}
+  .lvl{flex:1 0 auto;min-height:48px;padding:4px 10px;grid-template-columns:1fr;text-align:center;justify-items:center}
+  .lvl i{display:none}
+  .lvl.ext{margin:0;border:0;border-radius:10px;flex:0 0 auto}
+  .lots{position:static;width:auto;border-radius:12px;max-height:44vh;animation:none!important}
+  .dock .lots.pane.on{display:flex}
+  .lhead{padding:6px 8px 4px}
+  .lhead h2{font-size:22px}
+  #lotsClose{display:none}
+  .legend{padding:0 8px 6px}
+  .filters{padding:8px 6px}
+  .llist{padding:6px 2px}
+  .sun{width:auto;padding:6px 10px 2px;flex-direction:column}
+  .sun output{font-size:24px}
+  .sheet{left:var(--pad);right:var(--pad);width:auto;top:auto;bottom:calc(var(--pad) + var(--safe-b));max-height:76vh;z-index:8;border-radius:22px 22px 18px 18px}
+  .sh-top h2{font-size:34px}
+  .navroot .cnv-joy{opacity:.92}
+  body.m-orbit .cnv-joy,body.m-orbit .cnv-btns{display:none}
+  body.sheet-open .navroot{display:none}
+  body.sheet-open .dock{visibility:hidden}
+  .hgrid{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+</style>
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<a class="skip" href="#lotsPanel">Aller à la liste des logements</a>
+<div id="app">
+  <canvas id="scene" tabindex="0" role="img" aria-label="Maquette 3D interactive de la résidence Canopée. Glisser pour tourner, molette ou pincement pour zoomer, clic droit ou deux doigts pour déplacer. Survolez un logement pour le voir, cliquez pour ouvrir sa fiche."></canvas>
+  <div class="shade"></div>
+  <div class="labels" id="labels"></div>
+  <div class="tip" id="tip" hidden></div>
+
+  <div class="ui" id="ui">
+    <header class="top">
+      <a class="brand" href="../index.html" aria-label="Retour au site Canopée">
+        <span class="back" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></span>
+        <b>Canopée</b><span class="k">Maquette 3D</span>
+      </a>
+      <div class="navmode glass" id="navMode" role="radiogroup" aria-label="Mode de navigation">
+        <button role="radio" data-mode="orbit" aria-checked="true" title="Orbite : tourner autour du bâtiment (N pour changer)"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="4"/><circle cx="12" cy="12" r="2.2"/></svg><span>Orbite</span></button>
+        <button role="radio" data-mode="drone" aria-checked="false" title="Drone : vol libre"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="6" r="2.5"/><circle cx="18.5" cy="6" r="2.5"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/><path d="M8 8l2.5 2.5M16 8l-2.5 2.5M8 16l2.5-2.5M16 16l-2.5-2.5"/><rect x="10" y="10" width="4" height="4" rx="1"/></svg><span>Drone</span></button>
+        <button role="radio" data-mode="walk" aria-checked="false" title="Balade : à pied, à hauteur d’œil"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"/><path d="M9 21l2.5-6 2.5 2v4M11.5 15l1-5.5 3 3 3 1M12.5 9.5L9 11l-1.5 3"/></svg><span>Balade</span></button>
+      </div>
+      <div class="tools glass">
+        <button class="tool" id="tLots" aria-pressed="false" aria-controls="lotsPanel" title="Logements (L)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 7h3M13 7h3M8 11h3M13 11h3M8 15h3M13 15h3"/></svg><span class="t">Logements</span>
+        </button>
+        <button class="tool" id="tAvail" aria-pressed="false" title="Disponibilités en façade (V)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 12.5l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg><span class="t">Disponibilités</span>
+        </button>
+        <button class="tool" id="tRotate" aria-pressed="false" aria-label="Rotation automatique" title="Rotation automatique (R)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg>
+        </button>
+        <button class="tool" id="tQuality" aria-expanded="false" aria-controls="qPanel" aria-label="Qualité d'affichage" title="Qualité d'affichage">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="t q" id="qLabel">Auto</span>
+        </button>
+        <button class="tool" id="tHelp" aria-label="Aide et raccourcis clavier" title="Aide (?)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2.9-1.2 1.8v.4"/><path d="M12 17h.01"/></svg>
+        </button>
+        <button class="tool" id="tFs" aria-pressed="false" aria-label="Plein écran" title="Plein écran (F)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+        <div class="qpanel glass" id="qPanel" hidden role="group" aria-label="Qualité d'affichage">
+          <div class="lbl"><span>Qualité</span><output id="fps" aria-live="off">— i/s</output></div>
+          <button class="opt" data-q="auto" aria-pressed="true">Automatique</button>
+          <button class="opt" data-q="high" aria-pressed="false">Haute</button>
+          <button class="opt" data-q="medium" aria-pressed="false">Moyenne</button>
+          <button class="opt" data-q="low" aria-pressed="false">Basse</button>
+          <p class="note" id="qNote">La qualité s'adapte à la fluidité mesurée.</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="cap" id="cap" aria-live="polite">
+      <div class="n" id="capN">01 / 08</div>
+      <h1 id="capT">Façade sur rue</h1>
+      <p id="capD"></p>
+    </section>
+
+    <div class="minimap glass" id="minimap" aria-hidden="true">
+      <svg viewBox="-30 -42 60 60" id="mmSvg">
+        <g id="mmRot">
+          <rect x="-60" y="7.5" width="120" height="7.5" fill="rgba(255,255,255,.1)"/>
+          <rect x="-60" y="4.5" width="120" height="3" fill="rgba(255,255,255,.05)"/>
+          <rect id="mmBld" x="-6" y="-19" width="12" height="19" rx=".4" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.6)" stroke-width=".35"/>
+          <g id="mmLots"></g>
+          <g id="mmCam"><path d="M0 0 L-3.4 -7.6 A8.3 8.3 0 0 1 3.4 -7.6 Z" fill="url(#mmCone)"/><circle r="1.6" fill="#d8bd8c" stroke="#111613" stroke-width=".5"/></g>
+        </g>
+        <g id="mmNorth" transform="rotate(-20 0 -12)"><text x="0" y="-37.6" text-anchor="middle" font-size="4.2" font-weight="700" fill="#d8bd8c" font-family="Inter,sans-serif">N</text></g>
+        <defs><linearGradient id="mmCone" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#d8bd8c" stop-opacity=".6"/><stop offset="1" stop-color="#d8bd8c" stop-opacity="0"/></linearGradient></defs>
+      </svg>
+      <span class="mm-n">N</span><span class="mm-cap" id="mmCap">Rue · Sud</span>
+    </div>
+
+    <nav class="dock" id="dock" aria-label="Commandes de la maquette">
+      <div class="tabs" role="group" aria-label="Panneaux">
+        <button class="tab" data-pane="views" aria-controls="views" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>Vues</button>
+        <button class="tab" data-pane="floors" aria-controls="floors" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>Étages</button>
+        <button class="tab" data-pane="lotsPanel" aria-controls="lotsPanel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 7h3M13 7h3M8 11h3M13 11h3M8 15h3M13 15h3"/></svg>Lots</button>
+        <button class="tab" data-pane="sun" aria-controls="sun" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>Soleil</button>
+      </div>
+      <div class="views glass pane on" id="views" role="group" aria-label="Points de vue"></div>
+
+      <div class="floors glass pane" id="floors" role="group" aria-label="Étages : afficher un étage en coupe">
+        <div class="plabel"><span>Étages</span></div>
+        <div class="flist" id="floorList"></div>
+      </div>
+
+      <aside class="lots glass pane" id="lotsPanel" aria-label="Logements">
+        <div class="lhead">
+          <div><h2>Logements</h2><p id="lotsCount">—</p></div>
+          <button class="x" id="lotsClose" aria-label="Fermer la liste des logements"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="legend" id="legend" aria-label="Légende des statuts"></div>
+        <div class="filters" role="group" aria-label="Filtres">
+          <div class="frow" id="fTypo" role="group" aria-label="Typologie"></div>
+          <div class="frow" id="fStatus" role="group" aria-label="Statut"></div>
+          <div class="frange">
+            <label for="fSurf">Surface min.</label><output id="fSurfOut" for="fSurf">Toutes</output>
+            <input class="range" type="range" id="fSurf" min="60" max="100" step="2" value="60">
+          </div>
+          <button class="chip fav" id="fFav" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>Favoris</button>
+        </div>
+        <div class="lsort"><label for="lSort">Trier</label>
+          <select id="lSort"><option value="dispo">Disponibles d’abord</option><option value="prix">Prix croissant</option><option value="surface">Surface décroissante</option><option value="etage">Étage</option></select>
+        </div>
+        <ul class="llist" id="lotList" aria-label="Liste des logements"></ul>
+        <div class="cmpbar" id="cmpBar" hidden>
+          <span id="cmpTxt">Comparer</span>
+          <button class="btn-b" id="cmpGo">Comparer</button>
+          <button class="lnk" id="cmpClear">Effacer</button>
+        </div>
+      </aside>
+
+      <div class="sun glass pane" id="sun">
+        <div class="row">
+          <label class="plabel" for="hour">Heure du jour</label>
+          <output id="hourOut" for="hour">18 h 00</output>
+        </div>
+        <input class="range" type="range" id="hour" min="8" max="20" step="0.25" value="18" aria-valuetext="18 h 00">
+        <div class="sunbar" id="sunBar" aria-hidden="true"></div>
+        <div class="scale" aria-hidden="true"><span>8 h</span><span><i>■</i> heure dorée · <i style="color:#7f9fd8">■</i> heure bleue</span><span>20 h</span></div>
+        <div class="seasons" role="group" aria-label="Date">
+          <button type="button" data-season="hiver" aria-pressed="false">21 déc.</button>
+          <button type="button" data-season="equinoxe" aria-pressed="false">21 mars</button>
+          <button type="button" data-season="ete" aria-pressed="true">21 juin</button>
+        </div>
+      </div>
+    </nav>
+
+    <aside class="sheet glass" id="sheet" hidden role="dialog" aria-modal="false" aria-labelledby="shT">
+      <div class="sh-in" id="sheetBody"></div>
+    </aside>
+
+    <div class="navroot" id="navRoot"></div>
+
+    <button class="backbtn glass" id="backBtn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Retour au plan</button>
+    <div class="lift glass" id="lift" hidden role="group" aria-label="Ascenseur"><b><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M9.5 9l2.5-2.5L14.5 9M9.5 15l2.5 2.5 2.5-2.5"/></svg>Ascenseur</b><span id="liftBtns"></span></div>
+    <p class="toast glass" id="toast" hidden role="status"></p>
+
+    <p class="hint glass" id="hint">
+      <span class="k-only">Glisser pour tourner · molette pour zoomer · cliquez un étage puis un logement · <span class="kbd">?</span> aide</span>
+      <span class="t-only">Un doigt pour tourner · deux doigts pour zoomer · touchez un logement pour sa fiche</span>
+    </p>
+  </div>
+
+  <dialog class="modal" id="help" aria-labelledby="helpT">
+    <div class="mh"><h2 id="helpT">Aide et raccourcis</h2><button class="x" data-close aria-label="Fermer l’aide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="hgrid">
+      <section><h3>Navigation</h3><dl>
+        <dt><span class="kbd">N</span></dt><dd>Changer de mode : Orbite, Drone, Balade</dd>
+        <dt><span class="kbd">Z</span><span class="kbd">Q</span><span class="kbd">S</span><span class="kbd">D</span> / <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span></dt><dd>Avancer, reculer, se décaler (Drone, Balade)</dd>
+        <dt><span class="kbd">←</span><span class="kbd">→</span><span class="kbd">↑</span><span class="kbd">↓</span></dt><dd>Tourner, avancer</dd>
+        <dt><span class="kbd">E</span> / <span class="kbd">Espace</span> · <span class="kbd">C</span></dt><dd>Monter · descendre (Drone)</dd>
+        <dt><span class="kbd">Maj</span></dt><dd>Courir (Balade)</dd>
+        <dt><span class="kbd">+</span> <span class="kbd">−</span></dt><dd>Rapprocher, éloigner (Orbite)</dd>
+      </dl></section>
+      <section><h3>Maquette</h3><dl>
+        <dt><span class="kbd">1</span>–<span class="kbd">8</span></dt><dd>Points de vue</dd>
+        <dt><span class="kbd">Pg↑</span> <span class="kbd">Pg↓</span></dt><dd>Étage supérieur, inférieur (en coupe)</dd>
+        <dt><span class="kbd">0</span></dt><dd>Quitter la coupe, revenir à l’extérieur</dd>
+        <dt><span class="kbd">L</span></dt><dd>Liste des logements</dd>
+        <dt><span class="kbd">V</span></dt><dd>Disponibilités en façade</dd>
+        <dt><span class="kbd">R</span> · <span class="kbd">F</span></dt><dd>Rotation automatique · plein écran</dd>
+        <dt><span class="kbd">Échap</span></dt><dd>Fermer la fiche ou le panneau ouvert</dd>
+      </dl></section>
+    </div>
+    <p class="hnote">À la souris : survolez un logement pour l’identifier, cliquez pour ouvrir sa fiche. Au doigt : touchez-le.</p>
+  </dialog>
+
+  <dialog class="modal" id="compare" aria-labelledby="cmpT">
+    <div class="mh"><h2 id="cmpT">Comparer deux logements</h2><button class="x" data-close aria-label="Fermer la comparaison"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="cmptable" id="cmpTable"></div>
+  </dialog>
+
+  <div class="loader" id="loader" role="status" aria-live="polite">
+    <div class="in">
+      <div class="eyebrow">Maquette 3D</div>
+      <h2>Canopée</h2>
+      <div class="bar" aria-hidden="true"><i id="loadBar"></i></div>
+      <div class="st"><span id="loadStep">Préparation…</span><span id="loadPct">0 %</span></div>
+      <p class="err" id="loadErr" hidden></p>
+    </div>
+  </div>
+</div>
+<script type="module" src="./viewer.js"></script>
+</body>
+</html>

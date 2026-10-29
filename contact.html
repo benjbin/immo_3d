@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Contact — Neokrome</title>
+<meta name="description" content="Demandez une démonstration Neokrome sur l'un de vos programmes immobiliers.">
+<meta name="theme-color" content="#0B214A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 240 250'%3E%3Cpolygon points='0,42 99,115 99,227 0,170' fill='%230B214A'/%3E%3Cpolygon points='142,100 219,70 219,173 142,227' fill='%230B214A'/%3E%3Cpolygon points='78,45 204,0 204,65 142,98' fill='%23145CFF'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body>
+<a class="saut" href="#contenu">Aller au contenu</a>
+
+<header class="entete sombre">
+  <div class="conteneur">
+    <a class="logo" href="index.html" aria-label="Neokrome, accueil"><img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402"></a>
+    <button class="burger" type="button" aria-expanded="false" aria-controls="nav" aria-label="Ouvrir le menu">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7H21M3 12H21M3 17H14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <nav class="nav" id="nav" aria-label="Navigation principale">
+      <a href="index.html">Accueil</a>
+      <a href="solutions.html">Solutions</a>
+      <a href="demo.html">Démo 3D</a>
+      <a href="canopee/">Réalisation</a>
+      <a class="btn btn-principal" href="contact.html" aria-current="page">Demander une démo</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenu">
+  <section class="hero hero-pages sombre">
+    <div class="trame" aria-hidden="true"></div>
+    <div class="conteneur">
+      <div class="hero-texte">
+        <span class="label apparait">Contact</span>
+        <h1 class="h1 apparait">Parlons de<br><span class="accent">votre programme.</span></h1>
+        <p class="chapo apparait">Une démonstration de 30 minutes, sur vos plans ou sur la résidence Canopée.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="conteneur duo" style="align-items:flex-start">
+      <form class="formulaire texte apparait" id="form-contact" data-destinataire="contact@neokrome.tech" novalidate style="flex:1.4 1 520px">
+        <div class="champ">
+          <label for="nom">Nom <span aria-hidden="true">*</span></label>
+          <input id="nom" name="nom" autocomplete="name" required aria-describedby="err-nom">
+          <p class="erreur" id="err-nom" hidden></p>
+        </div>
+        <div class="champ">
+          <label for="societe">Société</label>
+          <input id="societe" name="societe" autocomplete="organization">
+        </div>
+        <div class="champ">
+          <label for="email">E-mail professionnel <span aria-hidden="true">*</span></label>
+          <input id="email" name="email" type="email" autocomplete="email" required aria-describedby="err-email" placeholder="nom@promoteur.fr">
+          <p class="erreur" id="err-email" hidden></p>
+        </div>
+        <div class="champ">
+          <label for="tel">Téléphone</label>
+          <input id="tel" name="tel" type="tel" autocomplete="tel">
+        </div>
+        <div class="champ plein">
+          <label for="besoin">Votre besoin</label>
+          <select id="besoin" name="besoin">
+            <option>Configurateur de lots pour un programme</option>
+            <option>Maquette 3D et visite immersive</option>
+            <option>Films marketing générés depuis la 3D</option>
+            <option>Une démonstration, pour découvrir</option>
+          </select>
+        </div>
+        <div class="champ plein">
+          <label for="message">Message</label>
+          <textarea id="message" name="message" placeholder="Votre programme, son nombre de lots, votre calendrier de commercialisation…"></textarea>
+        </div>
+        <div class="plein" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px">
+          <span class="muet" style="font-size:14px">* Champs obligatoires</span>
+          <button class="btn btn-principal" type="submit">Envoyer la demande <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+        </div>
+        <p class="message-envoi" role="status" hidden></p>
+      </form>
+
+      <aside class="coordonnees media apparait" style="flex:1 1 300px" aria-label="Coordonnées">
+        <div>
+          <span class="label">E-mail</span>
+          <p style="margin:8px 0 0;font-size:20px"><a class="lien" href="mailto:contact@neokrome.tech">contact@neokrome.tech</a></p>
+        </div>
+        <div>
+          <span class="label">Démonstration en ligne</span>
+          <p style="margin:8px 0 0">Sans attendre, essayez la <a class="lien" href="demo.html">maquette 3D Canopée</a>.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<footer class="pied">
+  <div class="conteneur">
+    <img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402">
+    <span>L'intelligence visuelle. L'expérience numérique.</span>
+    <nav aria-label="Liens du pied de page">
+      <a href="solutions.html">Solutions</a><a href="demo.html">Démo 3D</a><a href="canopee/">Réalisation</a><a href="contact.html">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

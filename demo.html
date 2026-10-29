@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Démo 3D — Neokrome</title>
+<meta name="description" content="Essayez la maquette 3D temps réel de la résidence Canopée : étages en coupe, fiches de lots, visite à pied et drone.">
+<meta name="theme-color" content="#0B214A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 240 250'%3E%3Cpolygon points='0,42 99,115 99,227 0,170' fill='%230B214A'/%3E%3Cpolygon points='142,100 219,70 219,173 142,227' fill='%230B214A'/%3E%3Cpolygon points='78,45 204,0 204,65 142,98' fill='%23145CFF'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body>
+<a class="saut" href="#contenu">Aller au contenu</a>
+
+<header class="entete sombre">
+  <div class="conteneur">
+    <a class="logo" href="index.html" aria-label="Neokrome, accueil"><img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402"></a>
+    <button class="burger" type="button" aria-expanded="false" aria-controls="nav" aria-label="Ouvrir le menu">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7H21M3 12H21M3 17H14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <nav class="nav" id="nav" aria-label="Navigation principale">
+      <a href="index.html">Accueil</a>
+      <a href="solutions.html">Solutions</a>
+      <a href="demo.html" aria-current="page">Démo 3D</a>
+      <a href="canopee/">Réalisation</a>
+      <a class="btn btn-principal" href="contact.html">Demander une démo</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenu">
+  <section class="hero hero-pages sombre">
+    <div class="trame" aria-hidden="true"></div>
+    <div class="conteneur">
+      <div class="hero-texte">
+        <span class="label apparait">Démo 3D · Résidence Canopée</span>
+        <h1 class="h1 apparait">Prenez<br><span class="accent">les commandes.</span></h1>
+        <p class="chapo apparait">La maquette ci-dessous tourne en temps réel dans votre navigateur. Choisissez un étage, ouvrez un lot, puis visitez-le à pied.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:0">
+    <div class="conteneur" style="margin-top:-56px;position:relative">
+      <div class="cadre-demo apparait" data-src="canopee/3d/?lot=201">
+        <div class="lancer" style="background:linear-gradient(0deg,rgba(7,22,51,.84),rgba(7,22,51,.4)),url('assets/configurateur.jpg') center/cover">
+          <span class="label" style="color:var(--label-nuit)">Maquette 3D temps réel · chargement en quelques secondes</span>
+          <h2 class="h2" style="max-width:16ch">La résidence Canopée, en direct.</h2>
+          <div class="actions" style="justify-content:center">
+            <button class="btn btn-principal" type="button" data-lancer-demo>Lancer la maquette 3D</button>
+            <a class="btn btn-contour" href="canopee/3d/?lot=201">Ouvrir en plein écran</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="grille-cartes" style="margin-top:56px">
+        <article class="carte apparait">
+          <span class="label">01 · Choisir un étage</span>
+          <p>Touchez « Étages » puis R+2 : le bâtiment se coupe et révèle les deux appartements meublés.</p>
+        </article>
+        <article class="carte apparait">
+          <span class="label">02 · Ouvrir un lot</span>
+          <p>Touchez un appartement : sa fiche s'ouvre avec le prix, le plan et les surfaces de chaque pièce.</p>
+        </article>
+        <article class="carte apparait">
+          <span class="label">03 · Visiter à pied</span>
+          <p>« Visiter à pied » vous place dans le séjour. Joystick, ZQSD ou flèches pour marcher.</p>
+        </article>
+        <article class="carte apparait">
+          <span class="label">04 · Changer d'heure</span>
+          <p>Le curseur du soleil fait passer la façade de l'heure dorée à l'heure bleue.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section brume">
+    <div class="conteneur">
+      <div class="cta-bloc apparait">
+        <div>
+          <h2 class="h2">La même chose,<br><span style="color:var(--electrique-clair)">pour votre programme.</span></h2>
+          <p class="chapo" style="color:var(--sur-nuit)">Envoyez-nous vos plans : nous vous montrons le résultat sur votre projet.</p>
+        </div>
+        <a class="btn btn-principal" href="contact.html">Demander une démo <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="pied">
+  <div class="conteneur">
+    <img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402">
+    <span>L'intelligence visuelle. L'expérience numérique.</span>
+    <nav aria-label="Liens du pied de page">
+      <a href="solutions.html">Solutions</a><a href="demo.html">Démo 3D</a><a href="canopee/">Réalisation</a><a href="contact.html">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
