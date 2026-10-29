@@ -1,0 +1,104 @@
+/* « Dans la peau de l'acheteur » — DA Neokrome (voir ../assets/styles.css) */
+:root{
+  --nuit:#0B214A; --encre:#071633; --electrique:#145CFF; --electrique-survol:#2E6BFF; --electrique-clair:#5C8DFF;
+  --sur-nuit:#D5DEEF; --label-nuit:#AFC4EE; --filet-nuit:#5A79B4; --ok:#1F6B45; --ok-bg:#E3F2EA;
+  --display:"Outfit",system-ui,sans-serif; --texte:"Jost","Avenir Next",system-ui,sans-serif;
+  --marge:clamp(20px,5.5vw,80px); --ease:cubic-bezier(.2,.75,.15,1); --facette:22px;
+  --bas:max(28px,env(safe-area-inset-bottom));
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--encre);color:#fff;font-family:var(--texte);-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+body{touch-action:none}
+:focus-visible{outline:2px solid var(--electrique-clair);outline-offset:3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.saut{position:fixed;left:16px;top:-80px;z-index:60;background:var(--electrique);color:#fff;padding:12px 18px;text-decoration:none}
+.saut:focus{top:16px}
+#scene{position:fixed;inset:0;width:100%;height:100%;border:0;pointer-events:none;background:var(--encre)}
+.voile{position:fixed;inset:0;pointer-events:none;background:
+  linear-gradient(to top,rgba(7,22,51,.82) 0%,rgba(7,22,51,.45) 24%,rgba(7,22,51,0) 50%),
+  linear-gradient(to bottom,rgba(7,22,51,.55) 0%,rgba(7,22,51,0) 18%)}
+.noir{position:fixed;inset:0;background:var(--encre);opacity:0;pointer-events:none}
+.noir.nuit{background:radial-gradient(ellipse 90% 70% at 50% 40%,#123067 0%,var(--nuit) 45%,var(--encre) 100%)}
+
+/* en-tête */
+.haut{position:fixed;left:0;right:0;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:max(18px,env(safe-area-inset-top)) var(--marge) 0}
+.logo img{height:40px;width:auto;display:block}
+.son{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:rgba(7,22,51,.35);color:#fff;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(8px)}
+.son svg{width:22px;height:22px}.son .on{display:none}.son[aria-pressed=true] .on{display:inline}.son[aria-pressed=true] .off{display:none}
+
+/* chapitres */
+.chap{position:fixed;left:var(--marge);right:var(--marge);bottom:calc(var(--bas) + 96px);max-width:900px;pointer-events:none;opacity:0;visibility:hidden}
+.chap.vis{visibility:visible}
+.chap .num{display:flex;align-items:center;gap:14px;font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:.3em;color:var(--label-nuit);margin-bottom:18px}
+.chap .num::after{content:"";width:56px;height:1px;background:var(--filet-nuit)}
+.titre{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(40px,7.2vw,104px);line-height:.94;letter-spacing:-.02em;margin:0;text-wrap:balance;text-shadow:0 2px 40px rgba(7,22,51,.45)}
+.titre em{font-style:normal;color:var(--electrique-clair)}
+.sous{font-size:clamp(19px,2vw,26px);line-height:1.4;color:var(--sur-nuit);margin:18px 0 0;max-width:34ch;text-shadow:0 1px 20px rgba(7,22,51,.6)}
+.ligne{display:block;overflow:hidden;padding-bottom:.06em;margin-bottom:-.06em}
+.ligne>span{display:block;transform:translateY(105%);transition:transform .9s var(--ease)}
+.chap.vis .ligne>span{transform:none}
+.chap .sous,.chap .carte,.chap .actions{opacity:0;transform:translateY(16px);transition:opacity .7s var(--ease) .25s,transform .9s var(--ease) .25s}
+.chap.vis .sous,.chap.vis .carte,.chap.vis .actions{opacity:1;transform:none}
+
+/* carte de lot (chapitre 3) */
+.chap[data-c="2"]{bottom:auto;top:calc(max(18px,env(safe-area-inset-top)) + 84px)}
+.carte{margin-top:26px;display:inline-grid;grid-template-columns:auto auto;gap:6px 28px;padding:22px 26px;background:rgba(7,22,51,.78);border:1px solid rgba(92,141,255,.35);backdrop-filter:blur(12px);clip-path:polygon(0 0,calc(100% - var(--facette)) 0,100% var(--facette),100% 100%,var(--facette) 100%,0 calc(100% - var(--facette)));pointer-events:auto}
+.carte .k{grid-column:1/-1;font-size:13px;letter-spacing:.28em;text-transform:uppercase;color:var(--label-nuit)}
+.carte b{font-family:var(--display);font-weight:800;font-size:clamp(26px,2.6vw,36px);line-height:1}
+.carte .prix{font-family:var(--display);font-weight:800;font-size:clamp(26px,2.6vw,36px);line-height:1;color:#fff;text-align:right}
+.carte .st{display:inline-flex;align-items:center;gap:8px;font-size:15px;color:#fff;background:var(--ok);padding:6px 12px;width:max-content}
+.carte .st::before{content:"";width:8px;height:8px;border-radius:50%;background:#7fe0a8}
+.carte .d{color:var(--sur-nuit);font-size:15px;text-align:right}
+
+/* conclusion */
+.fin{bottom:auto;top:50%;transform:translateY(-50%)}
+.fin .titre{font-size:clamp(40px,6.4vw,92px)}
+.actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px;pointer-events:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:56px;padding:0 30px;font:inherit;font-size:17px;font-weight:500;text-decoration:none;border:0;cursor:pointer;color:#fff;transition:background .25s,transform .35s var(--ease)}
+.btn svg{width:16px;height:16px;transition:transform .35s var(--ease)}.btn:hover svg{transform:translateX(3px)}
+.btn.principal{background:var(--electrique);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))}
+.btn.principal:hover{background:var(--electrique-survol)}
+.btn.principal:disabled{background:#2a3d66;cursor:progress}
+.btn.contour{border:1px solid var(--filet-nuit);background:rgba(7,22,51,.3)}
+.btn.contour:hover{background:rgba(255,255,255,.08)}
+
+/* barre de chapitres */
+.chapitres{position:fixed;left:var(--marge);right:var(--marge);bottom:var(--bas);z-index:20}
+.chapitres ol{list-style:none;margin:0;padding:0;display:flex;gap:8px}
+.chapitres li{flex:1}
+.chapitres button{width:100%;padding:14px 0 8px;background:none;border:0;cursor:pointer;color:var(--label-nuit);font:500 12px/1 var(--texte);letter-spacing:.18em;text-transform:uppercase;text-align:left}
+.chapitres button i{display:block;height:3px;background:rgba(255,255,255,.2);position:relative;overflow:hidden;margin-bottom:10px}
+.chapitres button i b{position:absolute;left:0;top:0;bottom:0;width:100%;background:#fff;transform-origin:left;transform:scaleX(var(--p,0))}
+.chapitres button[aria-current=step]{color:#fff}
+.chapitres button[aria-current=step] i b{background:var(--electrique-clair)}
+.chapitres .nom{display:inline}
+@media (max-width:760px){.chapitres .nom{display:none}.chapitres button{padding:16px 0 4px;font-size:11px}}
+
+.aide{position:fixed;right:var(--marge);bottom:calc(var(--bas) + 70px);margin:0;font-size:13px;letter-spacing:.24em;text-transform:uppercase;color:var(--label-nuit);transition:opacity .6s}
+.aide .doigt{display:none}
+@media (hover:none){.aide .doigt{display:inline}.aide .souris{display:none}}
+.aide.off{opacity:0}
+
+/* accueil */
+.accueil{position:fixed;inset:0;z-index:40;display:grid;align-items:end;padding:0 var(--marge) calc(var(--bas) + 40px);background:
+  radial-gradient(ellipse 80% 60% at 70% 30%,rgba(20,92,255,.22),rgba(20,92,255,0) 60%),linear-gradient(180deg,rgba(7,22,51,.55),var(--encre) 85%);transition:opacity .9s var(--ease),visibility 0s .9s}
+.accueil.parti{opacity:0;visibility:hidden}
+.acc-in{max-width:980px}
+.label{font-size:13px;letter-spacing:.28em;text-transform:uppercase;font-weight:500;color:var(--label-nuit)}
+.accueil .titre{margin:18px 0 0}
+.accueil .btn{margin-top:34px}
+.charge{margin-top:22px;height:2px;width:min(360px,70vw);background:rgba(255,255,255,.14)}
+.charge i{display:block;height:100%;width:0;background:var(--electrique-clair);transition:width .4s var(--ease)}
+
+@media (max-width:760px){
+  .chap{bottom:calc(var(--bas) + 74px)}
+  .titre{font-size:clamp(38px,11vw,60px)}
+  .chap[data-c="2"]{top:calc(max(18px,env(safe-area-inset-top)) + 70px)}
+  .carte{padding:16px 18px;gap:4px 18px}
+  .logo img{height:28px}
+  .aide{bottom:calc(var(--bas) + 58px)}
+}
+@media (prefers-reduced-motion:reduce){
+  .ligne>span,.chap .sous,.chap .carte,.chap .actions{transition:opacity .4s;transform:none!important}
+  .ligne>span{opacity:0}.chap.vis .ligne>span{opacity:1}
+}
