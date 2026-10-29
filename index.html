@@ -15,6 +15,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Jost:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/styles.css">
 <script src="assets/site.js" defer></script>
+<script>
+  // l'expérience embarquée rend la main quand on défile au-delà de sa fin
+  addEventListener('message', (e) => {
+    if (e.origin === location.origin && e.data && e.data.neokrome === 'sortie') document.getElementById('intro').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
+</script>
 </head>
 <body>
 <a class="saut" href="#contenu">Aller au contenu</a>
@@ -37,8 +43,17 @@
 </header>
 
 <main id="contenu">
+  <!-- hero : l'expérience acheteur, en plein écran -->
+  <section class="hero-xp" aria-label="Expérience acheteur : visite à la première personne de la résidence Canopée">
+    <iframe src="experience/?embed=1" title="Expérience immersive : la résidence Canopée vue par un acquéreur" allow="fullscreen; accelerometer; gyroscope" allowfullscreen></iframe>
+    <div class="hero-xp-bas">
+      <a class="hero-xp-plein" href="experience/">Plein écran</a>
+      <a class="hero-xp-suite" href="#intro">Découvrir Neokrome <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+    </div>
+  </section>
+
   <!-- hero -->
-  <section class="hero sombre">
+  <section class="hero sombre" id="intro">
     <div class="trame" aria-hidden="true"></div>
     <div class="conteneur">
       <div class="hero-texte">
@@ -46,7 +61,7 @@
         <h1 class="h1 apparait">Vos programmes,<br>vendus <span class="accent">avant</span><br>d'exister.</h1>
         <p class="chapo apparait">Neokrome transforme vos plans et rendus en jumeau numérique : configurateur de lots, visite à pied, disponibilités et films marketing, directement sur votre site.</p>
         <div class="actions apparait">
-          <a class="btn btn-principal" href="experience/">Vivre l'expérience acheteur <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+          <a class="btn btn-principal" href="#contenu">Revivre l'expérience acheteur <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
           <a class="btn btn-contour" href="contact.html">Demander une démo</a>
         </div>
       </div>

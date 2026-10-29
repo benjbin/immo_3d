@@ -196,3 +196,13 @@ p{text-wrap:pretty}
   *,*::before,*::after{transition:none!important;animation:none!important}
   .js .apparait{opacity:1;transform:none}
 }
+
+/* hero de l'accueil : l'expérience acheteur en plein écran */
+.hero-xp{position:relative;height:calc(100vh - 84px);height:calc(100svh - 84px);min-height:480px;background:#000;overflow:hidden}
+.hero-xp iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+.hero-xp-bas{position:absolute;left:0;right:0;bottom:18px;display:flex;justify-content:space-between;align-items:center;padding-inline:clamp(16px,3vw,40px);pointer-events:none}
+.hero-xp-bas a{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;color:#fff;text-decoration:none;font-size:14px;letter-spacing:.04em;padding:10px 16px;border:1px solid rgba(255,255,255,.35);background:rgba(7,22,51,.35);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .25s,border-color .25s}
+.hero-xp-bas a:hover,.hero-xp-bas a:focus-visible{background:var(--electrique);border-color:var(--electrique)}
+.hero-xp-bas svg{width:16px;height:16px}
+html{scroll-padding-top:84px}
+@media (max-width:700px){.hero-xp-bas{top:14px;bottom:auto;justify-content:flex-end}.hero-xp-plein{display:none!important}.hero-xp-bas a{font-size:13px;padding:9px 13px}}

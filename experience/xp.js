@@ -5,7 +5,18 @@
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
 const POSTER = Q.get('poster') === '1';                 // mode capture de l'image fixe d'attente
-if (Q.get('embed') === '1') document.body.classList.add('embed');
+const EMBED = Q.get('embed') === '1' && window.parent !== window;
+if (EMBED) {
+  document.body.classList.add('embed');
+  // en hero de la page d'accueil : les liens de fin ouvrent la page entière
+  document.querySelectorAll('#fin a').forEach((a) => { a.target = '_top'; });
+}
+// arrivé au bout du plan-séquence, continuer à défiler rend la main à la page d'accueil
+let sortieT = 0;
+function sortie() {
+  const t = performance.now(); if (t - sortieT < 900) return; sortieT = t;
+  window.parent.postMessage({ neokrome: 'sortie' }, location.origin);
+}
 if (POSTER) document.body.classList.add('poster');
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches || POSTER;
 const D2R = Math.PI / 180;
@@ -245,8 +256,9 @@ function geste() {
 }
 function avance(d) {
   if (!demarre) return;
+  if (EMBED && d > 0 && cible >= 1 && affiche > 0.985) { sortie(); return; }
   let c = cible + d;
-  if (!LOT && c > CHOIX_T) { c = CHOIX_T; if (d > 0) poussee += 1; }
+  if (!LOT && c > CHOIX_T) { c = CHOIX_T; if (d > 0) poussee = performance.now(); }
   cible = clamp01(c);
 }
 addEventListener('wheel', (e) => { e.preventDefault(); const k = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1; geste(); avance(Math.max(-160, Math.min(160, e.deltaY * k)) * PAS); }, { passive: false });
@@ -380,10 +392,10 @@ function boucle(now) {
   affiche += (cible - affiche) * (1 - Math.exp(-dt * (REDUCED ? 9 : 2.8)));
   if (Math.abs(cible - affiche) < 2e-6) affiche = cible;
   const { mode } = poser(affiche, now, dt, false);
-  // moment du choix : survol actif ; sans clic après ~4 s de défilement contre la butée, le 201 est choisi
+  // moment du choix : survol actif ; sans clic après ~3 s de défilement contre la butée, le 201 est choisi
   choixActif = !LOT && affiche > CHOIX_T - 0.012;
-  if (!LOT && poussee > 0) { pousseeT += dt; poussee = 0; }
-  if (!LOT && pousseeT > 4) choisir('201');
+  if (!LOT && now - poussee < 700) pousseeT += dt;   // on compte le temps passé à pousser, même cran par cran
+  if (!LOT && pousseeT > 3) choisir('201');
   if (choixActif && survol) placerEtiq(survol);
   majMots(affiche);
   son.espace(affiche, mode);
