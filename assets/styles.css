@@ -52,7 +52,7 @@ p{text-wrap:pretty}
 .lien{font-weight:500;text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:2px}
 
 /* en-tête */
-.entete{position:sticky;top:0;z-index:40;background:rgba(11,33,74,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff;transition:box-shadow .3s}
+.entete{position:sticky;top:0;z-index:40;background:var(--nuit);color:#fff;transition:box-shadow .3s}
 .entete.defile{box-shadow:0 1px 0 rgba(255,255,255,.08),0 12px 30px rgba(7,22,51,.25)}
 .entete .conteneur{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:84px}
 .entete .logo img{height:48px;width:auto}

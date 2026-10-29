@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dans la peau de l’acheteur — Neokrome</title>
+<meta name="description" content="Vivez en 60 secondes le parcours de vos acquéreurs dans une maquette 3D temps réel Neokrome.">
+<meta name="theme-color" content="#0B214A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 240 250'%3E%3Cpolygon points='0,42 99,115 99,227 0,170' fill='%230B214A'/%3E%3Cpolygon points='142,100 219,70 219,173 142,227' fill='%230B214A'/%3E%3Cpolygon points='78,45 204,0 204,65 142,98' fill='%23145CFF'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="xp.css">
+</head>
+<body>
+<a class="saut" href="#fin">Aller à la conclusion</a>
+
+<!-- la maquette temps réel, pilotée par la page (aucune interaction directe) -->
+<iframe id="scene" src="../canopee/3d/?ui=0&amp;intro=0" title="Maquette 3D de la résidence Canopée" tabindex="-1" aria-hidden="true"></iframe>
+<div class="voile" aria-hidden="true"></div>
+<div class="noir" id="noir" aria-hidden="true"></div>
+
+<header class="haut">
+  <a class="logo" href="../index.html" aria-label="Neokrome, retour à l’accueil"><img src="../assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402"></a>
+  <button class="son" id="son" type="button" aria-pressed="false" aria-label="Activer le son d’ambiance">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path class="off" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+  </button>
+</header>
+
+<main id="recit">
+  <h1 class="sr">Dans la peau de l’acheteur : une visite de la résidence Canopée en sept chapitres</h1>
+  <section class="chap" data-c="0" aria-labelledby="c1"><span class="num" aria-hidden="true">01</span><h2 id="c1" class="titre">Vous arrivez devant <em>chez vous.</em></h2></section>
+  <section class="chap" data-c="1" aria-labelledby="c2"><span class="num" aria-hidden="true">02</span><h2 id="c2" class="titre">Votre balcon.</h2><p class="sous">31 m² plein sud, au milieu des arbres.</p></section>
+  <section class="chap" data-c="2" aria-labelledby="c3"><span class="num" aria-hidden="true">03</span><h2 id="c3" class="titre">Choisissez votre <em>appartement.</em></h2>
+    <div class="carte" id="carte" aria-live="polite"></div></section>
+  <section class="chap" data-c="3" aria-labelledby="c4"><span class="num" aria-hidden="true">04</span><h2 id="c4" class="titre">Votre séjour.</h2><p class="sous">30,6 m² baignés de lumière.</p></section>
+  <section class="chap" data-c="4" aria-labelledby="c5"><span class="num" aria-hidden="true">05</span><h2 id="c5" class="titre">Le soir, <em>depuis chez vous.</em></h2></section>
+  <section class="chap" data-c="5" aria-labelledby="c6"><span class="num" aria-hidden="true">06</span><h2 id="c6" class="titre">Votre future <em>adresse.</em></h2></section>
+  <section class="chap fin" data-c="6" id="fin" aria-labelledby="c7"><span class="num" aria-hidden="true">07</span>
+    <h2 id="c7" class="titre">Voilà ce que vivront <em>vos acquéreurs.</em></h2>
+    <p class="sous">Neokrome le construit pour chacun de vos programmes.</p>
+    <div class="actions">
+      <a class="btn principal" href="../contact.html">Demander une démo <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+      <a class="btn contour" href="../canopee/3d/?lot=201">Explorer librement</a>
+    </div>
+  </section>
+</main>
+
+<nav class="chapitres" aria-label="Chapitres de la visite">
+  <ol id="barre"></ol>
+</nav>
+<p class="aide" id="aide" aria-hidden="true"><span class="souris">Faites défiler</span><span class="doigt">Glissez vers le haut</span></p>
+
+<!-- écran d'accueil -->
+<div class="accueil" id="accueil" role="dialog" aria-modal="true" aria-labelledby="accT">
+  <div class="acc-in">
+    <span class="label">Neokrome · expérience</span>
+    <h2 id="accT" class="titre">Mettez-vous à la place de <em>vos acquéreurs.</em></h2>
+    <p class="sous">60 secondes dans une maquette 3D temps réel : défilez, comme eux, jusqu’à chez vous.</p>
+    <button class="btn principal" id="entrer" type="button" disabled><span id="entrerT">Chargement de la maquette…</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <div class="charge" aria-hidden="true"><i id="chargeB"></i></div>
+  </div>
+</div>
+<script type="module" src="xp.js"></script>
+</body>
+</html>
