@@ -30,7 +30,7 @@ body.survol{cursor:pointer}
 .son{width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.18);color:#fff;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(6px)}
 .son svg{width:20px;height:20px}.son .on{display:none}.son[aria-pressed=true] .on{display:inline}.son[aria-pressed=true] .off{display:none}
 body.embed .haut .logo{display:none}
-body.embed{--haut:max(100px,env(safe-area-inset-top))}  /* sous l'en-tête Neokrome qui flotte sur l'accueil */
+body.embed{--haut:max(88px,env(safe-area-inset-top))}  /* sous l'en-tête Neokrome qui flotte sur l'accueil */
 
 /* mots : courts, très grands, masqués ligne par ligne, effacés tout seuls */
 .mot{position:fixed;left:var(--marge);right:var(--marge);bottom:calc(var(--bas) + 64px);margin:0;max-width:16ch;

@@ -200,12 +200,24 @@ p{text-wrap:pretty}
 /* hero de l'accueil : l'expérience acheteur en plein écran */
 .hero-xp{position:relative;height:100vh;height:100svh;min-height:520px;background:#000;overflow:hidden}
 /* accueil : l'en-tête flotte sur la 3D, puis redevient plein au défilement */
-.accueil .entete{position:fixed;left:0;right:0;top:0;background:linear-gradient(rgba(7,22,51,.5),rgba(7,22,51,0));transition:background-color .35s,box-shadow .3s}
-.accueil .entete.defile,.accueil .entete:has(.nav.ouvert){background:var(--nuit)}
+/* accueil : l'en-tête flotte sur la 3D, discret et pleine largeur, puis se pose au défilement */
+.accueil .entete{position:fixed;left:0;right:0;top:0;background:transparent;transition:background-color .4s,box-shadow .4s,backdrop-filter .4s}
+.accueil .entete::before{content:"";position:absolute;left:0;right:0;top:0;height:150px;background:linear-gradient(rgba(0,0,0,.26),rgba(0,0,0,0));pointer-events:none;transition:opacity .4s}
+.accueil .entete .conteneur{position:relative;max-width:none;padding-inline:clamp(16px,3vw,40px);min-height:76px;transition:min-height .4s var(--ease)}
+.accueil .entete .logo img{height:36px;filter:drop-shadow(0 1px 6px rgba(0,0,0,.25))}
+.accueil .entete .nav a:not(.btn){text-shadow:0 1px 8px rgba(0,0,0,.35)}
+.accueil .entete .nav .btn{min-height:42px;padding:0 18px;font-size:14px}
+.accueil .entete .burger{border:0;width:auto;height:44px;padding:0 4px;gap:10px;font:inherit;font-size:14px;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 8px rgba(0,0,0,.35)}
+.accueil .entete .burger::before{content:"Menu"}
+.accueil .entete .burger svg{filter:drop-shadow(0 1px 4px rgba(0,0,0,.35))}
+.accueil .entete.defile,.accueil .entete:has(.nav.ouvert){background:rgba(11,33,74,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 1px 0 rgba(255,255,255,.06)}
+.accueil .entete.defile::before,.accueil .entete:has(.nav.ouvert)::before{opacity:0}
+.accueil .entete.defile .conteneur{min-height:64px}
+@media (max-width:960px){.accueil .nav{inset:76px 0 auto 0}.accueil .entete.defile .nav{inset:64px 0 auto 0}}
 .hero-xp iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 .hero-xp-bas{position:absolute;left:0;right:0;bottom:18px;display:flex;justify-content:space-between;align-items:center;padding-inline:clamp(16px,3vw,40px);pointer-events:none}
 .hero-xp-bas a{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;color:#fff;text-decoration:none;font-size:14px;letter-spacing:.04em;padding:10px 16px;border:1px solid rgba(255,255,255,.35);background:rgba(7,22,51,.35);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .25s,border-color .25s}
 .hero-xp-bas a:hover,.hero-xp-bas a:focus-visible{background:var(--electrique);border-color:var(--electrique)}
 .hero-xp-bas svg{width:16px;height:16px}
-html{scroll-padding-top:78px}
-@media (max-width:700px){.hero-xp-bas{top:96px;bottom:auto;justify-content:flex-end}.hero-xp-plein{display:none!important}.hero-xp-bas a{font-size:13px;padding:9px 13px}}
+html{scroll-padding-top:60px}
+@media (max-width:700px){.hero-xp-bas{top:84px;bottom:auto;justify-content:flex-end}.hero-xp-plein{display:none!important}.hero-xp-bas a{font-size:13px;padding:9px 13px}}
