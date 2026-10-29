@@ -31,6 +31,9 @@
   });
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('vu'); io.unobserve(e.target); } }), { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
   $$('.apparait').forEach((el) => io.observe(el));
+  // le haut de page ne doit jamais attendre l'observateur (onglet en arrière-plan, navigateur lent…)
+  $$('.hero .apparait').forEach((el) => requestAnimationFrame(() => el.classList.add('vu')));
+  setTimeout(() => $$('.apparait').forEach((el) => { const r = el.getBoundingClientRect(); if (r.top < innerHeight && r.bottom > 0) el.classList.add('vu'); }), 1200);
 
   // film : lecture muette en boucle quand il est visible, bouton pause accessible
   const film = $('video[data-film]'), btnFilm = $('.pause-film');
