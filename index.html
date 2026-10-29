@@ -117,70 +117,80 @@
     </div>
   </section>
 
-  <!-- 02 démonstration -->
-  <section class="section brume">
-    <div class="conteneur duo">
-      <div class="texte">
-        <span class="label apparait">02 / Démonstration</span>
-        <h2 class="h2 apparait">Le configurateur,<br><span class="accent">en action.</span></h2>
-        <ul class="points apparait">
-          <li><b>01</b>Coupe animée étage par étage</li>
-          <li><b>02</b>Fiche lot : prix, plan, surfaces, extérieurs</li>
-          <li><b>03</b>Disponibilités à jour, en façade et en liste</li>
-          <li><b>04</b>Web et mobile, sans application à télécharger</li>
-        </ul>
-        <div class="actions apparait">
-          <a class="btn btn-nuit" href="demo.html">Essayer la maquette 3D</a>
+  <!-- 02 configurateur -->
+  <section class="section brume configurateur">
+    <div class="conteneur">
+      <div class="tete-section">
+        <div>
+          <span class="label apparait">02 / Configurateur</span>
+          <h2 class="h2 apparait">Le configurateur,<br><span class="accent">en action.</span></h2>
         </div>
+        <p class="apparait">L'acheteur coupe le bâtiment, ouvre un lot et le visite, sur le site du programme comme en espace de vente.</p>
       </div>
-      <div class="media apparait">
-        <div class="ecran"><img src="assets/configurateur.jpg" alt="Interface du configurateur Canopée : l'étage R+2 en coupe et la fiche du lot 201 avec son prix et son plan" width="1440" height="900" loading="lazy"></div>
-        <div class="socle-ecran" aria-hidden="true"></div>
+      <div class="config-grille">
+        <figure class="navigateur apparait">
+          <div class="navigateur-barre" aria-hidden="true"><i></i><i></i><i></i><span>canopee.neokrome.tech</span></div>
+          <img src="assets/configurateur.jpg" alt="Interface du configurateur Canopée : l'étage R+2 en coupe et la fiche du lot 201 avec son prix et son plan" width="1440" height="900" loading="lazy">
+        </figure>
+        <div class="config-cote">
+          <ol class="atouts">
+            <li class="apparait"><b>01</b><div><h3>Coupe étage par étage</h3><p>Le bâtiment s'ouvre au niveau choisi et révèle les plans meublés.</p></div></li>
+            <li class="apparait"><b>02</b><div><h3>Fiche lot complète</h3><p>Prix, plan, surfaces pièce par pièce, balcon et orientation.</p></div></li>
+            <li class="apparait"><b>03</b><div><h3>Disponibilités à jour</h3><p>Libre, optionné ou vendu, en façade comme en liste.</p></div></li>
+            <li class="apparait"><b>04</b><div><h3>Web et mobile</h3><p>Aucune application à télécharger, un simple lien.</p></div></li>
+          </ol>
+          <a class="btn btn-principal apparait" href="demo.html">Essayer la maquette 3D <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- 03 films -->
-  <section class="section sombre">
-    <div class="conteneur duo film-duo">
-      <div class="texte">
+  <section class="section sombre films">
+    <div class="trame" aria-hidden="true"></div>
+    <div class="conteneur films-grille">
+      <div class="films-texte">
         <span class="label apparait">03 / Films marketing</span>
-        <h2 class="h2 apparait">Et vos films,<br><span class="accent">générés depuis la 3D.</span></h2>
-        <p class="chapo apparait">Le film ci-contre a été entièrement tourné dans la maquette 3D temps réel : trajectoires de caméra, lumière, titres et rendu au format story.</p>
-        <div class="actions apparait"><a class="btn btn-contour" href="solutions.html#films">Découvrir les formats</a></div>
+        <h2 class="h2 apparait">Vos films,<br><span class="accent">tournés dans la 3D.</span></h2>
+        <p class="chapo apparait">Le film ci-contre a été entièrement tourné dans la maquette temps réel : trajectoires de caméra, lumière, titres et rendu au format story. Aucun tournage, aucun délai de production.</p>
+        <ul class="formats apparait" aria-label="Formats disponibles">
+          <li><b>9:16</b><span>Story et reels</span></li>
+          <li><b>16:9</b><span>Survol et teaser</span></li>
+          <li><b>1:1</b><span>Publicités sociales</span></li>
+        </ul>
+        <div class="actions apparait"><a class="btn btn-contour" href="solutions.html#films">Découvrir les formats <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a></div>
       </div>
-      <div class="media apparait">
-        <div>
-          <div class="telephone">
-            <video data-film src="assets/film-neokrome.mp4" poster="assets/film-poster.jpg" muted loop playsinline preload="metadata" aria-label="Film de présentation Neokrome tourné dans la maquette 3D"></video>
-          </div>
-          <div style="text-align:center"><button class="btn btn-contour pause-film" type="button" aria-pressed="false">Mettre le film en pause</button></div>
+      <div class="films-media apparait">
+        <div class="halo" aria-hidden="true"></div>
+        <div class="telephone">
+          <video data-film src="assets/film-neokrome.mp4" poster="assets/film-poster.jpg" muted loop playsinline preload="metadata" aria-label="Film de présentation Neokrome tourné dans la maquette 3D"></video>
         </div>
+        <button class="pause-film" type="button" aria-pressed="false">Mettre le film en pause</button>
       </div>
     </div>
   </section>
 
   <!-- 04 réalisation -->
-  <section class="section">
+  <section class="section realisation">
     <div class="conteneur">
       <div class="tete-section">
         <div>
           <span class="label apparait">04 / Réalisation</span>
           <h2 class="h2 apparait">Canopée,<br>un produit <span class="accent">Neokrome.</span></h2>
         </div>
-        <p class="apparait">Six appartements, un toit-terrasse jardin : la résidence de démonstration qui réunit toutes nos technologies.</p>
+        <p class="apparait">Six appartements et un toit-terrasse jardin : la résidence de démonstration qui réunit toutes nos technologies.</p>
       </div>
-      <div class="cas">
-        <div class="grand apparait"><img class="facette" src="assets/visuel-3d.jpg" alt="Résidence Canopée en 3D, survol de la façade et du toit-terrasse" width="2400" height="1350" loading="lazy"></div>
-        <div class="infos">
-          <div class="fiches apparait">
+      <div class="vitrine apparait">
+        <img class="facette" src="assets/visuel-3d.jpg" alt="Résidence Canopée en 3D, survol de la façade et du toit-terrasse" width="2400" height="1350" loading="lazy">
+        <div class="vitrine-carte">
+          <div class="fiches">
             <div><b>6</b><span>lots configurables</span></div>
             <div><b>5</b><span>niveaux en coupe</span></div>
             <div><b>3</b><span>modes de visite</span></div>
           </div>
-          <p class="muet apparait" style="margin:0">Site vitrine du programme, maquette 3D interactive, plans meublés de chaque étage et story Instagram générée depuis la 3D.</p>
-          <div class="actions apparait">
-            <a class="btn btn-nuit" href="canopee/3d/">Ouvrir la maquette</a>
+          <p>Site vitrine du programme, maquette 3D interactive, plans meublés de chaque étage et film généré depuis la 3D.</p>
+          <div class="actions">
+            <a class="btn btn-principal" href="canopee/3d/">Ouvrir la maquette <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
             <a class="btn btn-contour" href="canopee/">Voir le site du programme</a>
           </div>
         </div>
@@ -189,32 +199,34 @@
   </section>
 
   <!-- 05 méthode -->
-  <section class="section brume">
+  <section class="section brume methode">
     <div class="conteneur">
       <div class="tete-section">
         <div>
           <span class="label apparait">05 / Méthode</span>
           <h2 class="h2 apparait">Du plan à la vente,<br>en quatre étapes.</h2>
         </div>
+        <p class="apparait">Vous nous confiez l'existant, nous livrons une maquette prête à vendre, puis nous l'alimentons tout au long de la commercialisation.</p>
       </div>
-      <ol class="etapes">
+      <ol class="frise">
         <li class="apparait"><span class="num">01</span><h3 class="h3">Vos plans et rendus</h3><p>Plans, rendus d'architecte, grille de prix : vous nous transmettez l'existant.</p></li>
         <li class="apparait"><span class="num">02</span><h3 class="h3">Le jumeau numérique</h3><p>Bâtiment, intérieurs, paysage et lumière modélisés en 3D temps réel.</p></li>
         <li class="apparait"><span class="num">03</span><h3 class="h3">Intégration</h3><p>Sur votre site, en espace de vente et sur tablette commerciale.</p></li>
-        <li class="apparait"><span class="num">04</span><h3 class="h3">Vos campagnes</h3><p>Films et visuels générés depuis la même maquette, à chaque étape de la commercialisation.</p></li>
+        <li class="apparait"><span class="num">04</span><h3 class="h3">Vos campagnes</h3><p>Films et visuels générés depuis la même maquette, à chaque étape.</p></li>
       </ol>
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="section">
+  <!-- appel final -->
+  <section class="final sombre">
+    <div class="trame" aria-hidden="true"></div>
     <div class="conteneur">
-      <div class="cta-bloc apparait">
-        <div>
-          <h2 class="h2">Votre prochain programme,<br><span class="accent" style="color:var(--electrique-clair)">en 3D.</span></h2>
-          <p class="chapo" style="color:var(--sur-nuit)">Une démonstration de 30 minutes, sur l'un de vos projets.</p>
-        </div>
+      <span class="label apparait">Prochaine étape</span>
+      <h2 class="final-titre apparait">Votre prochain programme,<br><span class="accent">en 3D.</span></h2>
+      <p class="chapo apparait">Une démonstration de 30 minutes, sur vos plans ou sur la résidence Canopée.</p>
+      <div class="actions apparait">
         <a class="btn btn-principal" href="contact.html">Demander une démo <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a>
+        <a class="btn btn-contour" href="mailto:contact@neokrome.tech">contact@neokrome.tech</a>
       </div>
     </div>
   </section>
@@ -222,11 +234,23 @@
 
 <footer class="pied">
   <div class="conteneur">
-    <img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402">
-    <span>L'intelligence visuelle. L'expérience numérique.</span>
-    <nav aria-label="Liens du pied de page">
-      <a href="experience/">Expérience</a><a href="solutions.html">Solutions</a><a href="demo.html">Démo 3D</a><a href="canopee/">Réalisation</a><a href="contact.html">Contact</a>
+    <div class="pied-marque">
+      <img src="assets/neokrome-logo-dark.png" alt="Neokrome .tech" width="700" height="402">
+      <p>L'intelligence visuelle.<br>L'expérience numérique.</p>
+    </div>
+    <nav class="pied-col" aria-label="Pages">
+      <span class="label">Explorer</span>
+      <a href="experience/">Expérience</a><a href="solutions.html">Solutions</a><a href="demo.html">Démo 3D</a><a href="canopee/">Réalisation</a>
     </nav>
+    <div class="pied-col">
+      <span class="label">Contact</span>
+      <a href="mailto:contact@neokrome.tech">contact@neokrome.tech</a>
+      <a href="contact.html">Demander une démo</a>
+    </div>
+  </div>
+  <div class="conteneur pied-bas">
+    <span>© 2026 Neokrome .tech</span>
+    <span>Maquettes 3D immobilières temps réel</span>
   </div>
 </footer>
 </body>
