@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Neokrome .tech — la puissance technologique (v5)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Inter:wght@500;600&family=JetBrains+Mono:wght@400;500;700&display=block" rel="stylesheet">
+<style>
+/* Compositeur v5 (Neokrome .tech, reprise de v4 : seuls logos, adresse et bleu de marque changent) : window.setT(t, x) — tout est calculé en JS à partir de t (rendu déterministe, image par image). */
+:root{--ink:#0B214A;--blue:#145CFF;--blue2:#5C8DFF;--cream:#FBF9F5;--bold:Outfit,system-ui,sans-serif;--sans:Inter,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;--m:72px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#000}
+#stage{position:absolute;inset:0;overflow:hidden;background:#000}
+.L{position:absolute;inset:0;pointer-events:none}
+.full{position:absolute;left:0;top:0;width:1080px;height:1920px;display:block}
+#bgBlur{filter:blur(30px) brightness(.42) saturate(1.15);transform:scale(1.15)}
+#photo{position:absolute;display:block;transform-origin:0 0}
+#scrimB{background:linear-gradient(to top,rgba(6,7,12,.78) 0%,rgba(6,7,12,.5) 20%,rgba(6,7,12,.14) 38%,rgba(6,7,12,0) 50%)}
+#scrimT{background:linear-gradient(to bottom,rgba(6,7,12,.66) 0%,rgba(6,7,12,.4) 18%,rgba(6,7,12,.1) 30%,rgba(6,7,12,0) 40%)}
+#vig{background:radial-gradient(ellipse 95% 80% at 50% 48%,rgba(0,0,0,0) 62%,rgba(0,0,0,.22) 100%)}
+.scan{position:absolute;left:0;right:0;height:3px;background:#fff;box-shadow:0 0 24px 6px rgba(92,141,255,.9),0 0 80px 20px rgba(20,92,255,.45)}
+/* textes */
+.blk{position:absolute;left:var(--m);right:var(--m);color:#fff}
+.mask{overflow:hidden;display:block;padding-bottom:.09em;margin-bottom:-.09em}
+.mask>span{display:block}
+.h1{font-family:var(--bold);font-weight:800;font-size:92px;line-height:.93;letter-spacing:-.02em;text-transform:uppercase;text-shadow:0 2px 30px rgba(0,0,0,.35)}
+.band{display:inline-block;position:relative;font-family:var(--bold);font-weight:800;font-size:68px;line-height:1;letter-spacing:-.015em;color:var(--blue);padding:8px 18px 13px;margin-top:10px;z-index:0}
+.band::before{content:"";position:absolute;inset:0;background:var(--cream);transform-origin:left;transform:scaleX(var(--w,1));z-index:-1}
+.band>span{display:inline-block}
+/* HUD */
+.hud{font-family:var(--mono);font-weight:500;font-size:22px;letter-spacing:.06em;color:rgba(255,255,255,.86);text-transform:uppercase}
+.hud b{color:#fff;font-weight:700}.hud i{font-style:normal;color:#5C8DFF}
+#hudTop{position:absolute;left:var(--m);right:var(--m);top:282px;display:flex;justify-content:space-between;align-items:center}
+#hudTop{height:34px}
+#tag{height:48px;flex:none}
+#cap{display:flex;gap:14px;align-items:center}
+#cap .n{color:#5C8DFF}
+.br{position:absolute;width:44px;height:44px;border-color:rgba(255,255,255,.7);border-style:solid;border-width:0}
+.br.a{border-top-width:2px;border-left-width:2px}.br.b{border-top-width:2px;border-right-width:2px}.br.c{border-bottom-width:2px;border-left-width:2px}.br.d{border-bottom-width:2px;border-right-width:2px}
+.chipH{display:inline-flex;align-items:center;gap:12px;padding:12px 18px;border:1px solid rgba(255,255,255,.35);background:rgba(8,9,16,.55);backdrop-filter:blur(8px);border-radius:6px}
+.dotb{width:10px;height:10px;border-radius:50%;background:#5C8DFF;box-shadow:0 0 12px #5C8DFF}
+.stages{display:flex;gap:18px;align-items:center}
+.stages span{opacity:.35}.stages span.on{opacity:1;color:#fff}.stages em{font-style:normal;opacity:.5}
+/* étiquettes de lot */
+.lab{position:absolute;padding:14px 20px;border-radius:14px;background:rgba(14,15,20,.78);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(8px);color:#fff;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.lab .t{display:flex;align-items:center;gap:10px;font-family:var(--sans);font-weight:600;font-size:26px}
+.lab .t i{width:14px;height:14px;border-radius:50%;background:#3f8f5f}
+.lab .p{font-family:var(--mono);font-size:22px;color:#c9d8ff;margin-top:4px}
+.lab::after{content:"";position:absolute;left:50%;bottom:-8px;width:14px;height:14px;margin-left:-7px;background:rgba(14,15,20,.78);transform:rotate(45deg);border-right:1px solid rgba(255,255,255,.2);border-bottom:1px solid rgba(255,255,255,.2)}
+/* appareils */
+.dev{position:absolute;transform-style:preserve-3d}
+.dev .sc{position:absolute;overflow:hidden;background:#000}
+.dev .sc img{width:100%;height:100%;display:block}
+.dev .gl{position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,255,255,.14),rgba(255,255,255,0) 40%)}
+#laptop .lid{position:absolute;left:0;top:0;width:940px;height:604px;border-radius:26px 26px 8px 8px;background:linear-gradient(160deg,#3b3c42,#111114);padding:22px 22px 22px;box-shadow:0 50px 90px rgba(0,0,0,.55)}
+#laptop .sc{left:22px;top:22px;width:896px;height:560px;border-radius:6px}
+#laptop .base{position:absolute;left:-60px;top:600px;width:1060px;height:30px;border-radius:0 0 30px 30px;background:linear-gradient(#cfd0d6,#7b7c84);box-shadow:0 30px 60px rgba(0,0,0,.5)}
+#tablet .body{position:absolute;inset:0;border-radius:38px;background:linear-gradient(150deg,#45464c,#121215 45%,#2a2b31);padding:18px;box-shadow:0 50px 90px rgba(0,0,0,.6)}
+#tablet .sc{left:18px;top:18px;width:410px;height:590px;border-radius:22px}
+#phoneD .body{position:absolute;inset:0;border-radius:44px;background:linear-gradient(145deg,#3a3b40,#0d0d10 40%,#2a2b30);padding:10px;box-shadow:0 50px 90px rgba(0,0,0,.6)}
+#phoneD .sc{left:10px;top:10px;width:250px;height:541px;border-radius:36px}
+.tapD{position:absolute;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:rgba(20,92,255,.92);box-shadow:0 0 0 4px rgba(255,255,255,.85)}
+/* montage / rendu */
+#edit{position:absolute;left:var(--m);right:var(--m);top:1190px;height:330px;border-radius:18px;background:rgba(10,11,18,.78);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(14px);padding:22px 24px;box-shadow:0 30px 60px rgba(0,0,0,.4)}
+#edit .row{position:relative;height:56px;margin-top:14px;border-radius:8px;background:rgba(255,255,255,.04)}
+#edit .clip{position:absolute;top:6px;bottom:6px;border-radius:6px;overflow:hidden;background:#222 center/cover no-repeat;border:1px solid rgba(255,255,255,.25)}
+#edit .kf{position:absolute;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;background:#fff;transform:rotate(45deg)}
+#edit .ph{position:absolute;top:58px;bottom:14px;width:2px;background:#fff;box-shadow:0 0 12px #5C8DFF}
+#edit .ruler{display:flex;justify-content:space-between;font-family:var(--mono);font-size:18px;color:rgba(255,255,255,.55)}
+.kfl{position:absolute;font-family:var(--mono);font-size:20px;color:#fff;background:rgba(20,92,255,.85);padding:4px 10px;border-radius:4px;transform:translate(-50%,calc(-100% - 22px))}
+#mosaic{position:absolute;inset:0}
+#mosaic .th{position:absolute;width:225px;height:400px;background:#111 center/cover no-repeat;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18)}
+#bar{position:absolute;left:var(--m);right:var(--m);top:1500px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+#bar b{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#145CFF,#5C8DFF)}
+/* logo */
+/* logo Neokrome empilé : pictogramme (pb = panneaux, pu = toit bleu) au-dessus du mot-symbole « NEOKROME .tech » */
+.logo{position:absolute;left:50%;width:var(--lw);height:calc(var(--lw) * var(--r));margin-left:calc(var(--lw) / -2);perspective:900px}
+.logo .pk{position:absolute;left:0;top:0;width:100%;height:calc(var(--lw) * var(--rp));transform-style:preserve-3d}
+.logo .pk img{position:absolute;left:0;top:0;width:100%;height:100%}
+.logo .wd{position:absolute;left:0;top:calc(var(--lw) * var(--rp));width:100%;height:calc(var(--lw) * (var(--r) - var(--rp)))}
+#logoA{--lw:600px;--r:.574286;--rp:.345714}
+#logoB{--lw:520px;--r:.534444;--rp:.316667}
+.end{position:absolute;left:0;right:0;text-align:center;color:var(--ink)}
+.end .tl{font-family:var(--bold);font-weight:800;font-size:78px;line-height:1;letter-spacing:-.02em;color:var(--ink)}
+.end .tl em{font-style:normal;color:var(--blue)}
+.btn{display:inline-flex;align-items:center;gap:18px;padding:34px 64px;border-radius:999px;background:var(--blue);color:#fff;font-family:var(--bold);font-weight:700;font-size:46px;box-shadow:0 22px 50px rgba(20,92,255,.3)}
+.btn svg{width:42px;height:42px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.url{font-family:var(--bold);font-weight:600;font-size:42px;color:var(--ink)}.url b{color:var(--blue);font-weight:700}
+#wipe{background:var(--blue)}
+#wipe::after{content:"";position:absolute;left:0;right:0;top:-3px;height:3px;background:#fff;box-shadow:0 0 30px 8px rgba(92,141,255,.9)}
+#flashL{background:radial-gradient(circle at 50% 45%,rgba(92,141,255,.9),rgba(20,92,255,.35) 40%,rgba(0,0,0,0) 70%);opacity:0}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="stage">
+  <img id="bg" class="full" alt="">
+  <img id="bgBlur" class="full" alt="">
+  <div class="L" id="s1L" style="overflow:hidden"><img id="photo" alt=""><img id="wire" class="full" alt="" style="position:absolute;mix-blend-mode:screen"><div class="scan" id="scan"></div></div>
+  <div class="L" id="scrimT"></div><div class="L" id="scrimB"></div>
+  <div class="L" id="labs"></div>
+  <div class="L" id="devs">
+    <div class="dev" id="laptop" style="left:70px;top:500px;width:940px;height:640px"><div class="lid"><div class="sc"><img id="imL" alt=""><div class="gl"></div></div></div><div class="base"></div></div>
+    <div class="dev" id="tablet" style="left:584px;top:880px;width:446px;height:626px"><div class="body"><div class="sc"><img id="imT" alt=""><div class="gl"></div><div id="tapsT"></div></div></div></div>
+    <div class="dev" id="phoneD" style="left:84px;top:960px;width:270px;height:561px"><div class="body"><div class="sc"><img id="imP" alt=""><div class="gl"></div><div id="tapsP"></div></div></div></div>
+  </div>
+  <div class="L" id="mosaic"></div>
+  <div class="L" id="kfs"></div>
+  <div id="edit">
+    <div class="hud" style="display:flex;justify-content:space-between"><span><b>SÉQUENCE</b> · 9:16 · 30 i/s</span><span id="tc">00:00:00</span></div>
+    <div class="row" id="trkV"></div><div class="row" id="trkK"></div><div class="row" id="trkA" style="height:40px"></div>
+    <div class="ruler"><span>0 s</span><span>5</span><span>10</span><span>15</span><span>20</span></div>
+    <div class="ph" id="ph" style="left:24px"></div>
+  </div>
+  <div id="bar"><b id="barB"></b></div>
+  <div class="L" id="txt"></div>
+  <div class="L" id="vig"></div>
+  <div class="L" id="hudL">
+    <div class="br a" style="left:52px;top:262px"></div><div class="br b" style="right:52px;top:262px"></div><div class="br c" style="left:52px;top:1532px"></div><div class="br d" style="right:52px;top:1532px"></div>
+    <div id="hudTop"><img id="tag" src="assets/nk-tag-white.png" alt=""><div id="cap" class="hud"><span class="n" id="capN">01/09</span><span id="capT">IMAGE → 3D</span></div></div>
+    <div class="hud" id="hudBox" style="position:absolute;left:var(--m);top:1446px"></div>
+  </div>
+  <div class="L" id="flashL"></div>
+  <!-- 0 · logo éclair -->
+  <div class="L" id="logo0"><div class="logo white" id="logoA" style="top:546px"><div class="pk"><img class="pb" src="assets/nk-white-pict-base.png" alt=""><img class="pu" src="assets/nk-white-pict-blue.png" alt=""></div><img class="wd" src="assets/nk-white-word.png" alt=""></div></div>
+  <div class="L" id="wipe"></div>
+  <!-- 10 · signature -->
+  <div class="L" id="endC" style="background:var(--cream)">
+    <div class="logo" id="logoB" style="top:470px"><div class="pk"><img class="pb" src="assets/nk-pict-base.png" alt=""><img class="pu" src="assets/nk-pict-blue.png" alt=""></div><img class="wd" src="assets/nk-word.png" alt=""></div>
+    <div class="end" style="top:820px"><div class="tl"><span class="mask"><span data-a="rise" data-t="28.05" data-d="0.7">Du plan</span></span><span class="mask"><span data-a="rise" data-t="28.11" data-d="0.7"><em>à la vente.</em></span></span></div></div>
+    <div class="end" style="top:1080px"><span class="btn" id="cta" data-a="pop" data-t="28.4" data-d="0.6">Demandez une démo<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="end" style="top:1290px"><div class="url" data-a="fade" data-t="28.6" data-d="0.5">neokrome<b>.tech</b></div></div>
+  </div>
+</div>
+<script>
+const H = [0, 2, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5, 22.5, 25.5, 27, 30];
+const FPS = 30;
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const outExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const inOutExpo = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2);
+const inOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const shotOf = (t) => { for (let i = 0; i < 11; i++) if (t < H[i + 1]) return i; return 10; };
+const $ = (s) => document.querySelector(s);
+const pad2 = (n) => String(Math.floor(n)).padStart(2, '0');
+
+// ---------- blocs de texte (masques ligne par ligne, mot clé sur bandeau crème)
+const TXT = [
+  { s: 0, top: 1236, t0: 0.3, lines: ['Et si vos', 'programmes', 'se vendaient'], band: 'avant d’exister ?', size: 84 },
+  { s: 1, top: 1290, t0: 2.25, lines: ['D’une image…'], out: 3.25 },
+  { s: 1, top: 1290, t0: 3.35, lines: ['…à un'], band: 'jumeau numérique.' },
+  { s: 2, top: 380, t0: 4.65, lines: ['Modélisé'], band: 'au centimètre.' },
+  { s: 3, top: 380, t0: 7.65, lines: ['Le soleil'], band: 'réel, à toute heure.' },
+  { s: 4, top: 380, t0: 10.65, lines: ['Chaque lot,'], band: 'chaque prix.' },
+  { s: 5, top: 380, t0: 13.65, lines: ['Sur votre site.'], band: 'Sur tous les écrans.', size: 80 },
+  { s: 6, top: 1170, t0: 16.7, lines: ['Visitez', 'chez vous'], band: 'avant le premier coup de pelle.', bsize: 52 },
+  { s: 7, top: 380, t0: 19.65, lines: ['Vol libre,'], band: 'en temps réel.' },
+  { s: 8, top: 380, t0: 22.65, lines: ['Et vos films', 'marketing,'], band: 'générés depuis la 3D.', size: 80 },
+];
+const txt = $('#txt');
+TXT.forEach((b, bi) => {
+  const el = document.createElement('div'); el.className = 'blk'; el.style.top = b.top + 'px'; el.dataset.s = b.s; el.dataset.i = bi;
+  el.innerHTML = `<div class="h1" style="${b.size ? `font-size:${b.size}px` : ''}">${b.lines.map((l, i) => `<span class="mask"><span data-a="rise" data-t="${(b.t0 + i * 0.06).toFixed(3)}" data-d="0.75">${l}</span></span>`).join('')}</div>`
+    + (b.band ? `<div><span class="band" data-a="band" data-t="${(b.t0 + 0.12 + b.lines.length * 0.06).toFixed(3)}" data-d="0.6" style="${b.bsize ? `font-size:${b.bsize}px` : ''}"><span>${b.band}</span></span></div>` : '');
+  txt.appendChild(el);
+});
+const anims = [...document.querySelectorAll('[data-a]')];
+const CAPS = ['', 'IMAGE → 3D', 'CONSTRUCTION', 'LUMIÈRE PHYSIQUE', 'LOTS & PRIX', 'MULTI-ÉCRANS', 'IMMERSION', 'DRONE', 'FILMS AUTO', 'NEOKROME'];
+
+function buildLogo(el, t0, t) {
+  const a = outExpo(clamp((t - t0) / 0.5)), b = outExpo(clamp((t - t0 - 0.1) / 0.5)), c = inOutExpo(clamp((t - t0 - 0.26) / 0.55));
+  const pb = el.querySelector('.pb'), pu = el.querySelector('.pu'), wd = el.querySelector('.wd'), pk = el.querySelector('.pk');
+  pb.style.transform = `translateX(${(1 - a) * -60}px)`; pb.style.opacity = String(clamp(a * 2.5));
+  pu.style.transform = `translateY(${(1 - b) * 70}px)`; pu.style.opacity = String(clamp(b * 2.5));
+  const d = outExpo(clamp((t - t0) / 0.85));
+  pk.style.transform = `rotateY(${(1 - d) * 38}deg) rotateX(${(1 - d) * -10}deg) translateZ(${(1 - d) * 60}px)`;
+  wd.style.clipPath = `inset(-10% ${(1 - c) * 100}% -10% 0)`; wd.style.transform = `translateX(${(1 - c) * -30}px)`;
+}
+// volet bleu traversant, calé sur chaque coup fort : il couvre l'écran exactement au repère puis libère le plan suivant
+function wipeAt(t) {
+  for (const c of [2, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5, 22.5, 25.5]) {
+    if (t >= c - 0.2 && t < c) return (1 - inOutExpo((t - c + 0.2) / 0.2)) * 100;
+    if (t >= c && t < c + 0.28) return -inOutExpo((t - c) / 0.28) * 100;
+  }
+  if (t >= 26.8 && t < 27.3) return (1 - inOutExpo(clamp((t - 26.8) / 0.2))) * 100;
+  return 100;
+}
+let X = {};
+function apply(t, x) {
+  const shot = shotOf(t), f = Math.round(t * FPS);
+  // animations de texte
+  for (const el of anims) {
+    const p = clamp((t - +el.dataset.t) / +el.dataset.d), a = el.dataset.a;
+    if (a === 'rise') el.style.transform = `translateY(${(1 - outExpo(p)) * 105}%)`;
+    else if (a === 'fade') { const e = outExpo(p); el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 14}px)`; }
+    else if (a === 'band') { const w = outExpo(clamp(p * 1.25)), e = outExpo(clamp((p - 0.25) / 0.75)); el.style.setProperty('--w', String(w)); const s = el.firstElementChild; s.style.transform = `translateY(${(1 - e) * 30}px)`; s.style.opacity = String(clamp(e * 1.6)); }
+    else if (a === 'pop') { const e = outExpo(p); el.style.opacity = String(clamp(p * 2.5)); el.style.transform = `translateY(${(1 - e) * 26}px) scale(${0.94 + 0.06 * e})`; }
+  }
+  txt.querySelectorAll('.blk').forEach((el) => {
+    const b = TXT[+el.dataset.i];
+    let vis = +el.dataset.s === shot;
+    let op = 1;
+    if (b.out != null) { if (t >= b.out + 0.3) vis = false; else if (t >= b.out) op = 1 - inOutExpo((t - b.out) / 0.3); }
+    if (b.s === 0 && t > 1.05) op = 1 - inOutExpo(clamp((t - 1.05) / 0.22));
+    el.classList.toggle('hide', !vis); el.style.opacity = String(op);
+    el.style.transform = `translateY(${-(t - H[b.s]) * 10}px)`;   // parallaxe
+  });
+  // fonds
+  const blurBg = shot === 5;
+  $('#bg').style.display = blurBg || shot === 1 && t < 3.55 ? 'none' : 'block';
+  $('#bgBlur').style.display = blurBg ? 'block' : 'none';
+  $('#scrimT').style.opacity = [0, 0.4, 1, 1, 1, 0.6, 0.3, 1, 1, 0, 0][shot];
+  $('#scrimB').style.opacity = [0.9, 1, 0.3, 0.3, 0.3, 0, 1, 0.3, 0.5, 0, 0][shot];
+  // plan 1 : photo → scan fil de fer → matière
+  const s1 = $('#s1L'); s1.classList.toggle('hide', shot !== 1);
+  if (shot === 1 && x.photoT) {
+    const P = x.photoT; const ph = $('#photo');
+    ph.style.left = P.left + 'px'; ph.style.top = P.top + 'px'; ph.style.width = P.w + 'px'; ph.style.height = P.h + 'px';
+    const sy = 1920 * inOutExpo(clamp((t - 2.35) / 0.8));        // ligne de scan qui descend : fil de fer au-dessus
+    $('#wire').style.clipPath = `inset(0 0 ${1920 - sy}px 0)`;
+    $('#scan').style.top = (sy - 1) + 'px'; $('#scan').style.opacity = t > 2.3 && t < 3.2 ? '1' : '0';
+    const m = clamp((t - 3.3) / 0.35);                              // fondu matière : la 3D réelle remplit le fil de fer
+    $('#bg').style.display = t >= 3.3 ? 'block' : 'none';
+    $('#bg').style.opacity = String(inOut(m));
+    $('#wire').style.opacity = String(1 - 0.85 * inOut(clamp((t - 3.55) / 0.45)));
+    $('#photo').style.opacity = t < 3.3 ? String(1 - 0.72 * inOut(clamp((t - 2.4) / 0.8))) : '0';
+    s1.style.transform = `scale(${1 + (t - 2) * 0.012})`; s1.style.transformOrigin = '50% 45%';
+    $('#bg').style.transform = s1.style.transform; $('#bg').style.transformOrigin = '50% 45%';
+  } else { $('#bg').style.opacity = '1'; $('#bg').style.transform = ''; }
+  // HUD
+  const hudOn = shot >= 1 && shot <= 8;
+  $('#hudL').style.opacity = hudOn ? String(outExpo(clamp((t - 2.05) / 0.5))) : '0';
+  $('#capN').textContent = `${pad2(shot)}/08`; $('#capT').textContent = CAPS[shot] || '';
+  let hb = '';
+  if (shot === 1) { const st = t < 2.9 ? 0 : t < 3.4 ? 1 : 2; hb = `<span class="chipH"><span class="dotb"></span><span class="stages">${['SCAN', 'MESH', 'PBR'].map((s, i) => `<span class="${i <= st ? 'on' : ''}">${s}</span>`).join('<em>→</em>')}</span></span>`; }
+  if (shot === 2) hb = `<span class="chipH"><span class="dotb"></span><b>2,3 M</b> polygones · <b>60</b> i/s · navigateur</span><br><br><span class="chipH">Z <b>+${(x.cutY ?? 0).toFixed(2).replace('.', ',')} m</b></span>`;
+  if (shot === 3) { const h = x.hour ?? 7, hh = Math.floor(h), mm = Math.floor((h - hh) * 60); hb = `<span class="chipH"><span class="dotb"></span>48,9° N · 21 JUIN · <b>${pad2(hh)}:${pad2(mm)}</b> <i>→ 22:30</i></span>`; }
+  if (shot === 4) hb = `<span class="chipH"><span class="dotb"></span>R+2 · LOT <b>201</b> · <b>485 000 €</b></span>`;
+  if (shot === 7) hb = `<span class="chipH"><span class="dotb"></span>ALT <b>${(x.camY ?? 0).toFixed(1).replace('.', ',')} m</b> · CAM <b>LIBRE</b></span>`;
+  if (shot === 8) hb = `<span class="chipH"><span class="dotb"></span>RENDER <b>4K</b> · <b>${String(Math.round(600 * clamp((t - 24.0) / 1.3))).padStart(3, '0')}</b>/600 FRAMES · AUTO</span>`;
+  $('#hudBox').innerHTML = hb; $('#hudBox').style.top = shot === 6 ? '1446px' : shot === 1 || shot === 0 ? '1446px' : '1446px';
+  $('#hudBox').style.display = shot === 6 || shot === 5 ? 'none' : 'block';
+  // plan 4 : étiquettes de lots projetées
+  $('#labs').innerHTML = '';
+  if (shot === 4 && x.proj) {
+    const D = [['201', 'T4 · 77 m²', '485 000 €'], ['202', 'T3 · 80 m²', '460 000 €']];
+    $('#labs').innerHTML = x.proj.map((p, i) => { const e = outExpo(clamp((t - 11.5 - i * 0.08) / 0.6)); return `<div class="lab" style="left:${p[0] * 1080}px;top:${p[1] * 1920}px;transform:translate(-50%,calc(-100% - 14px)) translateY(${(1 - e) * 24}px) scale(${0.9 + 0.1 * e});opacity:${e}"><div class="t"><i></i>Lot ${D[i][0]} <span style="font-weight:500;opacity:.75">${D[i][1]}</span></div><div class="p">${D[i][2]} · DISPONIBLE</div></div>`; }).join('');
+  }
+  // plan 5 : trois écrans en cascade
+  const dv = $('#devs'); dv.classList.toggle('hide', shot !== 5);
+  if (shot === 5) {
+    const lt = t - 13.5;
+    const put = (id, d, rx, ry) => { const e = outExpo(clamp((lt - d) / 0.8)); $(id).style.opacity = String(clamp((lt - d) * 4)); $(id).style.transform = `perspective(2200px) translateY(${(1 - e) * 500}px) rotateX(${rx}deg) rotateY(${ry + (1 - e) * 10}deg) translateZ(${-lt * 8}px)`; };
+    put('#laptop', 0.08, 8, 0); put('#tablet', 0.2, 4, -14); put('#phoneD', 0.32, 4, 14);
+  }
+  // plan 8 : repères d'images-clés, interface de montage, puis rendu en mosaïque
+  $('#kfs').innerHTML = '';
+  if (shot === 8 && x.proj) $('#kfs').innerHTML = x.proj.map((p, i) => { const e = outExpo(clamp((t - 22.75 - i * 0.22) / 0.4)); return e > 0 && t < 24.2 ? `<div class="kfl" style="left:${p[0] * 1080}px;top:${p[1] * 1920}px;opacity:${e}">K${i + 1}</div>` : ''; }).join('');
+  const ed = $('#edit'), lt8 = t - 22.5;
+  ed.classList.toggle('hide', !(shot === 8 && lt8 < 1.9));
+  if (shot === 8) {
+    const e = outExpo(clamp((lt8 - 0.35) / 0.6)), o = 1 - inOutExpo(clamp((lt8 - 1.55) / 0.3));
+    ed.style.opacity = String(clamp((lt8 - 0.35) * 4) * o); ed.style.transform = `translateY(${(1 - e) * 120}px)`;
+    $('#ph').style.left = `${24 + 960 * clamp((lt8 - 0.5) / 1.3) * 0.9}px`;
+    $('#tc').textContent = `00:00:${pad2(20 * clamp((lt8 - 0.5) / 1.3))}`;
+  }
+  const mo = $('#mosaic'); mo.classList.toggle('hide', !(shot === 8 && lt8 >= 1.5));
+  if (shot === 8 && lt8 >= 1.5 && X.thumbs) {
+    // 16 vignettes de plans du film qui défilent, puis convergent en un seul écran 9:16
+    const conv = inOutExpo(clamp((lt8 - 2.35) / 0.55));
+    mo.innerHTML = X.thumbs.map((src, i) => {
+      const c = i % 4, r = Math.floor(i / 4), e = outExpo(clamp((lt8 - 1.5 - i * 0.035) / 0.5));
+      const gx = 72 + c * 239, gy = 420 + r * 280 + (1 - e) * 120;
+      const w0 = 220, h0 = 260, tx = 540 - 225, ty = 960 - 400;
+      const x0 = gx + (tx - gx) * conv, y0 = gy + (ty - gy) * conv, w = w0 + (450 - w0) * conv, h = h0 + (800 - h0) * conv;
+      return `<div class="th" style="left:${x0}px;top:${y0}px;width:${w}px;height:${h}px;opacity:${e * (i === 5 ? 1 : 1 - conv)};background-image:url(${src})"></div>`;
+    }).join('');
+  }
+  $('#bar').classList.toggle('hide', !(shot === 8 && lt8 >= 1.5));
+  $('#barB').style.width = `${100 * clamp((t - 24.0) / 1.3)}%`;
+  $('#bgBlur').style.filter = shot === 8 ? '' : '';
+  if (shot === 8 && lt8 >= 1.5) $('#bg').style.filter = `blur(${12 * outExpo(clamp((lt8 - 1.5) / 0.4))}px) brightness(${1 - 0.5 * outExpo(clamp((lt8 - 1.5) / 0.4))})`; else $('#bg').style.filter = '';
+  // plan 0 : logo en un éclair
+  const lg = $('#logo0'); lg.classList.toggle('hide', !(t >= 1.1 && t < 2.05));
+  buildLogo($('#logoA'), 1.12, t);
+  $('#flashL').style.opacity = t >= 1.1 && t < 2.0 ? String(0.6 * Math.sin(Math.PI * clamp((t - 1.1) / 0.45))) : '0';
+  // volet
+  $('#wipe').style.transform = `translateY(${wipeAt(t)}%)`;
+  // signature
+  $('#endC').classList.toggle('hide', t < 27);
+  $('#endC').style.transform = `translateY(${(1 - inOutExpo(clamp((t - 27.0) / 0.42))) * 100}%)`;
+  buildLogo($('#logoB'), 27.45, t);
+  if (t > 29.0) { const br = Math.sin((t - 29.0) * 3.4); $('#cta').style.transform = `scale(${1 + 0.022 * br})`; }
+}
+const setImg = (el, src) => new Promise((res) => { if (!src) { el.removeAttribute('src'); el.dataset.src = ''; return res(); } if (el.dataset.src === src) return res(); el.onload = () => res(); el.onerror = () => res(); el.dataset.src = src; el.src = src; });
+window.setT = async (t, x = {}) => {
+  if (x.thumbs) { X.thumbs = x.thumbs; await Promise.all(x.thumbs.map((s) => new Promise((r) => { const i = new Image(); i.onload = r; i.onerror = r; i.src = s; }))); }
+  await Promise.all([setImg($('#bg'), x.bg), setImg($('#bgBlur'), x.bg), setImg($('#wire'), x.wire), setImg($('#photo'), x.photo),
+    setImg($('#imL'), x.laptop), setImg($('#imT'), x.tablet), setImg($('#imP'), x.phone)]);
+  apply(t, x);
+};
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load('800 100px Outfit'), document.fonts.load('700 46px Outfit'), document.fonts.load('600 42px Outfit'),
+  document.fonts.load('500 22px "JetBrains Mono"'), document.fonts.load('700 22px "JetBrains Mono"'), document.fonts.load('600 26px Inter'),
+  ...[...document.images].filter((i) => i.getAttribute('src')).map((i) => i.decode().catch(() => {})),
+])).then(() => true);
+apply(0, {});
+</script>
+</body>
+</html>
