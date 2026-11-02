@@ -855,13 +855,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const W = 512, H = 150, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
     const txt = `${surface.toFixed(1).replace('.', ',')} m²`;
-    g.font = '600 46px Inter, "Helvetica Neue", Arial, sans-serif';
-    const w1 = g.measureText(name).width; g.font = '500 38px Inter, "Helvetica Neue", Arial, sans-serif';
+    g.font = '700 44px Montserrat, "Helvetica Neue", Arial, sans-serif';
+    const w1 = g.measureText(name).width; g.font = '500 38px Jost, "Helvetica Neue", Arial, sans-serif';
     const w = Math.min(W - 8, Math.max(w1, g.measureText(txt).width) + 56);
     g.fillStyle = 'rgba(22,24,27,0.78)'; g.beginPath(); g.roundRect((W - w) / 2, 6, w, H - 12, 26); g.fill();
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#ffffff'; g.font = '600 46px Inter, "Helvetica Neue", Arial, sans-serif'; g.fillText(name, W / 2, 52, W - 40);
-    g.fillStyle = '#d8bd8c'; g.font = '500 38px Inter, "Helvetica Neue", Arial, sans-serif'; g.fillText(txt, W / 2, 104);
+    g.fillStyle = '#ffffff'; g.font = '700 44px Montserrat, "Helvetica Neue", Arial, sans-serif'; g.fillText(name, W / 2, 52, W - 40);
+    g.fillStyle = '#7fa6ff'; g.font = '500 38px Jost, "Helvetica Neue", Arial, sans-serif'; g.fillText(txt, W / 2, 104);
     const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; disposables.push(t);
     const m = new THREE.SpriteMaterial({ map: t, depthTest: false, depthWrite: false, transparent: true, toneMapped: false, fog: false });
     disposables.push(m); labelMats.push(m);

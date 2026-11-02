@@ -108,7 +108,7 @@ document.documentElement.classList.add(TOUCH ? 'touch' : 'notouch');
 if (!PARAMS.ui) document.body.classList.add('noui');
 if (PARAMS.lot) PARAMS.intro = false;   // arrivée depuis le site : pas d'intro longue
 
-const BRASS = new THREE.Color('#d8bd8c');
+const BRASS = new THREE.Color('#4f86ff');
 // réglages d'ambiance (ajustés par comparaison avec les rendus de référence)
 const LOOK = {
   turbidity: 2.5, rayleigh: 1.2, mie: 0.003, mieG: 0.8,                 // ciel Preetham
@@ -2983,13 +2983,13 @@ function planSVG(L, rooms, caption) {
     const pts = r.poly.map(([x, z]) => `${x.toFixed(2)},${z.toFixed(2)}`).join(' ');
     const surf = r.surface ? `<tspan x="${cx.toFixed(2)}" dy="${(fs * 1.15).toFixed(2)}" fill="#6b6a64">${esc(String(r.surface).replace('.', ','))} m²</tspan>` : '';
     return `<polygon points="${pts}" fill="${tint(r.name || '')}" stroke="#2a2b2c" stroke-width="${(fsMax * 0.12).toFixed(3)}" stroke-linejoin="round"/>
-      <text x="${cx.toFixed(2)}" y="${(cz - (r.surface ? fs * 0.3 : -fs * 0.3)).toFixed(2)}" font-size="${fs.toFixed(2)}" text-anchor="middle" font-family="Inter,sans-serif" font-weight="600" fill="#2a2b2c">${esc(r.name)}${surf}</text>`;
+      <text x="${cx.toFixed(2)}" y="${(cz - (r.surface ? fs * 0.3 : -fs * 0.3)).toFixed(2)}" font-size="${fs.toFixed(2)}" text-anchor="middle" font-family="Jost,sans-serif" font-weight="600" fill="#2a2b2c">${esc(r.name)}${surf}</text>`;
   }).join('');
   const st = statusOf(L.status);
   return `<svg viewBox="${(x0 - pad).toFixed(2)} ${(z0 - pad).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)}" role="img" aria-label="${esc(caption)} du logement ${esc(L.id)}">
     ${parts}
     <rect x="${(x0 - pad * 0.4).toFixed(2)}" y="${(z0 - pad * 0.4).toFixed(2)}" width="${(x1 - x0 + pad * 0.8).toFixed(2)}" height="${(z1 - z0 + pad * 0.8).toFixed(2)}" fill="none" stroke="${st.color}" stroke-width="${(fsMax * 0.16).toFixed(3)}" stroke-dasharray="${(fsMax * 0.5).toFixed(2)} ${(fsMax * 0.35).toFixed(2)}" rx="${(fsMax * 0.3).toFixed(2)}"/>
-    <text x="${((x0 + x1) / 2).toFixed(2)}" y="${(z1 + pad + fsMax * 0.9).toFixed(2)}" font-size="${(fsMax * 0.8).toFixed(2)}" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="${(fsMax * 0.15).toFixed(2)}" fill="#8a877f">RUE · SUD ↓</text>
+    <text x="${((x0 + x1) / 2).toFixed(2)}" y="${(z1 + pad + fsMax * 0.9).toFixed(2)}" font-size="${(fsMax * 0.8).toFixed(2)}" text-anchor="middle" font-family="Jost,sans-serif" letter-spacing="${(fsMax * 0.15).toFixed(2)}" fill="#8a877f">RUE · SUD ↓</text>
   </svg>`;
 }
 function openSheet(id) {
@@ -3739,7 +3739,7 @@ function renderSunBar() {
   const stops = [];
   for (let h = 8; h <= 20.001; h += 0.1) {
     const e = solarPosition(h, state.season).elev;
-    const c = e < -6 ? 'rgba(40,50,80,.7)' : e < 0 ? '#7f9fd8' : e < 7 ? '#d8bd8c' : 'rgba(255,255,255,.14)';
+    const c = e < -6 ? 'rgba(40,50,80,.7)' : e < 0 ? '#7f9fd8' : e < 7 ? '#7fa6ff' : 'rgba(255,255,255,.14)';
     stops.push(`${c} ${(((h - 8) / 12) * 100).toFixed(1)}%`);
   }
   ui.sunBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;

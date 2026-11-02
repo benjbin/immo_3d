@@ -13,31 +13,31 @@
 
 const STYLE_ID = 'cnv-nav-style';
 const CSS = `
-.cnv-nav{position:absolute;inset:auto 0 0 0;height:0;pointer-events:none;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;z-index:20;-webkit-user-select:none;user-select:none}
+.cnv-nav{position:absolute;inset:auto 0 0 0;height:0;pointer-events:none;font-family:Jost,system-ui,-apple-system,"Segoe UI",sans-serif;z-index:20;-webkit-user-select:none;user-select:none}
 .cnv-joy{position:absolute;left:calc(26px + env(safe-area-inset-left) + var(--cnv-il,0px));bottom:calc(26px + env(safe-area-inset-bottom) + var(--cnv-ib,0px));transition:left .35s ease,bottom .35s ease;width:var(--cnv-size,132px);height:var(--cnv-size,132px);pointer-events:auto;touch-action:none;cursor:grab}
 .cnv-joy:active{cursor:grabbing}
 .cnv-base{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 50% 42%,rgba(46,48,50,.55),rgba(14,15,16,.62) 70%);
   -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
-  border:1px solid rgba(216,189,140,.38);box-shadow:0 10px 34px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 6px rgba(216,189,140,.05);
+  border:1px solid rgba(127,166,255,.38);box-shadow:0 10px 34px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 6px rgba(127,166,255,.05);
   transition:border-color .25s,box-shadow .25s}
-.cnv-joy.on .cnv-base{border-color:rgba(216,189,140,.75);box-shadow:0 10px 34px rgba(0,0,0,.35),0 0 0 4px rgba(216,189,140,.12),inset 0 1px 0 rgba(255,255,255,.08)}
-.cnv-ring{position:absolute;inset:17%;border-radius:50%;border:1px dashed rgba(216,189,140,.22)}
+.cnv-joy.on .cnv-base{border-color:rgba(127,166,255,.75);box-shadow:0 10px 34px rgba(0,0,0,.35),0 0 0 4px rgba(127,166,255,.12),inset 0 1px 0 rgba(255,255,255,.08)}
+.cnv-ring{position:absolute;inset:17%;border-radius:50%;border:1px dashed rgba(127,166,255,.22)}
 .cnv-tick{position:absolute;left:50%;top:50%;width:0;height:0}
-.cnv-tick i{position:absolute;left:-4px;top:calc(var(--cnv-size,132px) * -0.5 + 9px);border:4px solid transparent;border-bottom:5px solid rgba(216,189,140,.55);transition:border-bottom-color .2s}
-.cnv-joy.on .cnv-tick i{border-bottom-color:rgba(216,189,140,.9)}
+.cnv-tick i{position:absolute;left:-4px;top:calc(var(--cnv-size,132px) * -0.5 + 9px);border:4px solid transparent;border-bottom:5px solid rgba(127,166,255,.55);transition:border-bottom-color .2s}
+.cnv-joy.on .cnv-tick i{border-bottom-color:rgba(127,166,255,.9)}
 .cnv-knob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;
-  background:radial-gradient(circle at 38% 32%,#f3e2bd,#d8bd8c 42%,#a8895a 100%);
+  background:radial-gradient(circle at 38% 32%,#cfe0ff,#7fa6ff 42%,#145cff 100%);
   box-shadow:0 6px 16px rgba(0,0,0,.45),inset 0 -3px 6px rgba(80,55,20,.35),inset 0 2px 3px rgba(255,255,255,.6);
   transition:transform .32s cubic-bezier(.34,1.56,.5,1);will-change:transform}
 .cnv-knob::after{content:"";position:absolute;inset:30%;border-radius:50%;border:1px solid rgba(90,64,28,.35);background:radial-gradient(circle,rgba(255,255,255,.18),transparent 70%)}
 .cnv-joy.drag .cnv-knob{transition:none}
-.cnv-cap{position:absolute;left:0;right:0;bottom:-21px;text-align:center;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(216,189,140,.85);text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.cnv-cap{position:absolute;left:0;right:0;bottom:-21px;text-align:center;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(127,166,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.6)}
 .cnv-btns{position:absolute;right:calc(26px + env(safe-area-inset-right) + var(--cnv-ir,0px));bottom:calc(30px + env(safe-area-inset-bottom) + var(--cnv-ib,0px));transition:right .35s ease,bottom .35s ease;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 .cnv-btn{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;cursor:pointer;touch-action:none;
-  background:rgba(18,19,20,.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(216,189,140,.35);color:#d8bd8c;
+  background:rgba(5,16,38,.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(127,166,255,.35);color:#7fa6ff;
   box-shadow:0 8px 24px rgba(0,0,0,.3);transition:transform .15s,background .2s,border-color .2s;padding:0}
-.cnv-btn:hover{border-color:rgba(216,189,140,.7)}
-.cnv-btn.on,.cnv-btn:active{background:rgba(216,189,140,.22);border-color:#d8bd8c;transform:scale(.94)}
+.cnv-btn:hover{border-color:rgba(127,166,255,.7)}
+.cnv-btn.on,.cnv-btn:active{background:rgba(127,166,255,.22);border-color:#7fa6ff;transform:scale(.94)}
 .cnv-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .cnv-btn[hidden]{display:none}
 .cnv-lock{font-size:10px;letter-spacing:.08em}
