@@ -53,6 +53,7 @@ body.noui .ui,body.noui .shade{display:none}
 .brand:hover{background:rgba(255,255,255,.08)}
 .brand .back{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.35)}
 .brand svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.brand .mark{width:31px;height:36px;object-fit:contain;margin-right:-2px}
 .brand b{font-family:var(--serif);font-weight:var(--dw);font-size:30px;line-height:1}
 .brand span.k{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;opacity:.82}
 .tools{display:flex;gap:4px;padding:6px;border-radius:16px;position:relative}
@@ -391,6 +392,7 @@ body.immersive .dock .sun{display:block!important}
   .brand{padding:4px 10px 4px 4px;gap:9px}
   .brand .back{width:30px;height:30px}
   .brand b{font-size:24px}
+  .brand .mark{width:26px;height:30px}
   .brand span.k{display:none}
   .tool .t{display:none}
   .tool{height:40px;min-width:40px;padding:0 10px}
@@ -468,7 +470,7 @@ body.immersive .dock .sun{display:block!important}
     <header class="top">
       <a class="brand" href="../index.html" aria-label="Retour au site Canopée">
         <span class="back" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></span>
-        <b>Canopée</b><span class="k">Maquette 3D</span>
+        <img class="mark" src="../logo/symbole-blanc.png" alt="" width="42" height="48"><b>Canopée</b><span class="k">Maquette 3D</span>
       </a>
       <div class="navmode glass" id="navMode" role="radiogroup" aria-label="Mode de navigation">
         <button role="radio" data-mode="orbit" aria-checked="true" title="Orbite : tourner autour du bâtiment (N pour changer)"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="4"/><circle cx="12" cy="12" r="2.2"/></svg><span>Orbite</span></button>
