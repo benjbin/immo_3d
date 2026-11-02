@@ -350,7 +350,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
   const qTmp = new THREE.Quaternion(), objTmp = new THREE.Object3D();
   function fly({ pos, quat, fov, duration, onEnd }) {
     const p0 = camera.position.clone(), p1 = pos.clone(), dist = p0.distanceTo(p1);
-    const pc = p0.clone().lerp(p1, 0.5); pc.y = Math.max(p0.y, p1.y) + Math.min(14, Math.max(1.2, dist * 0.22));
+    const pc = p0.clone().lerp(p1, 0.5); pc.y = Math.max(p0.y, p1.y) + (dist < 4 ? dist * 0.3 : Math.min(14, Math.max(1.2, dist * 0.22)));   // petit déplacement : pas de saut de caméra
     S.flight = { t: 0, dur: duration ?? clamp(0.7 + dist / 38, 0.7, 2.4), p0, p1, pc, q0: camera.quaternion.clone(), q1: quat, fov0: camera.fov, fov1: fov ?? camera.fov, onEnd };
     S.vel.set(0, 0, 0); S.orbitVel.az = S.orbitVel.pol = S.orbitVel.zoom = 0;
     orbitControls(false);

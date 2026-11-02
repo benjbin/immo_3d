@@ -715,7 +715,7 @@ function patchGtaoGBuffer(pass) {
       }
     });
     for (const o of hidden) o.visible = false;
-    r.render(scene, camera);
+    withoutShadowPass(() => r.render(scene, camera));
     for (const o of hidden) o.visible = true;
     for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
     hidden.length = 0; swapped.length = 0;
@@ -926,6 +926,15 @@ function updateEnvironment() {
 // Sonde de reflets des vitrages : cube capturé depuis le cœur du bâtiment (bâtiment et logements masqués),
 // donc arbres, rue, jardin et ciel réels au lieu d'un ciel uniforme ; mise à jour avec l'environnement.
 let glassProbe = null;
+// Rendus hors écran (sonde de verre, miroirs, G-buffer) : ils ne doivent jamais « consommer » une mise à jour
+// des cartes d'ombre demandée pour l'image principale (shadowMap.autoUpdate = false). Sinon la carte est
+// recalculée bâtiment masqué (sonde) ou jardin masqué (miroirs) et reste figée : taches de feuillage
+// sur les murs des pièces aveugles, soleil qui traverse les dalles.
+function withoutShadowPass(fn) {
+  const sm = renderer.shadowMap, nu = sm.needsUpdate;
+  sm.needsUpdate = false;
+  try { return fn(); } finally { sm.needsUpdate = nu; }
+}
 function updateGlassProbe() {
   if (!M || !M.glass || !building || !landscape) return;
   try {
@@ -941,7 +950,7 @@ function updateGlassProbe() {
     // fond = ciel d'environnement (désaturé, avec sol) plutôt que le bleu « carte postale » de l'arrière-plan
     const bg = scene.background; if (scene.environment) scene.background = scene.environment;
     for (const o of hidden) o.visible = false;
-    glassProbe.cam.update(renderer, scene);
+    withoutShadowPass(() => glassProbe.cam.update(renderer, scene));
     for (const o of hidden) o.visible = true;
     scene.background = bg;
     if (hPlane && cut != null) hPlane.constant = cut;
@@ -1253,6 +1262,16 @@ function loop(now) {
     state.lastFrame = 0;
   }
 }
+// Plan proche : 0,20 m dehors (précision de profondeur sur 1,6 km), 0,05 m en balade dans un logement.
+// Les marges de collision intérieures (cloisons 0,22 m, meubles 0,12 m) sont plus petites que la demi-diagonale
+// du plan proche à 0,20 m (≈ 0,32 m à 70°) : on voyait à travers cloisons, armoires et huisseries en les longeant.
+// À 0,05 m la demi-diagonale tombe à ≈ 0,08 m ; au-delà de 20 m (vues par les baies) l'erreur de profondeur reste < 1 cm.
+const NEAR_OUT = 0.2, NEAR_IN = 0.05;
+function updateNearPlane() {
+  const st = nav && nav.getState ? nav.getState() : null;
+  const want = st && st.mode === 'walk' && st.indoor ? NEAR_IN : NEAR_OUT;
+  if (camera.near !== want) { camera.near = want; camera.updateProjectionMatrix(); }
+}
 // Rayon d'AO proportionnel à la distance : 1,4 m convient en vue d'ensemble,
 // mais en gros plan sur une fenêtre il produit des taches granuleuses dans les pièces.
 let aoRadius = 1.4;
@@ -1500,7 +1519,7 @@ function updateRoomEnv(outDir, s) {
   E.win.position.set(Math.sin(ang) * 3.49, -0.05, Math.cos(ang) * 3.49); E.win.lookAt(0, -0.05, 0);
   E.win2.position.set(Math.cos(ang) * 3.49, 0.0, -Math.sin(ang) * 3.49); E.win2.lookAt(0, 0.0, 0);
   E.patch.position.set(Math.sin(ang) * 1.4, -1.34, Math.cos(ang) * 1.4); E.patch.rotation.set(-Math.PI / 2, 0, ang);
-  const rt = pmrem.fromScene(E.scene, 0.02, 0.05, 20);
+  const rt = withoutShadowPass(() => pmrem.fromScene(E.scene, 0.02, 0.05, 20));
   if (IN.envRT) IN.envRT.dispose();
   IN.envRT = rt;
 }
@@ -1783,7 +1802,7 @@ function makeReflector(mr) {
     const lv = landscape && landscape.visible; if (lv) landscape.visible = false;
     // dans le reflet : ombres de ciel PCF simples (le PCSS y doublerait le coût pour un détail invisible)
     const rad = IN.sky.map((L) => L.shadow.radius); IN.sky.forEach((L) => { L.shadow.radius = 1; });
-    render.call(this, r, sc, cam);
+    withoutShadowPass(() => render.call(this, r, sc, cam));
     IN.sky.forEach((L, i) => { L.shadow.radius = rad[i]; });
     if (lv) landscape.visible = true;
     others.forEach((x) => { x.visible = true; });
@@ -1965,6 +1984,8 @@ function render() {
     u.uBaseAgx.value = renderer.toneMapping === THREE.AgXToneMapping ? 1 : 0;
   }
   updateAoRadius();
+  updateNearPlane();
+  updateShadowClip();
   composer.render();
   MIR.dirty = false; MIR.frame = (MIR.frame + 1) | 0;
 }
@@ -2146,6 +2167,7 @@ const cfg = {
   pointer: { x: 0, y: 0, dirty: false, down: null, inside: false },
   labels: new Map(), labelSize: new Map(),
   sections: [],
+  clipMats: [], shadowClip: false, shadowCutY: 1e4,
   vo: { x: 0, y: 0, tx: 0, ty: 0 },     // décalage de la vue (centre de la zone libre)
   liftKey: '',
 };
@@ -2271,6 +2293,7 @@ function setupClipping() {
     new THREE.Plane(new THREE.Vector3(0, 0, 1), -(bounds.maxZ + m)),
     new THREE.Plane(new THREE.Vector3(0, 0, -1), bounds.minZ - m));
   renderer.localClippingEnabled = true;
+  patchShadowPass();
   const interiors = new Set();
   building.traverse((o) => { if (/interieur/i.test(o.name || '')) o.traverse((c) => interiors.add(c)); });
   const lotObjs = new Set(); lots.group.traverse((o) => lotObjs.add(o));
@@ -2281,6 +2304,7 @@ function setupClipping() {
       if (!mt || done.has(mt)) continue;
       done.add(mt);
       mt.clippingPlanes = CLIP; mt.clipIntersection = true;
+      cfg.clipMats.push(mt);
       // matériaux opaques de l'enveloppe : faces arrière peintes en « tranche » quand on coupe
       const opaque = !mt.transparent && !(mt.transmission > 0) && !(mt.alphaTest > 0) && mt.side === THREE.FrontSide && !mt.isShaderMaterial;
       if (section && opaque && (mt.isMeshStandardMaterial || mt.isMeshLambertMaterial || mt.isMeshPhongMaterial)) {
@@ -2314,6 +2338,36 @@ async function precompileSections() {
   setSections(false);
 }
 const CUT_TOP = () => bounds.height + 1.6;
+// Ombres et coupe. Vue plongeante sur un étage coupé (plan, « maison de poupée » de l'expérience) : comme sur
+// une maquette sectionnée, la partie enlevée ne porte plus d'ombre (clipShadows) et le soleil entre dans l'étage.
+// Caméra sous la coupe (balade dans le logement) : tout le bâtiment porte ombre — dalle haute, étages et
+// balcons du dessus — et le soleil n'entre que par les baies.
+// Pour la passe d'ombre, la coupe descend au niveau du sol de l'étage : l'enveloppe de l'étage coupé ne porte
+// pas non plus d'ombre (le soleil du soir rase la maquette au lieu d'être arrêté par 1,2 m d'allège), seuls
+// les cloisons et le mobilier des logements en portent.
+function updateShadowClip() {
+  const on = cfg.cut.y < 1e3 && camera.position.y > cfg.cut.y + 0.05;
+  let y = cfg.cut.y;
+  if (on && cfg.floor != null) { try { const f = lots.floorY(cfg.floor); if (Number.isFinite(f)) y = Math.min(y, f + 0.05); } catch (e) { /* coupe */ } }
+  if (on === cfg.shadowClip && (!on || Math.abs(y - cfg.shadowCutY) < 1e-3)) return;
+  if (on !== cfg.shadowClip) for (const mt of cfg.clipMats) mt.clipShadows = on;
+  cfg.shadowClip = on; cfg.shadowCutY = y;
+  renderer.shadowMap.needsUpdate = true;
+}
+function patchShadowPass() {
+  const sm = renderer.shadowMap, orig = sm.render;
+  sm.render = function (lights, sc, cam) {
+    if (!cfg.shadowClip || !hPlane) return orig.call(this, lights, sc, cam);
+    const c = hPlane.constant;
+    hPlane.constant = cfg.shadowCutY;
+    // logements meublés (hors CLIP : cloisons, doublages, rideaux, rangements hauts) : pas d'ombre non plus en vue
+    // en coupe — sinon le soleil rasant du soir, arrêté par les doublages et les voilages, laisse le plan gris ;
+    // la GTAO suffit à poser le mobilier
+    const off = [];
+    lots.group.traverse((o) => { if (o.isMesh && o.castShadow) { off.push(o); o.castShadow = false; } });
+    try { return orig.call(this, lights, sc, cam); } finally { hPlane.constant = c; for (const o of off) o.castShadow = true; }
+  };
+}
 function animateCut(to, onEnd) {
   const from = cfg.cut.y > 1e3 ? CUT_TOP() : cfg.cut.y;
   const dur = REDUCED_MOTION ? 1 : THREE.MathUtils.clamp(500 + Math.abs(to - from) * 90, 450, 1400);
@@ -2406,16 +2460,43 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
   invalidate(1600);
 }
 const DRONE_ONLY = new Set(['corps', 'socle', 'lame', 'toiture']);
+// Toit-terrasse de l'attique (building.js, « Mobilier de la terrasse » et grands bacs) : emprises au sol pour
+// la balade (le mobilier et les bacs appartiennent à building.js, que lots.collisionBoxes() ne couvre pas)
+let roofBoxCache = null;
+function roofTerraceBoxes() {
+  if (roofBoxCache) return roofBoxCache;
+  const out = [], D = 12.45, SX = 1.2, X = (v) => v * SX, mb = (x0, x1, z0, z1, h) => out.push({ kind: 'meuble', min: [x0, D, z0], max: [x1, D + h, z1] });
+  mb(X(0.8) - 1.1, X(0.8) + 1.1, -5.5, -4.6, 0.62);            // canapé 3 places
+  mb(X(-0.95) - 0.45, X(-0.95) + 0.45, -4.18, -3.32, 0.62);    // fauteuils
+  mb(X(2.55) - 0.45, X(2.55) + 0.45, -4.18, -3.32, 0.62);
+  mb(X(0.8) - 0.6, X(0.8) + 0.6, -4.05, -3.45, 0.38);          // table basse
+  mb(X(1.4) - 1.0, X(1.4) + 1.0, -2.65, -0.5, 0.88);           // table de 8 et ses chaises, jusqu’au garde-corps (pas de passage de 30 cm derrière les dossiers)
+  for (const q of (building && building.userData && building.userData.planters) || []) {
+    if (q.kind !== 'roof') continue;
+    out.push({ kind: 'meuble', min: [q.x - q.w / 2 - 0.035, D, q.z - q.d / 2 - 0.035], max: [q.x + q.w / 2 + 0.035, q.y + 0.06, q.z + q.d / 2 + 0.035] });
+  }
+  roofBoxCache = out;
+  return out;
+}
 function boxesFor(mode) {
   if (!lots.collisionBoxes) return [];
-  try { const all = lots.collisionBoxes() || []; return mode === 'drone' ? all : all.filter((b) => !DRONE_ONLY.has(b.kind)); } catch (e) { return []; }
+  try {
+    const all = lots.collisionBoxes() || [];
+    return mode === 'drone' ? all : all.filter((b) => !DRONE_ONLY.has(b.kind)).concat(roofTerraceBoxes());
+  } catch (e) { return []; }
 }
 function refreshBoxes(mode) {
   if (!nav || navIsStub || !nav.setColliders) return;
   nav.setColliders({ boxes: boxesFor(mode || nav.mode) });
 }
 function walkCeiling(k) {
-  try { if (lots.walkCeilingY) { const y = lots.walkCeilingY(k); if (Number.isFinite(y)) return y + 0.02; } } catch (e) { /* repli */ }
+  try {
+    if (lots.walkCeilingY) {
+      const y = lots.walkCeilingY(k);
+      if (Number.isFinite(y)) return y + 0.02;
+      if (y === null && k === 4) return CUT_TOP();   // toit-terrasse à ciel ouvert : pas de coupe (édicule entier)
+    }
+  } catch (e) { /* repli */ }
   return lots.floorY(k) + 2.5;
 }
 function floorCaption(k) {
@@ -2700,33 +2781,59 @@ function walkFromView(id) {
   cfg.immersive = null;
   document.body.classList.remove('immersive');
   updateViewOffsetTarget();
-  setFloor(L.level, { fly: false, view: 'walk' });
-  cfg.walkFloor = L.level;
-  refreshBoxes('walk');
   const c = camera.position, e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-  const y = lots.floorY(L.level) + 1.65;
-  // le point de vue est souvent au bord du balcon (garde-corps, jardinières) : s'il n'y a pas la place
-  // de faire quelques pas, on entre au séjour, tourné dans la même direction
-  let pos = [c.x, y, c.z];
+  // niveau de marche = celui du point de vue (attique : le toit-terrasse privatif, niveau 4, et non le R+3 en dessous)
+  let k = L.level;
+  try { if (L.attique && Number.isFinite(lots.floorY(4)) && c.y > lots.floorY(4) + 0.8) k = 4; } catch (e2) { /* niveau du lot */ }
+  setFloor(k, { fly: false, view: 'walk' });
+  cfg.walkFloor = k;
+  refreshBoxes('walk');
+  const fy = (() => { try { const f = lots.walkFloorAt && lots.walkFloorAt(k, c.x, c.z); return Number.isFinite(f) ? f : lots.floorY(k); } catch (e2) { return lots.floorY(k); } })();
+  const y = fy + 1.65;
+  // le point de vue est souvent au bord du balcon ou dans une loggia : on marche sur place si l'on peut
+  // y faire quelques pas (zone praticable connexe, portes-fenêtres comprises), sinon on entre au séjour
+  let pos = [c.x, y, c.z], moved = false;
   const D = nav.debug;
   if (D && D.walkResolve && L.entry) {
-    // surface praticable atteignable autour du point (maille 10 cm, rayon 3 m) : moins de 4 m², on entre au séjour
-    const s = 0.1, R = 30, N = 2 * R + 1, seen = new Uint8Array(N * N), st = [R * N + R];
-    const free = (i, j) => { const q = { x: c.x + (i - R) * s, z: c.z + (j - R) * s }; D.walkResolve(q, y); return Math.hypot(q.x - c.x - (i - R) * s, q.z - c.z - (j - R) * s) < 1e-3; };
+    // remplissage depuis le point (maille 10 cm, jusqu'à 5 m) : 2,5 m² atteignables suffisent — une loggia
+    // de 2,6 m² ouverte sur le séjour dépasse largement ce seuil dès que la porte-fenêtre est franchissable
+    const s = 0.1, R = 50, N = 2 * R + 1, NEED = 250, seen = new Uint8Array(N * N), st = [R * N + R];
+    const o = { x: c.x, z: c.z };   // origine de la maille = point de départ retenu (ci-dessous)
+    const free = (i, j) => { const q = { x: o.x + (i - R) * s, z: o.z + (j - R) * s }; D.walkResolve(q, y); return Math.hypot(q.x - o.x - (i - R) * s, q.z - o.z - (j - R) * s) < 1e-3; };
     let n = 0;
-    if (free(R, R)) { seen[R * N + R] = 1; } else st.length = 0;
-    while (st.length && n < 400) {
-      const k = st.pop(), i = k % N, j = (k / N) | 0; n++;
+    // point de vue légèrement dans un obstacle (jardinière, garde-corps) : on part du point libre le plus proche
+    const q0 = { x: c.x, z: c.z }; D.walkResolve(q0, y);
+    if (Math.hypot(q0.x - c.x, q0.z - c.z) < 0.35) { pos = [q0.x, y, q0.z]; moved = Math.hypot(q0.x - c.x, q0.z - c.z) > 1e-3; }
+    else {
+      // dans un meuble (table de terrasse…) : point libre le plus proche, jusqu'à 1,5 m
+      let best = null;
+      for (let r = 0.1; r <= 1.5 && !best; r += 0.1) {
+        for (let a = 0; a < 16; a++) {
+          const qx = c.x + r * Math.cos(a * Math.PI / 8), qz = c.z + r * Math.sin(a * Math.PI / 8), q = { x: qx, z: qz };
+          D.walkResolve(q, y);
+          if (Math.hypot(q.x - qx, q.z - qz) < 1e-3) { best = [qx, qz]; break; }
+        }
+      }
+      if (best) { pos = [best[0], y, best[1]]; moved = true; }
+    }
+    o.x = pos[0]; o.z = pos[2];
+    const i0 = R, j0 = R;
+    if (free(i0, j0)) { seen[j0 * N + i0] = 1; } else st.length = 0;
+    while (st.length && n < NEED) {
+      const kk0 = st.shift(), i = kk0 % N, j = (kk0 / N) | 0; n++;
       for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
         const kk = jj * N + ii; if (seen[kk]) continue; seen[kk] = 1;
         if (free(ii, jj)) st.push(kk);
       }
     }
-    if (n < 400) pos = L.entry.pos;
+    if (n < NEED) { pos = L.entry.pos; moved = true; k = L.level; }
   }
-  nav.teleport({ pos, yaw: e.y, pitch: 0, mode: 'walk', duration: 0.6 });
-  setCaption(`Lot ${L.id} · balade`, 'Visite à pied', 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Orbite pour revenir au plan.');
+  if (k !== cfg.walkFloor) { setFloor(k, { fly: false, view: 'walk' }); cfg.walkFloor = k; refreshBoxes('walk'); }
+  // sur place : aucun vol (l'arc de transition faisait monter la caméra de ~30 cm) ; ailleurs : fondu
+  const far = moved && Math.hypot(pos[0] - c.x, pos[2] - c.z) > 0.6;
+  nav.teleport({ pos, yaw: e.y, pitch: far ? 0 : THREE.MathUtils.clamp(e.x, -0.2, 0.1), mode: 'walk', duration: 0, fade: far });
+  setCaption(`Lot ${L.id} · balade`, k === 4 ? 'Toit-terrasse' : 'Visite à pied', 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Orbite pour revenir au plan.');
   closeSheetKeepSelection();
   toggleLots(false);
   invalidate(2000);
@@ -2823,6 +2930,8 @@ async function setupNavigation() {
     },
     floorAt: (x, z, eyeY) => {
       if (cfg.walkFloor == null || !inFoot(x, z) || eyeY < 2.4) return null;
+      // sol de visite local (dallage surélevé des loggias, seuils) quand lots.js le fournit
+      try { if (lots.walkFloorAt) { const f = lots.walkFloorAt(cfg.walkFloor, x, z); if (Number.isFinite(f)) return f; } } catch (e) { /* repli */ }
       return lots.floorY(cfg.walkFloor);
     },
     ceilingAt: (x, z, y) => {

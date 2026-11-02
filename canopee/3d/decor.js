@@ -121,6 +121,25 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   // laine unie (tapis de chambre, plaids épais)
   const wool = paint(256, 256, (u, v, o) => { const t = fbmP(u, v, 48, 48, 3, 77); const l = 0.85 + 0.15 * t; o[0] = o[1] = o[2] = 235 * l; o[3] = t; o[4] = 1; });
   D.wool = fab('decoWool', set(wool, 0.3, 0.3, 5, { roughness: 1 }), { sheenRoughness: 0.9 });
+  // jute tissé à plat (tapis) : natté 2 × 2 en fils épais, 0,16 m par motif
+  const jute = paint(256, 256, (u, v, o) => {
+    const n = 8, cu = Math.floor(u * n), cv = Math.floor(v * n), fu = (u * n) % 1, fv = (v * n) % 1, hor = (cu + cv) % 2 === 0;
+    const across = hor ? fv : fu, along = hor ? fu : fv, k = (across * 3) % 1;
+    const strand = Math.sin(k * Math.PI), fib = fbmP(u, v, hor ? 64 : 6, hor ? 6 : 64, 2, 23);
+    const l = 0.7 + 0.22 * strand + 0.1 * (fib - 0.5) + 0.05 * Math.sin(along * Math.PI) + 0.04 * (fbmP(u, v, 3, 3, 2, 5) - 0.5);
+    o[0] = 196 * l; o[1] = 168 * l; o[2] = 124 * l; o[3] = strand * 0.8 + fib * 0.2; o[4] = 0.95;
+  });
+  D.jute = fab('decoJute', set(jute, 0.16, 0.16, 5, { roughness: 1, normalScale: new THREE.Vector2(1.2, 1.2) }), { sheenRoughness: 0.95, sheenColor: new THREE.Color(0x7a6a50) });
+  // cannage (tête de lit, chaises) : brins de rotin horizontaux, verticaux et diagonaux, jours octogonaux sombres ; 4 cm
+  const cane = paint(256, 256, (u, v, o) => {
+    const f = (t) => Math.abs(((t % 1) + 1) % 1 - 0.5);
+    const dh = f(v * 4), dv = f(u * 4), d1 = f((u + v) * 2), d2 = f((u - v) * 2 + 0.25);
+    const w = 0.09, sH = dh < w, sV = dv < w, sD1 = d1 < w * 0.8, sD2 = d2 < w * 0.8, on = sH || sV || sD1 || sD2;
+    const grain = fbmP(u, v, 40, 40, 2, 31);
+    if (on) { const l = 0.88 + 0.1 * grain; o[0] = 222 * l; o[1] = 190 * l; o[2] = 138 * l; o[3] = 0.7; o[4] = 0.55; }
+    else { o[0] = 58; o[1] = 46; o[2] = 36; o[3] = 0; o[4] = 0.9; }
+  });
+  D.cane = std('decoCane', 0xffffff, set(cane, 0.04, 0.04, 3, { roughness: 0.7, normalScale: new THREE.Vector2(0.8, 0.8) }));
   // --- travertin (plateaux, vasque, sol de salle de bains) : 1,2 m
   const trav = paint(1024, 1024, (u, v, o) => {
     const band = fbmP(u, v, 2, 14, 4, 31), w = fbmP(u, v, 6, 30, 3, 8);
@@ -478,7 +497,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // version « plan » d'un volume haut : boîte coupée à 1,2 m + tranche sombre
   const tallPlan = (mk, x0, x1, z0, z1, c) => P.planOnly(() => { box(mk, x0, x1, 0, CUT - 0.01, z0, z1, c); const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0); g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, CUT + 0.003, (z0 + z1) / 2); put('cut', g); });
   const walk = (fn) => P.walkOnly(fn);
-  const at = (x, z, ry, fn) => P.at(x, z, ry, fn);
+  const at = (x, z, ry, fn, y) => P.at(x, z, ry, fn, y);
   const pick = (a) => a[Math.floor(R() * a.length) % a.length];
   const jit = (s) => (R() - 0.5) * s;
 
@@ -701,6 +720,7 @@ export function createDecor(THREE, P, ctx = {}) {
   }
   // suspension papier type « Akari » (au-dessus de la table) : bas de l'abat-jour à yb
   function akari(x, z, yb = 1.55, r = 0.3, h = 0.42) {
+    if (P.markPendant) P.markPendant(x, z, r);
     walk(() => {
       const pts = []; for (let i = 0; i <= 14; i++) { const t = i / 14; pts.push([r * Math.sin(Math.PI * (0.08 + 0.84 * t)), h * t]); }
       lathe('shade', pts, x, yb, z, C(0xf6efe2), { seg: 40 });
@@ -710,9 +730,10 @@ export function createDecor(THREE, P, ctx = {}) {
     });
   }
   // petite suspension dôme (îlot) en métal noir, intérieur laiton
-  function dome(x, z, yb = 1.7, r = 0.13) {
+  function dome(x, z, yb = 1.7, r = 0.13, shell = 'black') {
+    if (P.markPendant) P.markPendant(x, z, r);
     walk(() => {
-      lathe('black', [[r, 0], [r * 0.98, 0.04], [r * 0.85, 0.11], [r * 0.5, 0.16], [0.02, 0.18], [0, 0.18]], x, yb, z, WHITE, { seg: 32 });
+      lathe(shell, [[r, 0], [r * 0.98, 0.04], [r * 0.85, 0.11], [r * 0.5, 0.16], [0.02, 0.18], [0, 0.18]], x, yb, z, WHITE, { seg: 32 });
       lathe('brass', [[r * 0.97, 0.002], [r * 0.82, 0.1], [r * 0.4, 0.15], [0, 0.16]], x, yb, z, WHITE, { seg: 32 });
       sq('bulb', 0.035, 0.03, 0.035, x, yb + 0.06, z, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
       cyl('black', 0.002, 0.002, H - yb - 0.18, x, yb + 0.18, z, WHITE, { seg: 4 });
@@ -771,24 +792,24 @@ export function createDecor(THREE, P, ctx = {}) {
   // ------------------------------------------------------------ assises
   // canapé 3 places à coussins séparés (lin), passepoils, pieds en chêne, coussins déco et plaid
   function sofa(w, o = {}) {
-    const d = o.d || 0.96, col = C(o.col || PAL.linenSand, 0.02), colD = col.map(v => v * 0.82), seatY = 0.29, armW = 0.17, armH = 0.6;
+    const d = o.d || 0.96, col = C(o.col || PAL.linenSand, 0.02), colD = col.map(v => v * 0.82), seatY = 0.29, armW = 0.17, armH = 0.6, mk = o.mk || 'textile';
     const nLeg = w > 2.1 ? 3 : 2;
     for (const sz of [-1, 1]) for (let i = 0; i < nLeg; i++) { const x = -w / 2 + 0.1 + (w - 0.2) * i / (nLeg - 1); rbb('oak', x - 0.03, x + 0.03, 0, 0.1, sz * (d / 2 - 0.09) - 0.03, sz * (d / 2 - 0.09) + 0.03, 0.006, C(0xf0e6da)); }
-    rb('textile', w - 0.02, 0.19, d - 0.04, 0.035, 0, 0.1 + 0.095, 0, col, { seg: 3 });                                  // caisse
-    for (const s of [-1, 1]) sq('textile', armW / 2, (armH - 0.1) / 2, d / 2, s * (w / 2 - armW / 2), 0.1 + (armH - 0.1) / 2, 0, col, { e1: 0.18, e2: 0.22, pinch: 0.08, nu: 24, nv: 14 });
-    rb('textile', w - 2 * armW + 0.02, 0.42, 0.16, 0.05, 0, 0.29 + 0.21, -d / 2 + 0.09, col, { seg: 3 });                 // dossier
+    rb(mk, w - 0.02, 0.19, d - 0.04, 0.035, 0, 0.1 + 0.095, 0, col, { seg: 3 });                                  // caisse
+    for (const s of [-1, 1]) sq(mk, armW / 2, (armH - 0.1) / 2, d / 2, s * (w / 2 - armW / 2), 0.1 + (armH - 0.1) / 2, 0, col, { e1: 0.18, e2: 0.22, pinch: 0.08, nu: 24, nv: 14 });
+    rb(mk, w - 2 * armW + 0.02, 0.42, 0.16, 0.05, 0, 0.29 + 0.21, -d / 2 + 0.09, col, { seg: 3 });                 // dossier
     const n = w > 2.1 ? 3 : 2, inner = w - 2 * armW, cw = inner / n;
     for (let i = 0; i < n; i++) {
       const x = -inner / 2 + cw * (i + 0.5), cd = d - 0.2, cz = 0.085;
-      sq('textile', cw / 2 - 0.006, 0.08, cd / 2, x, seatY + 0.08, cz, C(o.col || PAL.linenSand, 0.03), { e1: 0.24, e2: 0.14, pinch: 0.3, puff: 0.18, sag: 0.1, crease: 0.07, nu: 30, nv: 14, wob: 0.002 });
+      sq(mk, cw / 2 - 0.006, 0.08, cd / 2, x, seatY + 0.08, cz, C(o.col || PAL.linenSand, 0.03), { e1: 0.24, e2: 0.14, pinch: 0.3, puff: 0.18, sag: 0.1, crease: 0.07, nu: 30, nv: 14, wob: 0.002 });
       // passepoil sur l'arête supérieure du coussin
       const pts = []; for (let k = 0; k < 28; k++) { const th = -Math.PI + 2 * Math.PI * k / 28, cc = Math.cos(th), ss = Math.sin(th); pts.push([x + (cw / 2 - 0.006) * Math.sign(cc) * Math.pow(Math.abs(cc), 0.14), seatY + 0.08 + 0.055, cz + cd / 2 * Math.sign(ss) * Math.pow(Math.abs(ss), 0.14)]); }
-      tube('textile', pts, 0.0045, colD, { closed: true, seg: 80, rad: 4 });
-      sq('textile', cw / 2 - 0.008, 0.21, 0.1, x, seatY + 0.16 + 0.2, -d / 2 + 0.24, C(o.col || PAL.linenSand, 0.03), { e1: 0.27, e2: 0.2, pinch: 0.45, puff: 0.24, crease: 0.08, squash: 0.05, rx: -0.16, nu: 24, nv: 16, wob: 0.003 });
+      tube(mk, pts, 0.0045, colD, { closed: true, seg: 80, rad: 4 });
+      sq(mk, cw / 2 - 0.008, 0.21, 0.1, x, seatY + 0.16 + 0.2, -d / 2 + 0.24, C(o.col || PAL.linenSand, 0.03), { e1: 0.27, e2: 0.2, pinch: 0.45, puff: 0.24, crease: 0.08, squash: 0.05, rx: -0.16, nu: 24, nv: 16, wob: 0.003 });
     }
     // coussins décoratifs
     const pc = o.pillows || [PAL.terracotta, PAL.linenOat, PAL.ochre, PAL.sage];
-    const spots = [[-inner / 2 + 0.24, 0.12], [-inner / 2 + 0.5, -0.15], [inner / 2 - 0.26, -0.1], [inner / 2 - 0.5, 0.2]];
+    const spots = [[-inner / 2 + 0.24, 0.12], [-inner / 2 + 0.5, -0.15], [inner / 2 - 0.32, -0.1], [inner / 2 - 0.5, 0.2]];
     pc.forEach((c, i) => { const [x, rz] = spots[i % spots.length]; const s = i === 1 ? 0.42 : 0.5; pillow(x, seatY + 0.16 + s / 2 - 0.04, -d / 2 + 0.36 + (i === 1 ? 0.06 : 0), s, 0.15, C(c, 0.03), { rx: -Math.PI / 2 + 0.32, rz: rz * 0.6 }); });
     if (o.plaid !== false) plaidOverArm(w / 2 - armW / 2, armH, armW, -0.1, 0.4, C(o.plaid || PAL.rust, 0.03));
     contact(0, 0, w + 0.15, d + 0.15);
@@ -841,10 +862,11 @@ export function createDecor(THREE, P, ctx = {}) {
   }
   function sideTable(x, z, o = {}) { cyl('oak', 0.2, 0.2, 0.025, x, 0.5, z, C(0xfaf3ea), { seg: 32 }); cyl('oak', 0.03, 0.04, 0.5, x, 0, z, C(0xfaf3ea), { seg: 12 }); cyl('oak', 0.15, 0.15, 0.02, x, 0, z, C(0xfaf3ea), { seg: 24 }); if (o.lamp) tableLamp(x, 0.525, z, 1); else bookStack(x, 0.525, z, 2); contact(x, z, 0.5, 0.5); }
   // table ronde (Ø, piétement central)
-  function roundTable(r = 0.6) {
-    const oak = C(0xfaf3ea, 0.03);
-    lathe('oak', [[0, 0.72], [r - 0.01, 0.72], [r, 0.728], [r, 0.748], [r - 0.012, 0.755], [0, 0.755]], 0, 0, 0, oak, { seg: 64 });
-    lathe('oak', [[0, 0], [0.3, 0], [0.3, 0.025], [0.12, 0.05], [0.09, 0.3], [0.1, 0.6], [0.16, 0.72], [0, 0.72]], 0, 0, 0, oak, { seg: 40 });
+  function roundTable(r = 0.6, o = {}) {
+    const oak = C(0xfaf3ea, 0.03), tm = o.top || 'oak';
+    lathe(tm, [[0, 0.72], [r - 0.01, 0.72], [r, 0.728], [r, 0.748], [r - 0.012, 0.755], [0, 0.755]], 0, 0, 0, oak, { seg: 64 });
+    if (tm === 'travertine') lathe('travertine', [[0, 0], [0.24, 0], [0.24, 0.03], [0.17, 0.05], [0.15, 0.4], [0.17, 0.7], [0.2, 0.72], [0, 0.72]], 0, 0, 0, C(0xffffff), { seg: 40 });
+    else lathe('oak', [[0, 0], [0.3, 0], [0.3, 0.025], [0.12, 0.05], [0.09, 0.3], [0.1, 0.6], [0.16, 0.72], [0, 0.72]], 0, 0, 0, oak, { seg: 40 });
     contact(0, 0, 2 * r + 0.6, 2 * r + 0.6);
   }
   function rectTable(w = 1.6, d = 0.9) {
@@ -933,21 +955,33 @@ export function createDecor(THREE, P, ctx = {}) {
   // lit : sommier tapissier, tête de lit capitonnée en lin (côtes verticales), couette, oreillers, plaid au pied
   function bed(w, L = 2.0, o = {}) {
     const hb = C(o.head || PAL.linenGreige, 0.02), sheetC = C(o.sheet || PAL.linenWhite, 0.02), duvetC = C(o.duvet || PAL.linenWhite, 0.02);
-    const hbW = w + 0.2, hbH = 1.12, z0 = 0.09, top = 0.56;
-    // tête de lit : panneau + côtes
-    rbb('textile', -hbW / 2, hbW / 2, 0.08, hbH, 0, 0.06, 0.02, hb.map(v => v * 0.92));
-    const nr = Math.round(hbW / 0.2), rw = hbW / nr;
-    for (let i = 0; i < nr; i++) sq('textile', rw / 2 - 0.004, (hbH - 0.14) / 2, 0.035, -hbW / 2 + rw * (i + 0.5), 0.12 + (hbH - 0.14) / 2, 0.07, hb, { e1: 0.18, e2: 0.6, pinch: 0.05, nu: 12, nv: 10 });
+    const hbW = o.hbW ?? w + 0.2, hbH = o.hbH ?? 1.12, hm = o.headMk || 'textile', z0 = o.z0 ?? (hm === 'oak' || hm === 'cane' ? 0.06 : 0.09), top = 0.56;
+    // tête de lit : panneau + côtes (lin, bouclé), panneau de chêne à joints creux, ou cannage dans un cadre chêne
+    if (hm === 'oak') {
+      const oc = C(o.headC || 0xf0e4d4, 0.02), n = Math.max(3, Math.round(hbW / 0.3));
+      for (let i = 0; i < n; i++) { const x0 = -hbW / 2 + i * hbW / n + 0.002, x1 = x0 + hbW / n - 0.004; rbb('oak', x0, x1, 0.05, hbH - 0.06, 0, 0.04, 0.006, oc); }
+      rbb('oak', -hbW / 2 - 0.02, hbW / 2 + 0.02, hbH - 0.06, hbH - 0.02, 0, 0.09, 0.008, oc);            // tablette haute
+    } else if (hm === 'cane') {
+      const oc = C(o.headC || 0xd9bf98, 0.02), f = 0.045;
+      rbb('oak', -hbW / 2, hbW / 2, 0.05, hbH, 0, 0.045, 0.015, oc);
+      box('cane', -hbW / 2 + f, hbW / 2 - f, 0.05 + f, hbH - f, 0.045, 0.047, C(0xffffff));
+      for (const sx of [-1, 1]) rbb('oak', sx * hbW / 2 - (sx > 0 ? f : 0), sx * hbW / 2 + (sx < 0 ? f : 0), 0.05, hbH, 0.04, 0.055, 0.01, oc);
+      rbb('oak', -hbW / 2, hbW / 2, hbH - f, hbH, 0.04, 0.055, 0.01, oc); rbb('oak', -hbW / 2, hbW / 2, 0.05, 0.05 + f, 0.04, 0.055, 0.01, oc);
+    } else {
+      rbb(hm, -hbW / 2, hbW / 2, 0.08, hbH, 0, 0.06, 0.02, hb.map(v => v * 0.92));
+      const nr = Math.round(hbW / 0.2), rw = hbW / nr;
+      for (let i = 0; i < nr; i++) sq(hm, rw / 2 - 0.004, (hbH - 0.14) / 2, 0.035, -hbW / 2 + rw * (i + 0.5), 0.12 + (hbH - 0.14) / 2, 0.07, hb, { e1: 0.18, e2: 0.6, pinch: 0.05, nu: 12, nv: 10 });
+    }
     // base (sommier gainé) sur socle en retrait
     box('oak', -w / 2 + 0.08, w / 2 - 0.08, 0, 0.08, z0 + 0.1, z0 + L - 0.1, C(0x5a4636));
     rbb('textile', -w / 2 - 0.02, w / 2 + 0.02, 0.07, 0.33, z0, z0 + L + 0.02, 0.03, hb);
     sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
     // couette épaisse : dessus bombé matelassé, arrondi sur l'arête du matelas, chute avec plis verticaux,
     // coins en cône (plus bas), ourlet roulé ; envers décalé (épaisseur visible au bord)
-    const hang = 0.27, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
+    const hang = 0.27, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
     const duvet = (u, v) => {
       u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v));
-      const s = (u - 0.5) * (2 * hw + 2 * hang), t = v * (len + hang);
+      const s = (u - 0.5) * (2 * hw + 2 * hang), t = v * (len + hangF);
       const ex = Math.max(0, Math.abs(s) - hw), ez = Math.max(0, t - len), d = Math.hypot(ex, ez);
       const [o1, oy] = fallOf(d, rr), k = d > 0 ? o1 / d : 0;
       let x = Math.sign(s) * (Math.min(Math.abs(s), hw) + ex * k), z = zA + Math.min(t, len) + ez * k, y = top + 0.05 + oy;
@@ -965,10 +999,11 @@ export function createDecor(THREE, P, ctx = {}) {
     sq('cloth', hw + 0.01, 0.04, 0.12, 0, top + 0.062, zA + 0.04, duvetC.map(v => v * 0.97), { e1: 0.45, e2: 0.1, puff: 0.1, crease: 0.08, nu: 30, nv: 10, wob: 0.004 });
     // oreillers : deux grands carrés contre la tête de lit, deux standard, un coussin
     const np = 2;
-    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.31, z0 + 0.19, Math.min(0.62, w / np - 0.04), 0.21, sheetC, { rx: -Math.PI / 2 + 0.42 + jit(0.06), rz: jit(0.07), e2: 0.32, puff: 0.3, crease: 0.14, wob: 0.006 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.42, Math.min(0.6, w / np - 0.05) * 0.93, 0.17, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.75, rz: jit(0.05) }); }
+    // grands oreillers presque droits, adossés à la tête de lit (≈ 15°), bombés et tassés au centre ; oreillers standard devant
+    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.33, z0 + 0.15, Math.min(0.62, w / np - 0.04), 0.23, sheetC, { rx: -Math.PI / 2 + 0.27 + jit(0.05), rz: jit(0.06), e2: 0.34, puff: 0.38, crease: 0.18, wob: 0.007 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.38, Math.min(0.6, w / np - 0.05) * 0.93, 0.19, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.6, rz: jit(0.05), puff: 0.32, crease: 0.12 }); }
     pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
     // plaid épais plié en travers au pied : épouse la couette (décalé selon sa normale), retombe moins bas qu'elle
-    const tW = 2 * hw + 2 * hang, tL = len + hang, tdrop = 0.19, tz0 = L - 0.52 + z0 - zA, tdz = 0.44;
+    const tW = 2 * hw + 2 * hang, tL = len + hangF, tdrop = 0.19, tz0 = L - 0.52 + z0 - zA, tdz = 0.44;
     const onDuvet = (s, t, e) => {
       const u = s / tW + 0.5, v = t / tL, p = duvet(u, v), q = duvet(u + 2e-3, v), r = duvet(u, v + 2e-3);
       const ax = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], bx = [r[0] - p[0], r[1] - p[1], r[2] - p[2]];
@@ -1220,9 +1255,18 @@ export function createDecor(THREE, P, ctx = {}) {
         const x0 = -L / 2 + i * L / n + 0.012, x1 = x0 + L / n - 0.024;
         box('oak', x0, x1, H - 0.32, H - 0.3, 0, d, oak); box('oak', x0, x1, 0.05, 0.07, 0, d, oak);
         if (i % 2 === 0) {
-          tube('steel', [[x0, H - 0.4, d / 2], [x1, H - 0.4, d / 2]], 0.01, C(0x2a2a2a), { seg: 2 });
-          for (let x = x0 + 0.06; x < x1 - 0.04; x += 0.05 + R() * 0.03) sq('cloth', 0.012, 0.42 + R() * 0.3, 0.2, x, H - 0.45 - 0.35, d / 2, C(pick([0xe8e2d6, 0x3d3a36, 0xc8bba5, 0x5f6b72, 0xb8684a, 0xf3efe8, 0x7d8a6c]), 0.05), { e1: 0.4, e2: 0.3, nu: 8, nv: 10 });
-        } else for (let y = 0.07; y < H - 0.5; y += 0.36) { box('oak', x0, x1, y + 0.34, y + 0.36, 0, d, oak); for (let x = x0 + 0.02; x < x1 - 0.2; x += 0.24) { let yy = y + 0.36; for (let k = 0; k < 4; k++) { const t = 0.04 + R() * 0.02; rbb('cloth', x, x + 0.22, yy, yy + t, 0.08, d - 0.05, 0.015, C(pick([0xe8e2d6, 0xc8bba5, 0x9aa3a8, 0xf3efe8, 0xd9b99a]), 0.05)); yy += t; } } }
+          const yr = H - 0.4;
+          tube('steel', [[x0, yr, d / 2], [x1, yr, d / 2]], 0.01, C(0x2a2a2a), { seg: 2 });
+          // section courte (chemises, vestes, pantalons pliés) au-dessus des boîtes ; section longue (robes, manteaux)
+          const long = i > 0, kinds = long ? ['dress', 'coat', 'dress', 'shirt', 'coat', 'dress'] : ['shirt', 'shirt', 'jacket', 'pants', 'shirt', 'jacket', 'pants', 'shirt'];
+          let x = x0 + 0.05, k = 0;
+          while (x < x1 - 0.04) { const kd = kinds[k++ % kinds.length]; garment(x, yr, d / 2, kd, C(pick(kd === 'coat' || kd === 'jacket' ? [0x3d3a36, 0x5f6b72, 0x8a7a62, 0x2f3a48] : [0xe8e2d6, 0xc8bba5, 0xf3efe8, 0x9aa3a8, 0xb8684a, 0x7d8a6c, 0xd9b99a]), 0.06)); x += (kd === 'coat' || kd === 'jacket' ? 0.085 : 0.06) + R() * 0.03; }
+          if (!long) { // boîtes à chaussures en carton lin et panier en jonc sous les vêtements courts
+            for (let b = 0; b < 2; b++) rbb('cloth', x0 + 0.04 + b * 0.3, x0 + 0.31 + b * 0.3, 0.07, 0.25, 0.1, 0.45, 0.01, C(b ? 0xd9cdb5 : 0xc8bba5, 0.04));
+            rbb('cloth', x0 + 0.06, x0 + 0.29, 0.25, 0.42, 0.12, 0.43, 0.01, C(0xe4dac8, 0.04));
+            basket(x1 - 0.17, d / 2, 0.14, 0.3, { linen: PAL.linenStone });
+          } else for (let s2 = 0; s2 < 3; s2++) shoes(x0 + 0.14 + s2 * 0.24, d / 2 + 0.05, Math.PI / 2 + jit(0.3), s2 % 2);
+        } else for (let y = 0.07; y < H - 0.5; y += 0.36) { box('oak', x0, x1, y + 0.34, y + 0.36, 0, d, oak); for (let x = x0 + 0.02; x < x1 - 0.2; x += 0.24) { let yy = y + 0.36; const nk = 2 + Math.floor(R() * 4), wv = 0.2 + R() * 0.04, dx = jit(0.02), base = pick([0xe8e2d6, 0xc8bba5, 0x9aa3a8, 0xf3efe8, 0xd9b99a, 0x2f3a48, 0x7d8a6c]); if (R() < 0.18) { basket(x + 0.11, d / 2, 0.1, 0.22, { col: 0xb89a6c }); continue; } for (let k = 0; k < nk; k++) { const t = 0.03 + R() * 0.03; rbb('cloth', x + dx + jit(0.012), x + dx + wv, yy, yy + t, 0.08 + jit(0.02), d - 0.05, 0.012 + R() * 0.008, C(R() < 0.6 ? base : pick([0xe8e2d6, 0xc8bba5, 0xf3efe8]), 0.06)); yy += t; } } }
       }
     });
     tallPlan('oak', -L / 2, L / 2, 0, d, oak);
@@ -1250,9 +1294,17 @@ export function createDecor(THREE, P, ctx = {}) {
   }
   // suspension : 0 = tambour en lin (chambres), 1 = globe opalin (dégagements, salles d'eau), 2 = cloche en grès
   function pendant(x, z, yb = 1.95, kind = 0, r = 0.2, col = 0xefe6d6) {
+    if (P.markPendant) P.markPendant(x, z, r);
     walk(() => {
       let top = yb;
-      if (kind === 0) {
+      if (kind === 3) { // abat-jour plissé en papier de lin (Ø 2r), plis radiaux, galon laiton en tête
+        const h = r * 0.62, g = new THREE.CylinderGeometry(r * 0.62, r, h, 96, 3, true), pa = g.attributes.position;
+        for (let i = 0; i < pa.count; i++) { const px = pa.getX(i), pz = pa.getZ(i), a = Math.atan2(pz, px), k = 1 + 0.045 * Math.abs(Math.sin(a * 24)); pa.setX(i, px * k); pa.setZ(i, pz * k); }
+        g.computeVertexNormals(); g.translate(x, yb + h / 2, z); put('shade', g, C(col));
+        torus('brass', r * 0.62, 0.004, x, yb + h, z, WHITE, { seg: 48, rad: 4 });
+        sq('bulb', 0.035, 0.045, 0.035, x, yb + h * 0.45, z, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
+        top = yb + h;
+      } else if (kind === 0) {
         lathe('shade', [[r, 0], [r * 1.002, 0.13], [r, 0.26]], x, yb, z, C(col), { seg: 48 });
         for (const y of [yb + 0.003, yb + 0.257]) torus('brass', r, 0.0035, x, y, z, WHITE, { seg: 48, rad: 4 });
         for (let i = 0; i < 3; i++) { const a = i * 2.094; tube('brass', [[x, yb + 0.2, z], [x + Math.cos(a) * r, yb + 0.257, z + Math.sin(a) * r]], 0.002, WHITE, { seg: 2, rad: 3 }); }
@@ -1328,6 +1380,83 @@ export function createDecor(THREE, P, ctx = {}) {
     }
   }
 
+  // vêtement sur cintre : plan du vêtement perpendiculaire à la tringle (le long de x), épaules, tombé, plis
+  function garment(x, yr, zc, kind, col) {
+    const hw = kind === 'pants' ? 0.16 : 0.2, len = { shirt: 0.78, jacket: 0.72, pants: 0.5, dress: 1.12, coat: 1.04 }[kind] || 0.8, th = kind === 'coat' || kind === 'jacket' ? 0.03 : 0.014, ph = R() * 6;
+    const y0 = yr - 0.05, flare = kind === 'dress' ? 0.06 : kind === 'coat' ? 0.03 : 0.005;
+    tube('steel', [[x, y0 + 0.02, zc], [x, yr + 0.035, zc + 0.012], [x, yr + 0.03, zc - 0.012]], 0.0025, C(0x2a2a2a), { seg: 8, rad: 3 });
+    if (kind !== 'pants') tube('oak', [[x, y0 - 0.03, zc - hw + 0.02], [x, y0 + 0.01, zc], [x, y0 - 0.03, zc + hw - 0.02]], 0.006, C(0xe6d6c4), { seg: 10, rad: 4 });
+    else tube('oak', [[x, y0 - 0.05, zc - hw], [x, y0 - 0.05, zc + hw]], 0.006, C(0xe6d6c4), { seg: 2, rad: 4 });
+    const f = (sgn) => (u, v) => {
+      const sh = kind === 'pants' ? hw : v < 0.1 ? 0.07 + (hw - 0.07) * Math.sin(v / 0.1 * Math.PI / 2) : hw + flare * (v - 0.1) / 0.9;
+      const zz = zc + (u - 0.5) * 2 * sh, y = (kind === 'pants' ? y0 - 0.05 : y0 - 0.02) - v * len;
+      const bul = th * Math.pow(Math.sin(u * Math.PI), 0.6) * Math.min(1, 0.3 + v * 4), fold = 0.009 * Math.sin(u * Math.PI * 4 + ph + v * 2) * Math.min(1, v * 2);
+      return [x + sgn * bul + fold, y, zz];
+    };
+    sheet('cloth', 8, 10, f(1), col); sheet('cloth', 8, 10, f(-1), col.map(c => c * 0.92));
+    if (kind === 'coat' || kind === 'jacket') for (const sd of [-1, 1]) stem('cloth', [[x, y0 - 0.06, zc + sd * (hw - 0.01)], [x + 0.01, y0 - 0.3, zc + sd * (hw + 0.005)], [x + 0.015, y0 - 0.58, zc + sd * (hw - 0.02)]], 0.035, 0.03, col.map(c => c * 0.95), 6);
+  }
+  // pouf rond (bouclé ou lin)
+  function pouf(r = 0.23, h = 0.42, col = PAL.boucle, mk = 'boucle') {
+    sq(mk, r, h / 2, r, 0, h / 2, 0, C(col, 0.02), { e1: 0.32, e2: 1, pinch: 0.15, puff: 0.08, sag: 0.05, nu: 32, nv: 14 });
+    contact(0, 0, 2 * r + 0.15, 2 * r + 0.15);
+  }
+  // table ovale (« stade ») en chêne, deux pieds tulipe
+  function ovalTable(w = 1.7, d = 0.9) {
+    const oak = C(0xfaf3ea, 0.03);
+    slab('oak', w, d, 0.035, d / 2 - 0.002, 0, 0.72, 0, oak, { curve: 16 });
+    for (const s of [-1, 1]) lathe('oak', [[0, 0], [0.22, 0], [0.22, 0.02], [0.1, 0.05], [0.07, 0.35], [0.09, 0.66], [0.16, 0.72], [0, 0.72]], s * w * 0.27, 0, 0, oak, { seg: 32 });
+    contact(0, 0, w + 0.6, d + 0.6);
+  }
+  // fauteuil bas d'extérieur : cadre teck, dossier en corde tressée, coussins de lin ; face vers +z
+  function loungeChair(o = {}) {
+    const teak = C(0x9a6a44, 0.04), rope = C(o.rope || 0xcdbb9c, 0.04), W = 0.74, Dp = 0.78;
+    for (const sx of [-1, 1]) {
+      rbb('oak', sx * W / 2 - 0.025, sx * W / 2 + 0.025, 0, 0.58, Dp / 2 - 0.06, Dp / 2 - 0.01, 0.008, teak);          // pieds avant + accoudoir
+      rbb('oak', sx * W / 2 - 0.025, sx * W / 2 + 0.025, 0, 0.74, -Dp / 2 + 0.01, -Dp / 2 + 0.06, 0.008, teak, { rx: -0.12 });
+      rbb('oak', sx * W / 2 - 0.03, sx * W / 2 + 0.03, 0.56, 0.6, -Dp / 2, Dp / 2, 0.01, teak);                        // accoudoir
+    }
+    for (const sz of [-1, 1]) rbb('oak', -W / 2, W / 2, 0.24, 0.28, sz * (Dp / 2 - 0.04) - 0.02, sz * (Dp / 2 - 0.04) + 0.02, 0.006, teak);
+    for (let i = 0; i < 9; i++) { const y = 0.32 + i * 0.045; tube('textile', [[-W / 2 + 0.03, y, -Dp / 2 + 0.06 - (y - 0.3) * 0.12], [0, y + 0.004, -Dp / 2 + 0.05 - (y - 0.3) * 0.12], [W / 2 - 0.03, y, -Dp / 2 + 0.06 - (y - 0.3) * 0.12]], 0.009, rope, { seg: 8, rad: 5 }); }
+    sq('textile', W / 2 - 0.05, 0.06, Dp / 2 - 0.06, 0, 0.34, 0.02, C(o.col || PAL.linenOat, 0.02), { e1: 0.22, e2: 0.15, pinch: 0.25, puff: 0.15, crease: 0.08, nu: 22, nv: 10 });
+    pillow(0, 0.56, -Dp / 2 + 0.17, 0.45, 0.14, C(o.pillow || PAL.ochre), { rx: -Math.PI / 2 + 0.35 });
+    contact(0, 0, W + 0.2, Dp + 0.2);
+  }
+  // chaise bistrot pliante en métal noir, assise et dossier à lattes ; face vers +z
+  function bistroChair(o = {}) {
+    const c = C(o.col || 0x2b2d2f);
+    for (const sx of [-1, 1]) { tube('black', [[sx * 0.2, 0, 0.2], [sx * 0.19, 0.45, 0.0], [sx * 0.18, 0.86, -0.2]], 0.011, c, { seg: 10, rad: 6 }); tube('black', [[sx * 0.2, 0, -0.22], [sx * 0.19, 0.45, 0.02]], 0.011, c, { seg: 4, rad: 6 }); }
+    for (let i = 0; i < 4; i++) rbb('black', -0.19, 0.19, 0.44, 0.455, -0.17 + i * 0.09, -0.11 + i * 0.09, 0.004, c);
+    for (let i = 0; i < 2; i++) rbb('black', -0.18, 0.18, 0.64 + i * 0.11, 0.7 + i * 0.11, -0.12 - i * 0.05, -0.105 - i * 0.05, 0.004, c, { rx: -0.42 });
+    if (o.cushion) sq('textile', 0.17, 0.025, 0.17, 0, 0.48, -0.02, C(o.cushion), { e1: 0.2, e2: 0.15, sag: 0.2, nu: 16, nv: 8 });
+    contact(0, 0, 0.55, 0.6);
+  }
+  // guéridon bistrot (plateau rond, pied central) : métal noir ou teck
+  function bistroTable(r = 0.3, h = 0.72, top = 'black') {
+    const c = top === 'oak' ? C(0x9a6a44, 0.04) : C(0x2b2d2f);
+    cyl(top, r, r, 0.025, 0, h - 0.025, 0, c, { seg: 36 }); cyl('black', 0.018, 0.018, h - 0.03, 0, 0, 0, WHITE, { seg: 10 });
+    for (let i = 0; i < 3; i++) { const a = i * 2.094; tube('black', [[0, 0.12, 0], [Math.cos(a) * 0.22, 0.01, Math.sin(a) * 0.22]], 0.012, WHITE, { seg: 3, rad: 5 }); }
+    contact(0, 0, 2 * r + 0.3, 2 * r + 0.3);
+  }
+  // lanterne en métal noir et verre, bougie (s'allume le soir comme les lampes)
+  function lantern(x, z, h = 0.42, y0 = 0) {
+    const s = h * 0.42;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box('black', x + sx * s / 2 - 0.008, x + sx * s / 2 + 0.008, y0, y0 + h, z + sz * s / 2 - 0.008, z + sz * s / 2 + 0.008);
+    box('black', x - s / 2 - 0.01, x + s / 2 + 0.01, y0, y0 + 0.02, z - s / 2 - 0.01, z + s / 2 + 0.01); box('black', x - s / 2 - 0.01, x + s / 2 + 0.01, y0 + h - 0.02, y0 + h, z - s / 2 - 0.01, z + s / 2 + 0.01);
+    lathe('black', [[s * 0.55, 0], [s * 0.3, 0.06], [0, 0.08]], x, y0 + h, z, WHITE, { seg: 4 }); torus('black', 0.03, 0.005, x, y0 + h + 0.1, z, WHITE, { rx: Math.PI / 2, seg: 16, rad: 4 });
+    box('glassClear', x - s / 2 + 0.005, x + s / 2 - 0.005, y0 + 0.02, y0 + h - 0.02, z - s / 2 + 0.005, z + s / 2 - 0.005);
+    cyl('lacquer', 0.04, 0.04, h * 0.32, x, y0 + 0.02, z, C(0xf2ece0), { seg: 16 }); sq('bulb', 0.012, 0.022, 0.012, x, y0 + 0.04 + h * 0.32, z, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
+  }
+  // applique murale laiton (repère local mur z = 0, pièce vers +z), petit abat-jour en lin
+  function sconce(x, y) {
+    walk(() => {
+      cyl('brass', 0.045, 0.045, 0.012, x, y, 0, WHITE, { rx: Math.PI / 2, seg: 24 });
+      tube('brass', [[x, y, 0.012], [x, y + 0.02, 0.12], [x, y + 0.08, 0.17]], 0.006, WHITE, { seg: 8, rad: 6 });
+      lathe('shade', [[0.085, 0], [0.06, 0.13]], x, y + 0.02, 0.17, C(0xf4ecdf), { seg: 28 });
+      sq('bulb', 0.02, 0.025, 0.02, x, y + 0.08, 0.17, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
+    });
+  }
+
   // bibliothèque ouverte en chêne (dos au mur z = 0, façade +z) : livres, céramiques, boîtes, pothos en haut
   function bookcase(w = 1.1, h = 1.85, d = 0.34) {
     const oak = C(0xf6eee4, 0.03), n = 5, t = 0.024, y0 = 0.07, sp = (h - y0 - t) / (n - 1);
@@ -1367,6 +1496,7 @@ export function createDecor(THREE, P, ctx = {}) {
   }
 
   return {
+    garment, pouf, ovalTable, loungeChair, bistroChair, bistroTable, lantern, sconce,
     runner, placeSetting, bookcase, romanBlind, linenPanels, pendant, pothos, basket, hookTowel, rollHolder, shoes,
     bathTub, consoleTable, dressing, strelitzia, herbs, leaf, stem, pleated, thickSheet,
     R, C, PAL, WHITE, box, rb, rbb, cyl, lathe, tube, torus, sq, sheet, slab, disc, contact, walk, at,
@@ -1381,207 +1511,339 @@ export function createDecor(THREE, P, ctx = {}) {
 
 // ================================================================== aménagement des deux lots d'un étage courant
 // Coordonnées absolues (m) issues du plan de lots.js (planUpper). yaw des meubles : 0 = façade vers +z.
+// Même implantation par zone (circulation validée), parti décoratif propre à chaque lot (o.level : 1, 2, 3) :
+//   zone A — 101 « sauge, encre et jute », 201 « japandi sable » (lot de l'expérience d'accueil), 302 « attique rouille et laiton »
+//   zone B — 102 « sauge et encre », 202 « encre et sauge », 301 « encre et ocre »
 const PI = Math.PI;
 export function furnishUpper(THREE, P, D, o = {}) {
   const { PAL, C, at, walk } = D, ART = { arcs: 0, line: 1, dune: 2, enso: 3, leaf: 4, blocks: 5, sea: 6, sketch: 7 };
-  const suite = !!o.suite;
+  const suite = !!o.suite, lv = o.level || 2;
   const face = (x, z, ry, fn) => at(x, z, ry, fn);          // objets muraux : dos au plan du mur
+  const FUR = P.furniture || [];
+  // un seul volume de collision pour un ensemble (table + chaises, tabourets) : plus de fente où la caméra se coince
+  const one = (fn) => { const n0 = FUR.length; fn(); const parts = FUR.splice(n0); if (!parts.length) return; const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9]; for (const b of parts) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], b.min[k]); mx[k] = Math.max(mx[k], b.max[k]); } FUR.push({ kind: 'meuble', min: mn, max: mx }); };
+  // meubles hauts (armoires, colonnes, bibliothèques) : marge de 10 cm, la caméra ne voit plus au travers
+  const tall = (x, z, ry, fn) => { const n0 = FUR.length; at(x, z, ry, fn); for (let i = n0; i < FUR.length; i++) { const b = FUR[i]; b.min[0] -= 0.1; b.min[2] -= 0.1; b.max[0] += 0.1; b.max[2] += 0.1; b.max[1] = Math.max(b.max[1], b.min[1] + 2.0); } };
 
-  // ======================= LOT A (côté rue) — « Japandi sable » : chêne, lin sable, sauge, terracotta
-  // --- séjour : salon face à la baie, coin repas rond, îlot
-  at(3.35, -4.45, 0, () => D.rugF(2.0, 1.8, 'rug'));
-  at(3.35, -5.37, 0, () => D.sofa(2.4, { col: PAL.linenSand, pillows: [PAL.terracotta, PAL.linenOat, PAL.ochre, PAL.sage], plaid: PAL.rust }));
-  at(3.35, -4.22, 0, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
-  at(2.25, -3.15, 2.2, () => D.armchair({ pillow: PAL.ochre }));
-  at(5.2, -5.57, 0, () => D.floorLamp(0, 0));   // calé dans l'angle (plus de poche fermée derrière le canapé)
-  at(5.15, -2.42, 0, () => D.oliveTree(0, 0, 1.85));
-  at(-0.52, -1.97, 0, () => D.figTree(0, 0, 1.7, 0xd9cfbf));
-  face(3.35, -5.86, 0, () => D.art(0, 1.55, 1.1, 0.8, ART.arcs));
-  D.sheers(0.82, 1.45, -1.74, { r0: 0.8, r1: 5.2 });
-  D.sheers(4.55, 5.18, -1.74, { r0: 0, r1: 0 });
-  // coin repas
-  at(0.75, -2.85, 0, () => {
-    D.roundTable(0.6);
-    for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const px = sx * 0.53, pz = sz * 0.53; at(px, pz, Math.atan2(-px, -pz), () => D.chair({ seat: PAL.straw })); }
-    D.tableDecor(0, 0);
-  });
-  D.akari(0.75, -2.85, 1.52, 0.3, 0.42);
-  at(-0.715, -3.05, PI / 2, () => D.sideboard(1.4, 0.42, 0.7));
-  face(-0.93, -3.05, PI / 2, () => { D.art(-0.3, 1.55, 0.5, 0.7, ART.leaf, { frame: 'oak' }); D.art(0.32, 1.55, 0.5, 0.7, ART.blocks, { frame: 'black' }); });
-  // cuisine en L (façades laquées sauge, plan quartzite, crédence zellige, colonnes blanc chaud)
-  at(-0.63, -6.13, PI / 2, () => {
-    D.baseRun(1.66, [{ w: 0.6, t: 'drawers', hob: true }, { w: 0.46, t: 'door' }, { w: 0.6, t: 'door', sink: true, sinkW: 0.5 }], { front: 'lacquer', frontC: 0xa3ab95, top: 'stone' });
-    D.splash(1.66, 0.9, 1.52);
-    walk(() => {
-      // hotte casquette laquée au-dessus de la plaque, étagères en chêne ailleurs
-      D.box('lacquer', -0.83, -0.23, 1.62, P.H - 0.005, -0.3, 0.12, C(0xe8e3da)); D.box('steel', -0.81, -0.25, 1.618, 1.62, -0.28, 0.1, C(0x8e9295));
-      D.box('bulb', -0.6, -0.5, 1.616, 1.618, -0.05, 0.02);
-      D.at(0.3, -0.3, 0, () => { D.wallShelf(1.06, 1.62, 0.24, { objects: false }); D.wallShelf(1.06, 1.98, 0.24, { objects: false }); });
-      D.dishes(0.05, -0.18, 1.65); D.vase(0.55, 1.65, -0.18, 1, 0xc4754e); D.bowl(0.3, 2.01, -0.18, 0.09, 0xe8e0d2); D.vase(0.6, 2.01, -0.18, 0, 0xd9cfbf); D.bookRow(-0.2, 0.15, 2.01, -0.18, 0);
+  // ======================= LOT A (côté rue) =======================
+  const VA = {
+    1: { // 101 — sauge, bleu encre, jute ; table en travertin
+      sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenOat, PAL.ink], plaid: PAL.linenOat }, arm: { pillow: PAL.ink },
+      rug: ['jute', C(0xf2ead8), false], artSofa: () => { D.art(-0.36, 1.58, 0.62, 0.84, ART.sketch, { frame: 'black' }); D.art(0.36, 1.58, 0.62, 0.84, ART.line, { frame: 'black' }); },
+      table: 'trav', chairSeat: PAL.linenOat, plantDining: 'snake', plantBay: 'olive', artWest: [ART.enso, ART.dune],
+      ch1: { head: PAL.terracotta, throw: PAL.ink, accent: PAL.ochre, pend: [0, 0.24, 0xe4dac8], art: ART.sea }, ch2: { head: PAL.sage, accent: PAL.mustard, throw: PAL.linenStone, pend: [2, 0.17, 0xa9b39b] },
+      ch3: { head: PAL.linenGreige, accent: PAL.ink, throw: PAL.ochre, pend: 'akari' }, domes: 'black',
+    },
+    2: { // 201 — japandi sable (inchangé : lot de l'expérience d'accueil)
+      sofa: { col: PAL.linenSand, pillows: [PAL.terracotta, PAL.linenOat, PAL.ochre, PAL.sage], plaid: PAL.rust }, arm: { pillow: PAL.ochre },
+      rug: ['rug', undefined, true], artSofa: () => D.art(0, 1.55, 1.1, 0.8, ART.arcs),
+      table: 'oak', chairSeat: PAL.straw, plantDining: 'fig', plantBay: 'olive', artWest: [ART.leaf, ART.blocks],
+      ch1: { head: PAL.linenGreige, throw: PAL.ochre, accent: PAL.terracotta, pend: [0, 0.24, 0xeee5d5], art: ART.line }, ch2: { head: PAL.sage, accent: PAL.ochre, throw: PAL.linenStone, pend: [0, 0.19, 0xe6ddcd] },
+      ch3: { head: PAL.linenOat, accent: PAL.sage, throw: PAL.terracotta, pend: [0, 0.19, 0xeee5d5] }, domes: 'black',
+    },
+    3: { // 302 — attique : bouclé rouille, laiton, grande table ovale, olivier côté baie
+      sofa: { col: PAL.linenOat, pillows: [PAL.rust, PAL.ochre, PAL.linenSand, PAL.clay], plaid: PAL.charcoal }, arm: { pillow: PAL.rust },
+      rug: ['wool', C(0xe8e1d4), false], artSofa: () => D.art(0, 1.6, 1.4, 1.0, ART.sea, { frame: 'oak', mat: 0.08 }),
+      table: 'oval', chairSeat: PAL.linenGreige, plantDining: 'olive', plantBay: 'fig', artWest: [ART.arcs, ART.sketch],
+      ch1: { head: PAL.rust, headMk: 'boucle', throw: PAL.linenSand, accent: PAL.ochre, pend: [3, 0.3, 0xf1e9dc], art: ART.leaf }, ch2: { head: PAL.linenSand, accent: PAL.rust, throw: PAL.clay, pend: [0, 0.19, 0xe6ddcd] },
+      ch3: { head: PAL.ink, accent: PAL.ochre, throw: PAL.linenOat, pend: 'akari' }, domes: 'brass',
+    },
+  }[lv] || {};
+  const VAc = VA.sofa ? VA : null;
+  if (VAc) furnishA(VAc);
+  function furnishA(V) {
+    // --- séjour : canapé 2,20 m recentré (passage îlot / canapé ≈ 70 cm), fauteuil tourné vers le canapé près de la baie
+    at(3.6, -4.45, 0, () => D.rugF(2.0, 1.8, V.rug[0], V.rug[1], V.rug[2]));
+    at(3.6, -5.38, 0, () => D.sofa(2.2, V.sofa));
+    at(3.6, -4.22, 0, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
+    at(4.05, -2.3, -2.88, () => D.armchair(V.arm));
+    at(5.2, -5.57, 0, () => D.floorLamp(0, 0));
+    const plant = (k, x, z) => at(x, z, 0, () => k === 'olive' ? D.oliveTree(0, 0, 1.8, 0xcfc6b8) : k === 'fig' ? D.figTree(0, 0, 1.7, 0xd9cfbf) : D.snakePlant(0, 0, 0.95, 0xe7dfd1));
+    plant(V.plantBay, 5.12, -2.12);
+    plant(V.plantDining, -0.6, -1.88);
+    face(3.6, -5.86, 0, V.artSofa);
+    D.sheers(0.82, 1.45, -1.74, { r0: 0.8, r1: 5.2 });
+    D.sheers(4.55, 5.18, -1.74, { r0: 0, r1: 0 });
+    // coin repas : un seul volume de collision ; on en fait le tour (≥ 50 cm derrière les chaises)
+    const TX = 0.95, TZ = -2.95;
+    one(() => at(TX, TZ, V.table === 'oval' ? PI / 2 : 0, () => {
+      if (V.table === 'oval') {
+        D.ovalTable(1.7, 0.9);
+        for (const sx of [-1, 1]) for (const zz of [-0.4, 0.4]) at(zz, sx * 0.63, sx > 0 ? PI : 0, () => D.chair({ seat: V.chairSeat }));
+        D.tableDecor(0.1, 0); D.placeSetting(-0.42, 0.755, 0.24, 0); D.placeSetting(0.42, 0.755, -0.24, PI);
+      } else {
+        const r = V.table === 'trav' ? 0.55 : 0.6, c = V.table === 'trav' ? 0.48 : 0.5;
+        D.roundTable(r, { top: V.table === 'trav' ? 'travertine' : 'oak' });
+        for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const px = sx * c, pz = sz * c; at(px, pz, Math.atan2(-px, -pz), () => D.chair({ seat: V.chairSeat })); }
+        D.tableDecor(0, 0);
+      }
+    }));
+    if (V.table === 'oval') { D.pendant(TX, TZ - 0.42, 1.62, 3, 0.2, 0xf1e9dc); D.pendant(TX, TZ + 0.42, 1.62, 3, 0.2, 0xf1e9dc); }
+    else D.akari(TX, TZ, 1.6, 0.27, 0.38);
+    at(-0.715, -3.05, PI / 2, () => D.sideboard(1.4, 0.42, 0.7));
+    face(-0.93, -3.05, PI / 2, () => { D.art(-0.3, 1.55, 0.5, 0.7, V.artWest[0], { frame: 'oak' }); D.art(0.32, 1.55, 0.5, 0.7, V.artWest[1], { frame: 'black' }); });
+    // cuisine en L (façades laquées sauge, plan quartzite, crédence zellige) ; hotte intégrée à un élément haut (plus de « casquette »)
+    at(-0.63, -6.13, PI / 2, () => {
+      D.baseRun(1.66, [{ w: 0.6, t: 'drawers', hob: true }, { w: 0.46, t: 'door' }, { w: 0.6, t: 'door', sink: true, sinkW: 0.5 }], { front: 'lacquer', frontC: 0xa3ab95, top: 'stone' });
+      D.splash(1.66, 0.9, 1.5);
+      walk(() => {
+        D.at(-0.53, 0, 0, () => D.wallUnits(0.62, 1.5, { hood: 0, frontC: 0xa3ab95 }));
+        D.at(0.3, -0.3, 0, () => { D.wallShelf(1.06, 1.62, 0.24, { objects: false }); D.wallShelf(1.06, 1.98, 0.24, { objects: false }); });
+        D.dishes(0.05, -0.18, 1.65); D.vase(0.55, 1.65, -0.18, 1, 0xc4754e); D.bowl(0.3, 2.01, -0.18, 0.09, 0xe8e0d2); D.vase(0.6, 2.01, -0.18, 0, 0xd9cfbf); D.bookRow(-0.2, 0.15, 2.01, -0.18, 0);
+      });
+      D.rbb('oak', -0.1, 0.25, 0.9, 0.922, -0.25, -0.02, 0.01, C(0xe6d6c4), { ry: 0.08 });
+      D.herbs(0.62, 0.9, -0.2, 0xb8684a); D.herbs(0.45, 0.9, -0.23, 0xe8e0d2);
     });
-    D.rbb('oak', -0.1, 0.25, 0.9, 0.922, -0.25, -0.02, 0.01, C(0xe6d6c4), { ry: 0.08 });
-    D.herbs(0.62, 0.9, -0.2, 0xb8684a); D.herbs(0.45, 0.9, -0.23, 0xe8e0d2);
-  });
-  at(-0.33, -7.26, 0, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'oven')); at(0.3, 0, 0, () => D.tallUnit(0.6, 'fridge')); });
-  at(1.15, -4.9, 0, () => {
-    D.island(1.4, 0.95, { front: 'oak', over: 0.25, top: 'stone' });
-    for (const x of [-0.33, 0.33]) at(x, 0.62, PI, () => D.barStool({ seat: PAL.cognac }));
-    D.fruitBowl(-0.25, 0.91, -0.1); const vh = D.vase(0.35, 0.91, -0.1, 0, 0xe8dfd0); D.branches(0.35, 0.91 + vh, -0.1, 0.5, 5);
-  });
-  D.dome(0.85, -4.9, 1.68); D.dome(1.45, -4.9, 1.68);
-  // --- chambre 1 / suite : lit face à la baie, banc, armoire, rideaux de lin
-  {
-    const w = suite ? 1.8 : 1.6, bx = suite ? -4.1 : -4.05, off = w / 2 + 0.1 + 0.24;
-    at(bx, -2.55, 0, () => D.rugF(2.3, 1.7, 'wool', C(0xe7dfd0), false));
-    at(bx, -3.96, 0, () => D.bed(w, 2.0, { head: PAL.linenGreige, duvet: PAL.linenWhite, accent: PAL.terracotta, throw: PAL.ochre }));
-    at(bx - off, -3.75, 0, () => D.nightstand({ lampC: 0xc4754e }));
-    at(bx + off, -3.75, 0, () => D.nightstand({ lampC: 0xc4754e, cup: true }));
-    face(bx, -3.96, 0, () => D.art(0, 1.62, 0.9, 0.6, ART.line));
-    at(bx, -1.62, 0, () => D.bench(1.2, 0.38, { throw: PAL.sage }));
-    at(-1.31, -2.5, -PI / 2, () => D.wardrobe(1.6, 0.6, { col: 0xe9e4da }));
-    D.drapes(-4.75, -4.18, -0.53, C(PAL.linenOat)); D.drapes(-1.6, -1.06, -0.53, C(PAL.linenOat));
-    walk(() => D.box('black', -4.8, -1.03, P.H - 0.03, P.H - 0.002, -0.545, -0.515));
-    at(-5.2, -0.85, 0, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1));
-    face(-5.565, -2.4, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
-    D.pendant(bx, -2.85, 1.98, 0, 0.24, 0xeee5d5);
-  }
-  // --- chambre 2 : lit 140 centré (passages latéraux ≈ 57 cm, pièce de 2,70 m), bureau sous étagère, chaise rentrée
-  at(-4.24, -6.3, 0, () => D.rugF(1.9, 1.5, 'wool', C(0xd9d2c6), false));
-  at(-4.24, -7.475, 0, () => D.bed(1.4, 2.0, { head: PAL.sage, duvet: PAL.linenWhite, pillow2: PAL.linenSand, accent: PAL.ochre, throw: PAL.linenStone }));
-  at(-5.28, -7.265, 0, () => { D.nightstand({ lamp: false }); D.pothos(-0.1, 0.5, -0.06, { n: 5, reach: 0.32, dir: 0.4 }); });
-  at(-3.2, -7.265, 0, () => D.nightstand({ lampKind: 1 }));
-  face(-4.24, -7.475, 0, () => D.art(0, 1.6, 0.6, 0.8, ART.sketch, { frame: 'black' }));
-  at(-5.03, -4.315, PI, () => D.desk(1.0, 0.55));
-  at(-5.03, -4.62, 0, () => D.chair({ seat: PAL.linenGreige }));
-  face(-5.03, -4.04, PI, () => { walk(() => D.wallShelf(1.0, 1.28, 0.22)); D.art(0.2, 1.78, 0.4, 0.5, ART.enso); });
-  for (const zc of [-5.4, -6.9]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
-  face(-2.89, -6.15, -PI / 2, () => { D.art(-0.22, 1.52, 0.42, 0.56, ART.sea, { frame: 'black', crop: [0.3, 0.6, 0.55] }); D.art(0.3, 1.42, 0.34, 0.44, ART.leaf, { crop: [0.6, 0.4, 0.6], flip: true }); });
-  D.pendant(-4.24, -5.85, 2.06, 0, 0.19, 0xe6ddcd);
-  // --- chambre 3 (chambre d'amis / bureau) : lit 120 contre le mur ouest, bureau dans l'alcôve est, armoire au nord,
-  // rideaux sur la porte de la loggia ; dégage ≈ 75 cm le long du lit et l'accès à l'alcôve
-  at(3.6, -7.3, 0, () => D.rugF(1.5, 1.1, 'wool', C(0xe2d9c9), false));
-  at(2.91, -5.94, PI, () => D.bed(1.2, 2.0, { head: PAL.linenOat, duvet: PAL.linenWhite, pillow2: PAL.linenGreige, accent: PAL.sage, throw: PAL.terracotta }));
-  at(3.88, -6.15, PI, () => D.nightstand({ lampKind: 1, cup: true }));
-  face(2.91, -5.94, PI, () => D.art(0, 1.62, 0.7, 0.5, ART.dune));
-  face(2.19, -7.05, PI / 2, () => walk(() => { D.wallShelf(0.8, 1.52, 0.17, { objects: false }); D.bookRow(-0.36, 0.0, 1.55, 0.085, 0); D.candle(0.1, 1.55, 0.08, 0.08); D.bowl(0.26, 1.55, 0.085, 0.06, 0x3d3a36); }));
-  at(5.33, -6.42, -PI / 2, () => D.desk(0.9, 0.5));
-  at(4.86, -6.42, PI / 2, () => D.chair({ seat: PAL.sage }));
-  face(5.58, -6.42, -PI / 2, () => { walk(() => { D.wallShelf(0.86, 1.36, 0.2, { objects: false }); D.bookRow(-0.4, -0.05, 1.39, 0.1, 0); D.pothos(0.26, 1.39, 0.1, { n: 6, reach: 0.4 }); }); D.art(0, 1.82, 0.46, 0.32, ART.enso, { frame: 'black', crop: [0.5, 0.5, 0.7] }); });
-  at(3.72, -9.0, 0, () => D.wardrobe(1.0, 0.55, { col: 0xe9e4da }));
-  face(4.368, -8.0, -PI / 2, () => D.linenPanels([[-0.86, -0.4]], -0.9, 0.62, C(PAL.linenOat), 0.075));   // rideau tiré d'un seul côté (garde 76 cm le long du lit)
-  D.pendant(3.5, -7.35, 2.06, 0, 0.19, 0xeee5d5);
-  // --- salle de bains : baignoire encastrée, vasque sur meuble chêne, sèche-serviettes
-  at(-1.96, -7.1, 0, () => D.bathTub(1.7, 0.75));
-  at(-1.96, -7.475, 0, () => { D.tileWall(-0.85, 0.85, 0.55, 2.1, 0); D.showerHead(-0.55, 0.35, 1.95); });
-  at(-2.81, -7.1, PI / 2, () => D.tileWall(-0.375, 0.375, 0.55, 2.1, 0));
-  at(-2.4, -6.725, 0, () => D.glassPanel(-0.41, 0.35, 0.0, 0.55, 1.5));
-  at(-1.01, -6.25, -PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.7, 0.8); });
-  at(-2.81, -5.75, PI / 2, () => D.towelRail(0.5, 1.1, 0.3, PAL.linenOat));
-  at(-1.95, -6.3, 0, () => D.rugF(0.8, 0.5, 'wool', C(0xe9e2d6), false));
-  at(-1.22, -5.5, 0, () => D.basket(0, 0, 0.17, 0.42, { linen: PAL.linenOat }));
-  // --- salle d'eau · WC
-  D.box('travertine', -1.275, -0.375, 0, 0.03, -9.275, -8.375, D.WHITE);
-  at(-0.825, -9.275, 0, () => { D.tileWall(-0.45, 0.45, 0.03, 2.1, 0); D.showerHead(0, 0.35); });
-  at(-1.275, -8.825, PI / 2, () => D.tileWall(-0.45, 0.45, 0.03, 2.1, 0));
-  at(-0.375, -8.94, PI / 2, () => D.glassPanel(-0.335, 0.3, 0, 0.03, 1.95));
-  at(0.12, -9.275, 0, () => D.wc());
-  at(-0.9, -7.64, PI, () => { D.vanity(0.6); D.roundMirror(0, 1.62, 0.28); });
-  face(0.47, -9.0, -PI / 2, () => D.rollHolder(0, 0.72));
-  face(-0.3, -7.64, PI, () => D.hookTowel(0, 1.55, 0.3, 0.5, C(PAL.sage)));
-  face(0.12, -9.275, 0, () => walk(() => { D.wallShelf(0.5, 1.24, 0.16, { objects: false }); D.pothos(0.12, 1.27, 0.08, { n: 5, reach: 0.34 }); D.candle(-0.12, 1.27, 0.08, 0.09); }));
-  at(-0.1, -8.3, 0, () => D.rugF(0.5, 0.36, 'wool', C(0xe9e2d6), false));
-  // --- entrée
-  at(1.93, -7.95, -PI / 2, () => D.bench(0.6, 0.34, { cushion: PAL.linenGreige }));
-  face(2.11, -7.95, -PI / 2, () => D.pegRail(0.6, 1.72, 3, { coat: PAL.charcoal, bag: PAL.linenOat }));
-  face(0.55, -9.0, PI / 2, () => D.roundMirror(0, 1.55, 0.2));
-  D.akari(1.33, -8.45, 1.95, 0.2, 0.3);
-  D.shoes(1.92, -7.86, PI / 2, 0); D.shoes(1.9, -8.12, PI / 2 + 0.15, 1);
-  at(1.12, -9.0, 0, () => D.rugF(0.8, 0.5, 'wool', C(0xb39a74), false));
-  // --- dégagement : tapis de passage, œuvre, globe opalin
-  at(-1.87, -4.62, 0, () => D.rugF(1.5, 0.62, 'rug'));
-  face(-1.36, -4.04, PI, () => D.art(0, 1.5, 0.45, 0.6, ART.dune, { frame: 'black', crop: [0.25, 0.4, 0.5], flip: true }));
-  D.pendant(-1.87, -4.62, 2.02, 1, 0.13);
+    tall(-0.33, -7.26, 0, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'oven')); at(0.3, 0, 0, () => D.tallUnit(0.6, 'fridge')); });
+    // îlot 1,30 m remonté de 30 cm (z −5,2) : passage îlot / canapé ≈ 70 cm, tabourets hors du tour de table
+    at(1.15, -5.2, 0, () => {
+      D.island(1.3, 0.95, { front: 'oak', over: 0.25, top: 'stone' });
+      D.fruitBowl(-0.25, 0.91, -0.1); const vh = D.vase(0.35, 0.91, -0.1, 0, 0xe8dfd0); D.branches(0.35, 0.91 + vh, -0.1, 0.5, 5);
+    });
+    one(() => at(1.15, -5.2, 0, () => { for (const x of [-0.3, 0.3]) at(x, 0.62, PI, () => D.barStool({ seat: lv === 1 ? PAL.ink : lv === 3 ? PAL.rust : PAL.cognac })); }));
+    D.dome(0.82, -5.2, 1.68, 0.13, V.domes); D.dome(1.48, -5.2, 1.68, 0.13, V.domes);
 
-  // ======================= LOT B (côté jardin) — « Travertin & terracotta » : chêne, greige, terracotta, encre
-  // --- cuisine linéaire + îlot, coin repas, salon tourné vers la loggia
-  at(3.355, -9.825, PI, () => {
-    D.baseRun(2.05, [{ w: 0.8, t: 'drawers', hob: true }, { w: 0.45, t: 'door' }, { w: 0.8, t: 'drawers2', sink: true, sinkW: 0.55 }], { front: 'oak', top: 'travertine', handleMk: 'black', tap: 'brass' });
-    D.splash(2.05, 0.9, 1.45);
-    D.wallUnits(2.05, 1.45, { hood: -0.625, frontC: 0xd8d0c4 });
-    D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05); D.herbs(-0.85, 0.9, -0.2, 0xb8684a); D.herbs(-0.98, 0.9, -0.15, 0x3d3a36);
-  });
-  at(4.98, -9.825, PI, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'fridge', { frontC: 0xd8d0c4, handleMk: 'black' })); at(0.3, 0, 0, () => D.tallUnit(0.6, 'oven', { frontC: 0xd8d0c4, handleMk: 'black' })); });
-  at(3.8, -11.4, PI, () => { D.island(1.8, 0.9, { front: 'oak', over: 0.2, top: 'travertine' }); const vh = D.vase(-0.4, 0.91, 0.1, 0, 0xb8684a); D.branches(-0.4, 0.91 + vh, 0.1, 0.5, 5); D.bookStack(0.3, 0.91, 0.12, 2, 0.2, true); });
-  D.dome(3.35, -11.4, 1.7); D.dome(4.25, -11.4, 1.7);
-  at(3.5, -13.75, 0, () => {
-    D.rectTable(1.6, 0.9);
-    for (const x of [-0.4, 0.4]) { at(x, 0.68, PI, () => D.chair({ seat: PAL.linenGreige })); at(x, -0.68, 0, () => D.chair({ seat: PAL.linenGreige })); }
-    D.runner(1.6, 0.26, 0.755, PAL.linenOat);
-    D.tableDecor(0, 0);
-    for (const [x, z, ry] of [[-0.4, 0.27, 0], [0.4, -0.27, PI]]) D.placeSetting(x, 0.755, z, ry);
-  });
-  D.akari(3.5, -13.75, 1.5, 0.34, 0.36);
-  at(3.1, -16.4, PI / 2, () => D.rugF(2.4, 1.9, 'rug'));
-  at(1.86, -16.4, PI / 2, () => D.sofa(2.4, { col: PAL.linenGreige, pillows: [PAL.rust, PAL.linenWhite, PAL.ink, PAL.clay], plaid: PAL.linenOat }));
-  at(3.15, -16.4, PI / 2, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
-  at(3.95, -17.95, -0.55, () => D.armchair({ mk: 'textile', col: PAL.terracotta }));
-  at(1.75, -17.98, 0, () => D.floorLamp(0, 0));
-  D.sideTable(1.66, -14.95, { lamp: true });
-  at(5.15, -18.15, 0, () => D.oliveTree(0, 0, 1.85, 0xb9b2a6));
-  at(5.15, -14.95, 0, () => D.strelitzia(0, 0, 1.75, 0xb8684a));
-  at(5.355, -13.2, -PI / 2, () => D.sideboard(1.6, 0.44, 0.7));
-  face(5.58, -13.2, -PI / 2, () => D.art(0, 1.55, 1.0, 0.72, ART.sea, { frame: 'black', mat: 0.08 }));
-  face(1.38, -16.4, PI / 2, () => D.art(0, 1.55, 1.2, 0.8, ART.dune));
-  at(2.78, -18.58, 0, () => D.bookcase(1.15, 1.9, 0.34));
-  for (const x of [1.5, 4.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
-  // --- chambre 1 : lit tête au mur du dégagement, fauteuil de lecture
-  at(-3.95, -17.1, 0, () => D.rugF(2.2, 1.5, 'wool', C(0xd9d2c6), false));
-  at(-3.95, -15.95, PI, () => D.bed(1.6, 2.0, { head: PAL.ink, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: PAL.rust, throw: PAL.linenSand }));
-  at(-5.09, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36 }));
-  at(-2.81, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36, cup: true }));
-  face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, ART.enso));
-  at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: PAL.rust }));
-  at(-1.05, -18.3, 0, () => D.snakePlant(0, 0, 0.75, 0x3d3a36));
-  face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
-  for (const x of [-4.5, -1.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
-  face(-3.0, -18.58, 0, () => D.art(0, 1.42, 0.9, 0.62, ART.arcs, { frame: 'oak', crop: [0.4, 0.55, 0.75] }));
-  D.pendant(-3.95, -17.0, 1.98, 2, 0.2, 0xb8684a);
-  // --- chambre 2 : lit, bureau sous la fenêtre, armoire
-  at(-4.15, -12.7, 0, () => D.rugF(1.7, 1.2, 'wool', C(0xe2d9c9), false));
-  at(-4.15, -11.525, PI, () => D.bed(1.4, 2.0, { head: PAL.linenSand, duvet: PAL.linenWhite, pillow2: PAL.linenOat, accent: PAL.sage, throw: PAL.clay }));
-  at(-5.19, -11.735, PI, () => D.nightstand({ lamp: false }));
-  at(-3.11, -11.735, PI, () => D.nightstand({ lampKind: 1 }));
-  face(-4.15, -11.525, PI, () => D.art(0, 1.6, 0.55, 0.75, ART.leaf));
-  at(-3.375, -15.58, 0, () => D.wardrobe(1.45, 0.58, { col: 0xe4ddd1 }));
-  at(-5.305, -14.6, PI / 2, () => D.desk(1.1, 0.55));
-  at(-4.75, -14.6, -PI / 2, () => D.chair({ seat: PAL.terracotta }));
-  for (const zc of [-12.1, -13.6, -15.2]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
-  D.pendant(-4.15, -13.4, 2.06, 0, 0.19, 0xe6ddcd);
-  // --- salle d'eau : douche à l'italienne, vasque, sèche-serviettes
-  D.box('travertine', 0.4, 1.3, 0, 0.025, -15.87, -14.97, D.WHITE);
-  at(0.85, -15.87, 0, () => { D.tileWall(-0.45, 0.45, 0.025, 2.1, 0); D.showerHead(0, 0.35); });
-  at(1.3, -15.42, -PI / 2, () => D.tileWall(-0.45, 0.45, 0.025, 2.1, 0));
-  at(0.4, -15.535, PI / 2, () => D.glassPanel(-0.335, 0.3, 0, 0.025, 1.95));
-  at(-0.42, -14.9, PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.6, 0.8, 'oak'); });
-  at(1.3, -14.55, -PI / 2, () => D.towelRail(0.45, 1.0, 0.35, PAL.clay));
-  at(-0.2, -14.2, 0, () => D.basket(0, 0, 0.15, 0.38, { linen: PAL.linenOat }));
-  at(0.85, -14.75, 0, () => D.rugF(0.6, 0.4, 'wool', C(0xe9e2d6), false));
-  // --- WC
-  at(-1.02, -15.87, 0, () => D.wc());
-  face(-1.02, -15.87, 0, () => D.art(0, 1.5, 0.3, 0.4, ART.sketch, { frame: 'black' }));
-  face(-0.5, -15.45, -PI / 2, () => D.rollHolder(0, 0.72));
-  face(-0.5, -14.6, -PI / 2, () => walk(() => { D.wallShelf(0.4, 1.3, 0.15, { objects: false }); D.pothos(0.05, 1.33, 0.075, { n: 5, reach: 0.3 }); }));
-  // --- entrée : placard, console et miroir, banc et patères
-  at(-1.2, -11.775, PI, () => D.wardrobe(1.8, 0.5, { col: 0xe9e4da }));
-  at(-0.85, -13.74, 0, () => D.consoleTable(1.1, 0.32));
-  face(-0.85, -13.9, 0, () => D.roundMirror(0, 1.55, 0.36));
-  at(-2.33, -13.0, PI / 2, () => D.bench(0.9, 0.36, { cushion: PAL.linenSand }));
-  face(-2.52, -13.0, PI / 2, () => D.pegRail(0.9, 1.72, 4, { coat: PAL.ink, bag: PAL.linenOat }));
-  D.akari(-0.6, -12.75, 1.95, 0.22, 0.32);
-  at(-0.95, -12.85, 0, () => D.rugF(1.8, 0.9, 'rug'));
-  D.shoes(-2.36, -13.25, PI / 2, 1); D.shoes(-2.38, -12.8, PI / 2 - 0.12, 0);
-  at(1.06, -11.8, 0, () => D.snakePlant(0, 0, 0.95, 0xe7dfd1));
-  at(-2.07, -14.95, PI / 2, () => D.rugF(1.4, 0.6, 'wool', C(0xd9cbb4), false));
-  // --- dressing
-  at(1.3, -17.3, -PI / 2, () => D.dressing(2.4, 0.55));
+    // --- chambre 1 / suite : lit face à la baie, banc, armoire, rideaux de lin, garde-corps vitré devant la baie toute hauteur
+    {
+      const w = suite ? 1.8 : 1.6, bx = suite ? -4.1 : -4.05, off = w / 2 + 0.1 + 0.24, c1 = V.ch1;
+      at(bx, -2.55, 0, () => D.rugF(suite ? 2.6 : 2.3, suite ? 2.0 : 1.7, 'wool', C(0xe7dfd0), false));
+      at(bx, -3.96, 0, () => D.bed(w, 2.0, { head: c1.head, headMk: c1.headMk, duvet: PAL.linenWhite, accent: c1.accent, throw: c1.throw }));
+      at(bx - off, -3.75, 0, () => D.nightstand({ lampC: suite ? 0xd9cfbf : 0xc4754e, lamp: !suite }));
+      at(bx + off, -3.75, 0, () => D.nightstand({ lampC: suite ? 0xd9cfbf : 0xc4754e, cup: true, lamp: !suite }));
+      if (suite) for (const s of [-1, 1]) face(bx + s * off, -3.96, 0, () => D.sconce(0, 1.32));   // appliques laiton au-dessus des chevets
+      if (suite) face(bx, -3.96, 0, () => { D.art(-0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.3, 0.5, 0.7] }); D.art(0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.7, 0.5, 0.7], flip: true }); });
+      else face(bx, -3.96, 0, () => D.art(0, 1.62, 0.9, 0.6, c1.art));
+      at(bx, -1.62, 0, () => D.bench(1.2, 0.38, { throw: lv === 1 ? PAL.ink : PAL.sage }));
+      tall(-1.31, -2.5, -PI / 2, () => D.wardrobe(1.6, 0.6, { col: 0xe9e4da }));
+      D.drapes(-4.75, -4.18, -0.53, C(PAL.linenOat)); D.drapes(-1.6, -1.06, -0.53, C(PAL.linenOat));
+      walk(() => D.box('black', -4.8, -1.03, P.H - 0.03, P.H - 0.002, -0.545, -0.515));
+      D.glassPanel(-4.27, -1.04, -0.47, 0.02, 1.0);               // garde-corps vitré (baie toute hauteur)
+      at(-5.2, -0.85, 0, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1));
+      face(-5.565, -2.4, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
+      D.pendant(bx, -2.85, suite ? 1.95 : 1.98, c1.pend[0], c1.pend[1], c1.pend[2]);
+      if (suite) { // coin lecture : fauteuil bouclé, lampadaire, guéridon
+        at(-2.32, -1.05, -2.68, () => D.armchair({ pillow: PAL.ochre }));
+        at(-1.72, -0.7, 0, () => D.floorLamp(0, 0, 1.5));
+        D.sideTable(-1.75, -1.35, {});
+      }
+    }
+    // --- chambre 2 : lit 140 (tête 1,46 m) centré, chevets de 40 cm, chaise rentrée sous le bureau
+    {
+      const c2 = V.ch2;
+      at(-4.24, -6.3, 0, () => D.rugF(1.9, 1.5, 'wool', C(0xd9d2c6), false));
+      at(-4.24, -7.475, 0, () => D.bed(1.4, 2.0, { hbW: 1.46, head: c2.head, duvet: PAL.linenWhite, pillow2: PAL.linenSand, accent: c2.accent, throw: c2.throw }));
+      at(-5.19, -7.265, 0, () => { D.nightstand({ w: 0.4, lamp: false }); D.pothos(-0.08, 0.5, -0.06, { n: 5, reach: 0.32, dir: 0.4 }); });
+      at(-3.29, -7.265, 0, () => D.nightstand({ w: 0.4, lampKind: 1 }));
+      face(-4.24, -7.475, 0, () => D.art(0, 1.6, 0.6, 0.8, lv === 3 ? ART.dune : ART.sketch, { frame: 'black' }));
+      at(-5.03, -4.315, PI, () => D.desk(1.0, 0.55));
+      at(-5.03, -4.42, 0, () => D.chair({ seat: lv === 1 ? PAL.ink : PAL.linenGreige }));
+      face(-5.03, -4.04, PI, () => { walk(() => D.wallShelf(1.0, 1.28, 0.22)); D.art(0.2, 1.78, 0.4, 0.5, ART.enso); });
+      for (const zc of [-5.4, -6.9]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
+      face(-2.89, -6.15, -PI / 2, () => { D.art(-0.26, 1.52, 0.42, 0.56, ART.sea, { frame: 'black', fw: 0.02, crop: [0.3, 0.6, 0.55] }); D.art(0.3, 1.4, 0.32, 0.42, ART.leaf, { fw: 0.02, crop: [0.6, 0.4, 0.6], flip: true }); });
+      D.pendant(-4.24, -5.85, 2.04, c2.pend[0], c2.pend[1], c2.pend[2]);
+    }
+    // --- chambre 3 : lit 120 × 190 (passage de 70 cm au pied), armoire de 50 cm, bureau dans l'alcôve est
+    {
+      const c3 = V.ch3;
+      at(3.6, -7.3, 0, () => D.rugF(1.5, 1.1, 'wool', C(0xe2d9c9), false));
+      at(2.91, -5.94, PI, () => D.bed(1.2, 1.9, { head: c3.head, duvet: PAL.linenWhite, pillow2: PAL.linenGreige, accent: c3.accent, throw: c3.throw, tuck: true }));
+      at(3.88, -6.15, PI, () => D.nightstand({ lampKind: 1, cup: true }));
+      face(2.91, -5.94, PI, () => D.art(0, 1.62, 0.7, 0.5, lv === 1 ? ART.blocks : ART.dune));
+      face(2.19, -7.05, PI / 2, () => walk(() => { D.wallShelf(0.8, 1.52, 0.17, { objects: false }); D.bookRow(-0.36, 0.0, 1.55, 0.085, 0); D.candle(0.1, 1.55, 0.08, 0.08); D.bowl(0.26, 1.55, 0.085, 0.06, 0x3d3a36); }));
+      at(5.33, -6.42, -PI / 2, () => D.desk(0.9, 0.5));
+      at(4.86, -6.42, PI / 2, () => D.chair({ seat: PAL.sage }));
+      face(5.58, -6.42, -PI / 2, () => { walk(() => { D.wallShelf(0.86, 1.36, 0.2, { objects: false }); D.bookRow(-0.4, -0.05, 1.39, 0.1, 0); D.pothos(0.26, 1.39, 0.1, { n: 6, reach: 0.4 }); }); D.art(0, 1.82, 0.46, 0.32, ART.enso, { frame: 'black', crop: [0.5, 0.5, 0.7] }); });
+      tall(3.72, -9.025, 0, () => D.wardrobe(1.0, 0.5, { col: 0xe9e4da }));
+      face(4.368, -8.0, -PI / 2, () => D.linenPanels([[-0.86, -0.4]], -0.9, 0.62, C(PAL.linenOat), 0.075));
+      if (c3.pend === 'akari') D.akari(3.5, -7.35, 1.98, 0.22, 0.3); else D.pendant(3.5, -7.35, 2.06, c3.pend[0], c3.pend[1], c3.pend[2]);
+    }
+    // --- salle de bains : baignoire encastrée, vasque sur meuble chêne, sèche-serviettes
+    at(-1.96, -7.1, 0, () => D.bathTub(1.7, 0.75));
+    at(-1.96, -7.475, 0, () => { D.tileWall(-0.85, 0.85, 0.55, 2.1, 0); D.showerHead(-0.55, 0.35, 1.95); });
+    at(-2.81, -7.1, PI / 2, () => D.tileWall(-0.375, 0.375, 0.55, 2.1, 0));
+    at(-2.4, -6.725, 0, () => D.glassPanel(-0.41, 0.35, 0.0, 0.55, 1.5));
+    at(-1.01, -6.25, -PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.7, 0.8); });
+    at(-2.81, -5.75, PI / 2, () => D.towelRail(0.5, 1.1, 0.3, lv === 3 ? PAL.clay : PAL.linenOat));
+    at(-1.95, -6.3, 0, () => D.rugF(0.8, 0.5, 'wool', C(0xe9e2d6), false));
+    at(-1.22, -5.5, 0, () => D.basket(0, 0, 0.17, 0.42, { linen: PAL.linenOat }));
+    // --- salle d'eau · WC
+    D.box('travertine', -1.275, -0.375, 0, 0.03, -9.275, -8.375, D.WHITE);
+    at(-0.825, -9.275, 0, () => { D.tileWall(-0.45, 0.45, 0.03, 2.1, 0); D.showerHead(0, 0.35); });
+    at(-1.275, -8.825, PI / 2, () => D.tileWall(-0.45, 0.45, 0.03, 2.1, 0));
+    at(-0.375, -8.94, PI / 2, () => D.glassPanel(-0.335, 0.3, 0, 0.03, 1.95));
+    at(0.12, -9.275, 0, () => D.wc());
+    at(-0.9, -7.64, PI, () => { D.vanity(0.6); D.roundMirror(0, 1.62, 0.28); });
+    face(0.47, -9.0, -PI / 2, () => D.rollHolder(0, 0.72));
+    face(-0.3, -7.64, PI, () => D.hookTowel(0, 1.55, 0.3, 0.5, C(lv === 1 ? PAL.ink : PAL.sage)));
+    face(0.12, -9.275, 0, () => walk(() => { D.wallShelf(0.5, 1.24, 0.16, { objects: false }); D.pothos(0.12, 1.27, 0.08, { n: 5, reach: 0.34 }); D.candle(-0.12, 1.27, 0.08, 0.09); }));
+    at(-0.1, -8.3, 0, () => D.rugF(0.5, 0.36, 'wool', C(0xe9e2d6), false));
+    // --- entrée (1,56 × 1,64 m, trois portes) : patères sans banc — la porte palière ouverte laisse 46 cm vers la chambre 3
+    face(2.11, -7.95, -PI / 2, () => D.pegRail(0.6, 1.72, 3, { coat: lv === 1 ? PAL.ink : lv === 3 ? PAL.cognac : PAL.charcoal, bag: PAL.linenOat }));
+    face(0.55, -9.0, PI / 2, () => D.roundMirror(0, 1.55, 0.2));
+    D.akari(1.33, -8.45, 2.1, 0.17, 0.26);
+    D.shoes(1.0, -7.8, PI + 0.1, 0); D.shoes(1.25, -7.78, PI - 0.15, 1);
+    D.basket(1.97, -7.8, 0.11, 0.48, { col: 0x8f7a5c });
+    at(1.12, -9.0, 0, () => D.rugF(0.8, 0.5, 'wool', C(0xb39a74), false));
+    // --- dégagement : tapis de passage, œuvre, globe opalin
+    at(-1.87, -4.62, 0, () => D.rugF(1.5, 0.62, lv === 1 ? 'jute' : 'rug', C(0xffffff), lv !== 1));
+    face(-1.36, -4.04, PI, () => D.art(0, 1.5, 0.45, 0.6, ART.dune, { frame: 'black', crop: [0.25, 0.4, 0.5], flip: true }));
+    D.pendant(-1.87, -4.62, 2.02, 1, 0.13);
+    // --- loggias A (séjour) et B (chambre 3) : chaise bistrot, lanterne, plante ; la coursive (x > 6) reste libre
+    at(5.42, -3.14, PI, () => D.bistroChair({ cushion: lv === 1 ? PAL.ink : lv === 3 ? PAL.rust : PAL.ochre }));
+    at(5.0, -4.42, 0, () => D.lantern(0, 0, 0.4));
+    at(5.62, -4.4, 0, () => D.snakePlant(0, 0, 0.7, 0xb8684a));
+    at(5.4, -7.45, 0, () => D.pouf(0.22, 0.36, lv === 3 ? PAL.linenOat : PAL.linenSand, 'textile'));
+    at(5.05, -8.82, 0, () => D.lantern(0, 0, 0.36));
+    // --- balcon sud : salon d'extérieur pour le 201 (fin de l'expérience d'accueil), bistrot au 101, olivier et lanternes au 302 ;
+    //     l'axe de l'expérience (x 2,6 → 3,4) et la baie restent libres
+    if (lv === 2) {
+      at(5.05, 0.1, 0, () => D.rugF(2.2, 1.5, 'jute', C(0xe4dccb), false));
+      at(4.55, 0.05, 0.32, () => D.loungeChair({ pillow: PAL.terracotta }));
+      at(5.6, 0.05, -0.32, () => D.loungeChair({ pillow: PAL.ochre }));
+      at(5.08, 0.5, 0, () => { D.bistroTable(0.24, 0.42, 'oak'); D.lantern(0.05, 0, 0.26, 0.42); D.bowl(-0.1, 0.42, 0.06, 0.07, 0x9c5236); });
+      at(3.85, 0.72, 0, () => D.lantern(0, 0, 0.5));
+      at(6.05, 0.74, 0, () => D.lantern(0, 0, 0.42));
+      at(0.72, -0.78, 0, () => D.oliveTree(0, 0, 1.7, 0xb8684a));
+    } else if (lv === 1) {
+      at(5.2, -0.25, 0, () => D.bistroTable(0.3));
+      at(4.72, -0.25, PI / 2, () => D.bistroChair({ cushion: PAL.ink }));
+      at(5.68, -0.25, -PI / 2, () => D.bistroChair({ cushion: PAL.ochre }));
+      at(5.9, 0.75, 0, () => D.lantern(0, 0, 0.45));
+      at(0.72, -0.78, 0, () => D.snakePlant(0, 0, 0.9, 0xb8684a));
+    } else {
+      at(0.72, -0.78, 0, () => D.oliveTree(0, 0, 1.7, 0xb8684a));
+      at(4.6, 0.72, 0, () => D.lantern(0, 0, 0.5)); at(5.9, 0.72, 0, () => D.lantern(0, 0, 0.42));
+    }
+  }
+
+  // ======================= LOT B (côté jardin) =======================
+  const VB = {
+    1: { // 102 — sauge et encre
+      sofa: { col: PAL.boucle, mk: 'boucle', pillows: [PAL.ink, PAL.sage, PAL.linenOat, PAL.olive], plaid: PAL.sage }, arm: { mk: 'textile', col: PAL.sage },
+      rug: ['wool', C(0xd9d1c3), false], artSofa: [ART.blocks, { frame: 'black' }], artEast: [ART.leaf, { frame: 'oak', mat: 0.08 }],
+      table: 'rect', seat: PAL.linenOat, plants: ['fig', 'strelitzia'], domes: 'black',
+      ch1: { headMk: 'oak', head: PAL.linenSand, accent: PAL.ink, throw: PAL.sage, pend: [2, 0.2, 0xa9b39b], art: ART.line }, ch2: { head: PAL.ink, accent: PAL.ochre, throw: PAL.linenStone, art: ART.leaf },
+      cushion: PAL.sage,
+    },
+    2: { // 202 — encre et sauge, table ronde
+      sofa: { col: PAL.ink, pillows: [PAL.linenWhite, PAL.sage, PAL.ochre, PAL.linenOat], plaid: PAL.linenOat }, arm: { mk: 'boucle', col: PAL.boucle },
+      rug: ['wool', C(0xbfc5ae), false], artSofa: [ART.blocks, { frame: 'oak' }], artEast: [ART.line, { frame: 'black', mat: 0.08 }],
+      table: 'round', seat: PAL.linenGreige, plants: ['fig', 'snake'], domes: 'black',
+      ch1: { head: PAL.linenSand, accent: PAL.sage, throw: PAL.ink, pend: 'akari', art: ART.enso }, ch2: { head: PAL.sage, accent: PAL.ink, throw: PAL.clay, art: ART.dune },
+      cushion: PAL.ink,
+    },
+    3: { // 301 — encre et ocre, canapé sauge, cannage, laiton
+      sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenWhite, PAL.mustard], plaid: PAL.ochre }, arm: { mk: 'textile', col: PAL.ochre },
+      rug: ['jute', C(0xf0e6d2), false], artSofa: [ART.enso, { frame: 'black', pair: ART.sketch }], artEast: [ART.sea, { frame: 'black', mat: 0.08 }],
+      table: 'rect', seat: PAL.straw, plants: ['olive', 'strelitzia'], domes: 'brass',
+      ch1: { headMk: 'cane', head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, pend: [0, 0.2, 0xe9dcc4], art: ART.arcs }, ch2: { head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, art: ART.sketch },
+      cushion: PAL.ochre,
+    },
+  }[lv];
+  if (VB) furnishB(VB);
+  function furnishB(V) {
+    // --- cuisine linéaire + îlot (allée de travail 93 cm), tabourets, coin repas, salon tourné vers la loggia
+    at(3.355, -9.825, PI, () => {
+      D.baseRun(2.05, [{ w: 0.8, t: 'drawers', hob: true }, { w: 0.45, t: 'door' }, { w: 0.8, t: 'drawers2', sink: true, sinkW: 0.55 }], { front: 'oak', top: 'travertine', handleMk: 'black', tap: 'brass' });
+      D.splash(2.05, 0.9, 1.45);
+      D.wallUnits(2.05, 1.45, { hood: -0.625, frontC: 0xd8d0c4 });
+      D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05); D.herbs(-0.85, 0.9, -0.2, 0xb8684a); D.herbs(-0.98, 0.9, -0.15, 0x3d3a36);
+      D.rbb('oak', 0.15, 0.5, 0.92, 0.942, -0.25, -0.02, 0.01, C(0xe6d6c4), { ry: -0.06 });
+    });
+    tall(4.98, -9.825, PI, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'fridge', { frontC: 0xd8d0c4, handleMk: 'black' })); at(0.3, 0, 0, () => D.tallUnit(0.6, 'oven', { frontC: 0xd8d0c4, handleMk: 'black' })); });
+    at(3.8, -11.55, PI, () => { D.island(1.8, 0.9, { front: 'oak', over: 0.2, top: 'travertine' }); const vh = D.vase(-0.4, 0.91, 0.1, 0, lv === 3 ? 0xc89a4b : 0xb8684a); D.branches(-0.4, 0.91 + vh, 0.1, 0.5, 5); D.bookStack(0.3, 0.91, 0.12, 2, 0.2, true); });
+    one(() => { for (const x of [3.4, 4.2]) at(x, -12.2, 0, () => D.barStool({ seat: lv === 2 ? PAL.ink : PAL.cognac })); });
+    D.dome(3.35, -11.55, 1.7, 0.13, V.domes); D.dome(4.25, -11.55, 1.7, 0.13, V.domes);
+    const TX = 3.25, TZ = -13.95;   // décalée vers l'ouest : on contourne la table côté loggia (pilier du retour)
+    one(() => at(TX, TZ, 0, () => {
+      if (V.table === 'round') {
+        D.roundTable(0.6);
+        for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const px = sx * 0.5, pz = sz * 0.5; at(px, pz, Math.atan2(-px, -pz), () => D.chair({ seat: V.seat })); }
+        D.tableDecor(0, 0);
+      } else {
+        D.rectTable(1.6, 0.9);
+        for (const x of [-0.4, 0.4]) { at(x, 0.68, PI, () => D.chair({ seat: V.seat })); at(x, -0.68, 0, () => D.chair({ seat: V.seat })); }
+        D.runner(1.6, 0.26, 0.755, lv === 3 ? PAL.ochre : PAL.linenOat);
+        D.tableDecor(0, 0);
+        for (const [x, z, ry] of [[-0.4, 0.27, 0], [0.4, -0.27, PI]]) D.placeSetting(x, 0.755, z, ry);
+      }
+    }));
+    D.akari(TX, TZ, 1.62, 0.25, 0.34);
+    at(3.1, -16.4, PI / 2, () => D.rugF(2.4, 1.9, V.rug[0], V.rug[1], V.rug[2]));
+    at(1.86, -16.4, PI / 2, () => D.sofa(2.4, V.sofa));
+    at(3.15, -16.4, PI / 2, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
+    at(3.95, -17.95, -0.55, () => D.armchair(V.arm));
+    at(1.74, -14.9, 0, () => D.floorLamp(0, 0));          // lampadaire au bout du canapé (plus en contre-jour devant la fenêtre)
+    D.sideTable(1.66, -17.9, {});
+    const plant = (k, x, z) => at(x, z, 0, () => k === 'olive' ? D.oliveTree(0, 0, 1.85, 0xb9b2a6) : k === 'fig' ? D.figTree(0, 0, 1.75, 0xd9cfbf) : k === 'snake' ? D.snakePlant(0, 0, 1.0, 0x3d3a36) : D.strelitzia(0, 0, 1.75, 0xb8684a));
+    plant(V.plants[0], 5.15, -18.15); plant(V.plants[1], 5.15, -14.95);
+    at(5.355, -13.2, -PI / 2, () => D.sideboard(1.6, 0.44, 0.7));
+    face(5.58, -13.2, -PI / 2, () => D.art(0, 1.55, 1.0, 0.72, V.artEast[0], V.artEast[1]));
+    face(1.38, -16.4, PI / 2, () => { const [a, ao] = V.artSofa; if (ao.pair != null) { D.art(-0.38, 1.55, 0.62, 0.82, a, ao); D.art(0.38, 1.55, 0.62, 0.82, ao.pair, ao); } else D.art(0, 1.55, 1.2, 0.8, a, ao); });
+    tall(2.88, -18.58, 0, () => D.bookcase(1.1, 1.9, 0.34));
+    for (const x of [1.5, 4.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
+    // --- chambre 1 : lit 160 × 195 bordé (55 cm au pied), porte rabattue côté dressing
+    {
+      const c1 = V.ch1;
+      at(-3.95, -17.1, 0, () => D.rugF(2.2, 1.5, 'wool', C(0xd9d2c6), false));
+      at(-3.95, -15.95, PI, () => D.bed(1.6, 1.95, { head: c1.head, headMk: c1.headMk, z0: c1.headMk ? 0.05 : 0.08, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: c1.accent, throw: c1.throw, tuck: true }));
+      at(-5.09, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36 }));
+      at(-2.81, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36, cup: true }));
+      face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
+      at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: c1.accent }));
+      at(-1.05, -18.3, 0, () => D.snakePlant(0, 0, 0.75, 0x3d3a36));
+      face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
+      for (const x of [-4.5, -1.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
+      face(-3.0, -18.58, 0, () => D.art(0, 1.42, 0.9, 0.62, ART.arcs, { frame: 'oak', crop: [0.4, 0.55, 0.75] }));
+      if (c1.pend === 'akari') D.akari(-3.95, -17.0, 2.0, 0.24, 0.32); else D.pendant(-3.95, -17.0, 1.98, c1.pend[0], c1.pend[1], c1.pend[2]);
+    }
+    // --- chambre 2 : lit, bureau sous la fenêtre, armoire d'1 m hors du débattement de la porte
+    {
+      const c2 = V.ch2;
+      at(-4.15, -12.7, 0, () => D.rugF(1.7, 1.2, 'wool', C(0xe2d9c9), false));
+      at(-4.15, -11.525, PI, () => D.bed(1.4, 2.0, { head: c2.head, duvet: PAL.linenWhite, pillow2: PAL.linenOat, accent: c2.accent, throw: c2.throw }));
+      at(-5.19, -11.735, PI, () => D.nightstand({ lamp: false }));
+      at(-3.11, -11.735, PI, () => D.nightstand({ lampKind: 1 }));
+      face(-4.15, -11.525, PI, () => D.art(0, 1.6, 0.55, 0.75, c2.art, { frame: c2.art === ART.sketch ? 'black' : 'oak' }));
+      tall(-3.98, -15.58, 0, () => D.wardrobe(1.0, 0.58, { col: 0xe4ddd1 }));
+      at(-5.305, -14.6, PI / 2, () => D.desk(1.1, 0.55));
+      at(-4.75, -14.6, -PI / 2, () => D.chair({ seat: V.cushion }));
+      for (const zc of [-12.1, -13.6, -15.2]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
+      D.pendant(-4.15, -13.4, 2.06, 0, 0.19, 0xe6ddcd);
+    }
+    // --- salle d'eau : douche à l'italienne, vasque, sèche-serviettes
+    D.box('travertine', 0.4, 1.3, 0, 0.025, -15.87, -14.97, D.WHITE);
+    at(0.85, -15.87, 0, () => { D.tileWall(-0.45, 0.45, 0.025, 2.1, 0); D.showerHead(0, 0.35); });
+    at(1.3, -15.42, -PI / 2, () => D.tileWall(-0.45, 0.45, 0.025, 2.1, 0));
+    at(0.4, -15.535, PI / 2, () => D.glassPanel(-0.335, 0.3, 0, 0.025, 1.95));
+    at(-0.42, -14.9, PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.6, 0.8, 'oak'); });
+    at(1.3, -14.55, -PI / 2, () => D.towelRail(0.45, 1.0, 0.35, lv === 3 ? PAL.ochre : PAL.clay));
+    at(-0.2, -14.2, 0, () => D.basket(0, 0, 0.15, 0.38, { linen: PAL.linenOat }));
+    at(0.85, -14.75, 0, () => D.rugF(0.6, 0.4, 'wool', C(0xe9e2d6), false));
+    // --- WC (porte rabattue côté sud : la cuvette se voit depuis le dégagement)
+    at(-1.02, -15.87, 0, () => D.wc());
+    face(-1.02, -15.87, 0, () => D.art(0, 1.5, 0.3, 0.4, ART.sketch, { frame: 'black' }));
+    face(-0.5, -15.45, -PI / 2, () => D.rollHolder(0, 0.72));
+    face(-0.5, -14.6, -PI / 2, () => walk(() => { D.wallShelf(0.4, 1.3, 0.15, { objects: false }); D.pothos(0.05, 1.33, 0.075, { n: 5, reach: 0.3 }); }));
+    // --- entrée : placard, console et miroir, banc et patères
+    tall(-1.2, -11.775, PI, () => D.wardrobe(1.8, 0.5, { col: 0xe9e4da }));
+    at(-0.85, -13.74, 0, () => D.consoleTable(1.1, 0.32));
+    face(-0.85, -13.9, 0, () => D.roundMirror(0, 1.55, 0.36));
+    at(-2.33, -13.0, PI / 2, () => D.bench(0.9, 0.36, { cushion: lv === 2 ? PAL.sage : PAL.linenSand }));
+    face(-2.52, -13.0, PI / 2, () => D.pegRail(0.9, 1.72, 4, { coat: lv === 3 ? PAL.ochre : PAL.ink, bag: PAL.linenOat }));
+    D.akari(-0.6, -12.75, 2.08, 0.18, 0.26);
+    at(-0.95, -12.85, 0, () => D.rugF(1.8, 0.9, lv === 3 ? 'jute' : 'rug', C(0xffffff), lv !== 3));
+    D.shoes(-2.36, -13.25, PI / 2, 1); D.shoes(-2.38, -12.8, PI / 2 - 0.12, 0);
+    at(1.06, -11.8, 0, () => D.snakePlant(0, 0, 0.95, 0xe7dfd1));
+    at(-2.07, -14.95, PI / 2, () => D.rugF(1.4, 0.6, 'wool', C(0xd9cbb4), false));
+    // --- dressing : penderie sur cintres, pouf et panier côté ouest, œuvre sur le mur nu
+    tall(1.3, -17.3, -PI / 2, () => D.dressing(2.4, 0.55));
+    at(-0.3, -18.12, 0, () => D.pouf(0.22, 0.42, lv === 2 ? PAL.sage : PAL.boucle, lv === 2 ? 'textile' : 'boucle'));
+    D.basket(-0.42, -17.45, 0.16, 0.36, { linen: PAL.linenStone });
+    face(-0.67, -17.75, PI / 2, () => D.art(0, 1.5, 0.5, 0.7, lv === 1 ? ART.leaf : lv === 2 ? ART.enso : ART.line, { frame: 'oak' }));
+    // --- loggia C (dallage + 15 cm) : chaise bistrot et guéridon au nord, lanterne au sud ; la porte reste dégagée
+    at(5.05, -17.05, 0, () => D.bistroChair({ cushion: V.cushion }), 0.15);
+    at(5.08, -17.42, 0, () => { D.bistroTable(0.19, 0.5, 'oak'); D.candle(0.05, 0.5, 0, 0.1); }, 0.15);
+    at(5.0, -15.62, 0, () => D.lantern(0, 0, 0.42), 0.15);
+  }
 }

@@ -157,6 +157,17 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   // ---------------------------------------------------------------- constructeur d'un étage
   function FloorBuilder(key) {
     const fy = floorY(key), cy = fy + CUT, H = ceilH(key), buckets = {}, rooms = [], labels = [], colliders = [], lights = [], furniture = [], skirts = [];
+    // spots encastrés : émis à la fin (emitSpots) en évitant les suspensions posées par la déco (markPendant)
+    const spots = [], pendants = [];
+    const markPendant = (x, z, r = 0.3) => pendants.push({ x, z, r });
+    const emitSpots = () => {
+      for (const sp of spots) {
+        if (pendants.some(q => Math.hypot(q.x - sp.x, q.z - sp.z) < q.r + 0.45)) continue;   // la suspension éclaire déjà
+        lights.push({ x: sp.x, y: fy + H - 0.2, z: sp.z, I: sp.I, r2: 4.5 });
+        walkOnly(() => { CY('spot', 0.06, 0.06, 0.008, sp.x, H - 0.009, sp.z, 16); CY('skirt', 0.078, 0.078, 0.004, sp.x, H - 0.005, sp.z, 24); });   // collerette blanche
+      }
+      spots.length = 0;
+    };
     let xf = null, tag = 'common', track = null;
     const FIN = key >= 1 && key <= 3;                 // finitions (plinthes, chambranles, poignées) dans les logements
     const withTag = (t, fn) => { const p = tag; tag = t; fn(); tag = p; };
@@ -232,9 +243,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     };
     // chaque at() est un meuble : sa propre emprise de collision (les meubles imbriqués — chaises autour
     // d'une table, tabourets d'un îlot — ont la leur, au lieu d'un grand rectangle qui bouche la pièce)
-    const at = (x, z, ry, fn) => {
+    const at = (x, z, ry, fn, y = 0) => {   // y : surélévation (dallage de la loggia C)
       const prev = xf, parent = track;
-      const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, 0, z); xf = prev ? prev.clone().multiply(m) : m;
+      const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z); xf = prev ? prev.clone().multiply(m) : m;
       track = new THREE.Box3();
       fn();
       xf = prev;
@@ -270,12 +281,22 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         if (x1 - x0 >= z1 - z0) { const zc = (z0 + z1) / 2; if (hit(self, x0 - 0.01, zc, true, z0, z1)) x0 -= E; if (hit(self, x1 + 0.01, zc, true, z0, z1)) x1 += E; }
         else { const xc = (x0 + x1) / 2; if (hit(self, xc, z0 - 0.01, false, x0, x1)) z0 -= E; if (hit(self, xc, z1 + 0.01, false, x0, x1)) z1 += E; }
         walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
+        cap(x0, x1, z0, z1);
       }
       wallViz.length = 0;
     };
+    // couvre-joint de plafond au-dessus d'un mur (visite) : les plafonds des pièces s'arrêtent au nu des murs,
+    // sans lui on voit le ciel par la fente entre deux plafonds (l'étage du dessus est coupé) ; 3 mm au-dessus
+    // du plafond pour ne jamais combattre avec lui
+    function cap(x0, x1, z0, z1) {
+      if (H <= 0) return;
+      const e = 0.015;
+      walkOnly(() => gridPoly('ceil', rect(x0 - e, x1 + e, z0 - e, z1 + e), fy + H + 0.003, true, 0.5));
+    }
     const lintel = (axis, c0, c1, a, b) => {
       if (H <= DOOR_H) return;
       walkOnly(() => axis === 'x' ? B('wall', a, b, DOOR_H, H, c0, c1, 'py', 0.5) : B('wall', c0, c1, DOOR_H, H, a, b, 'py', 0.5));
+      if (axis === 'x') cap(a, b, c0, c1); else cap(c0, c1, a, b);
     };
     // mur le long d'un axe avec ouvertures : axis 'x' (mur parallèle à X, épaisseur en z) ou 'z'
     // openings : [{a, b, type: 'win'|'door'|'void'|'gdoor', noLintel}]
@@ -321,6 +342,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       });
       if (H > 0) walkOnly(() => {
         const L = leaf(DOOR_H - 0.01);
+        // vantail ouvert : boîte fine de collision (on ne le traverse plus en visite)
+        { const xs = L.map(p => p[0]), zs = L.map(p => p[1]); furniture.push({ kind: 'meuble', min: [Math.min(...xs), fy, Math.min(...zs)], max: [Math.max(...xs), fy + DOOR_H, Math.max(...zs)] }); }
         if (!FIN) return;
         // béquilles noires des deux côtés du vantail, près du chant libre
         const xs = L.map(p => p[0]), zs = L.map(p => p[1]), lx0 = Math.min(...xs), lx1 = Math.max(...xs), lz0 = Math.min(...zs), lz1 = Math.max(...zs), y = 1.02;
@@ -370,8 +393,10 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         for (let j = 0; j < ys.length - 1; j++) for (let i = 0; i < ss.length - 1; i++) {
           const cs = (ss[i] + ss[i + 1]) / 2, cyy = (ys[j] + ys[j + 1]) / 2;
           if (Hs.some(h => cs > h[0] && cs < h[1] && cyy > h[2] && cyy < h[3])) continue;
-          if (axis === 'x') B('wall', ss[i], ss[i + 1], ys[j], ys[j + 1], c0, c1, '', 0.5);
-          else B('wall', c0, c1, ys[j], ys[j + 1], ss[i], ss[i + 1], '', 0.5);
+          // jonctions en T entre panneaux : recouvrement de 1,5 mm (sinon liseré clair le long des baies)
+          const o = 0.0015, sa = i > 0 ? ss[i] - o : ss[i], sb = i < ss.length - 2 ? ss[i + 1] + o : ss[i + 1], ya = j > 0 ? ys[j] - o : ys[j], yb2 = j < ys.length - 2 ? ys[j + 1] + o : ys[j + 1];
+          if (axis === 'x') B('wall', sa, sb, ya, yb2, c0, c1, '', 0.5);
+          else B('wall', c0, c1, ya, yb2, sa, sb, '', 0.5);
           if (j === 0 && FIN) { // plinthe au pied du doublage, côté pièce
             const f = cIn + dir * 0.012, g0 = Math.min(f, f + dir * SK_T), g1 = Math.max(f, f + dir * SK_T);
             if (axis === 'x') B('skirt', ss[i], ss[i + 1], 0, Math.min(SK_H, ys[1]), g0, g1); else B('skirt', g0, g1, 0, Math.min(SK_H, ys[1]), ss[i], ss[i + 1]);
@@ -394,8 +419,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         const pts = s > 14 ? (w > d ? [[c[0] - w / 4, c[1]], [c[0] + w / 4, c[1]]] : [[c[0], c[1] - d / 4], [c[0], c[1] + d / 4]]) : [c];
         for (const [x, z] of pts) {
           if (!inside(P, x, z)) continue;
-          lights.push({ x, y: fy + H - 0.2, z, I: s > 8 ? 0.6 : 0.45, r2: 4.5 });
-          walkOnly(() => CY('spot', 0.06, 0.06, 0.008, x, H - 0.009, z, 16));
+          spots.push({ x, z, I: s > 8 ? 0.6 : 0.45 });
         }
       }
     };
@@ -515,7 +539,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
 
     const setTint = (c) => { const p = tint; tint = c ? (Array.isArray(c) ? c : [c.r, c.g, c.b]) : [1, 1, 1]; return p; };
     const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
-    return { flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
+    // bande de sol + plafond sans pièce (passage ouvert entre deux pièces : épaisseur d'une cloison absente)
+    const fill = (x0, x1, z0, z1, mat = 'parquet') => { gridPoly(mat, rect(x0, x1, z0, z1), fy + 0.004); if (H > 0) walkOnly(() => gridPoly('ceil', rect(x0, x1, z0, z1), fy + H, true, 0.5)); };
+    return { markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
   function rectSegs(x0, x1, z0, z1) { return [{ a: [x0, z0], b: [x1, z0] }, { a: [x1, z0], b: [x1, z1] }, { a: [x1, z1], b: [x0, z1] }, { a: [x0, z1], b: [x0, z0] }]; }
@@ -549,9 +575,22 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       P.run('z', rx - T, rx, za, zb, [{ a: D[k][0], b: D[k][1], type: 'door' }], false);
       P.wallRect(rx, HW, zb, zb + 0.3, false); P.wallRect(rx, HW, za - 0.3, za, false);
       // visite : retours des loggias (faces côté pièce) et doublage du fond de loggia
-      P.walkOnly(() => { P.B('wall', rx - 0.012, IN, 0, P.H, zb, zb + 0.312, 'py ny', 0.5); P.B('wall', rx - 0.012, IN, 0, P.H, za - 0.312, za, 'py ny', 0.5); });
-      const sill = k === 'C' ? 0.15 : 0;
-      P.lining('z', rx - T, -1, za, zb, [{ a: D[k][0], b: D[k][1], y0: sill, y1: sill + 2.08 }]);
+      // les retours partent du nu intérieur du mur de la porte (rx − T) : sinon on voit le bardage extérieur
+      // et le ciel par le vide de 41 × 31 cm à l'angle ; ce pilier est aussi solide pour la visite
+      const x0r = rx - T - 0.012;
+      P.walkOnly(() => { P.B('wall', x0r, IN, 0, P.H, zb, zb + 0.312, 'py ny nz', 0.5); P.B('wall', x0r, IN, 0, P.H, za - 0.312, za, 'py ny pz', 0.5); });   // face côté loggia omise (le bardage y reste visible)
+      P.cap(x0r, IN, zb, zb + 0.312); P.cap(x0r, IN, za - 0.312, za);
+      P.colliders.push(...rectSegs(rx - T, rx, zb, zb + 0.3), ...rectSegs(rx - T, rx, za - 0.3, za));
+      const sill = k === 'C' ? 0.15 : 0, [d0, d1] = D[k], top = sill + 2.08, xf = rx - 0.135;   // dormant de la porte-fenêtre à 13,5 cm du nu extérieur
+      P.lining('z', rx - T, -1, za, zb, [{ a: d0, b: d1, y0: sill, y1: top }]);
+      // embrasure peinte (tableaux + linteau) jusqu'au dormant, seuil en chêne dans l'épaisseur du mur
+      if (P.H > 0) P.walkOnly(() => {
+        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d0, d0 + 0.012, '', 0.5);
+        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d1 - 0.012, d1, '', 0.5);
+        P.B('wall', rx - T - 0.012, xf, top, top + 0.012, d0, d1, '', 0.5);
+        P.B('wood', rx - T - 0.004, rx - 0.07, sill - (sill ? 0.012 : 0), sill + 0.006, d0 + 0.012, d1 - 0.012);
+        if (sill) P.B('wall', rx - T - 0.012, rx - T + 0.002, 0, sill, d0, d1);
+      });
     }
     // doublages des façades (visite)
     P.lining('x', -T, -1, -IN, sw0, [{ a: ba, b: bb, y0: 0.1, y1: 2.15 }]);
@@ -605,13 +644,19 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.partition('x', -7.6, 1.9, 2.11, []);
     P.walkOnly(() => P.B('wall', 0.7, 1.9, DOOR_H + 0.1, P.H, -7.64, -7.56, 'py', 0.5));    // retombée de l'entrée
     P.partition('z', 0.51, -9.275, -7.64, [{ a: -8.75, b: -8.0, hinge: 'b', side: -1 }]);
+    // passages ouverts : sol et plafond dans l'épaisseur de cloison absente (plus de fente herbe / ciel)
+    P.fill(0.7, 1.9, -7.64, -7.56); P.fill(-0.93, -0.92, -5.21, -4.04);
+    // angle nord-est de la salle de bains : vide de 26 × 9 cm entre le mur du noyau, la cloison z −7,6 et la cloison x −0,97 (ciel visible)
+    P.walkOnly(() => P.B('wall', -1.29, -0.995, 0, P.H, -7.6, -7.47, 'py ny', 0.5)); P.cap(-1.29, -0.995, -7.6, -7.47); P.colliders.push(...rectSegs(-1.275, -1.01, -7.56, -7.475));
+    // chambre 1 / suite : doublage peint du mur est (le bardage de façade se voyait entre l'armoire et la baie)
+    P.lining('z', -1.02, -1, -1.62, -T, []); P.cap(-1.02, -0.6, -1.62, -T);
     // retombée plâtre le long de la façade droite : masque la sous-face des dalles de balcon (retour jusqu'à z = −11)
     {
       const xr = (LY.slab.retX ?? 4.8) - 0.03, zr = LY.slab.retZ ?? -11, yb = 2.37;
       for (const [z0, z1] of [[-2.8, -1.62], [-5.86, -4.6], [-7.2, -5.94], [-9.275, -9.0], [Math.max(zr - 0.06, -11.525), -9.525]]) if (z1 > zr - 0.1) P.walkOnly(() => P.B('wall', xr, IN, yb, P.H, Math.max(z0, zr - 0.06), z1, 'py'));
     }
     const D = createDecor(THREE, P, { CUT });
-    furnishUpper(THREE, P, D, { suite });
+    furnishUpper(THREE, P, D, { suite, level: key, idA, idB });   // déco déclinée par lot (101/201/302, 102/202/301)
 
     // ===== lot B =====
     const zC = LY.loggias.C;
@@ -624,12 +669,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.room('WC', rect(-1.54, -0.5, -15.87, -13.98), 'tile', idB);
     P.room("Salle d'eau", rect(-0.42, 1.3, -15.87, -13.98), 'tile', idB);
     P.partition('z', -2.56, -15.91, -11.525, [{ a: -15.2, b: -14.4, hinge: 'a', side: -1 }]);   // vantail côté chambre (ne barre plus le dégagement)
-    P.partition('x', -13.94, -1.58, 1.34, [{ a: 0.0, b: 0.75, hinge: 'b', side: 1 }]);
-    P.partition('z', -1.58, -15.91, -13.94, [{ a: -15.0, b: -14.3, hinge: 'a', side: 1 }]);
+    P.partition('x', -13.94, -1.58, 1.34, [{ a: 0.0, b: 0.75, hinge: 'b', side: -1 }]);   // salle d'eau : ouvre vers l'intérieur (ne barre plus l'entrée)
+    P.partition('z', -1.58, -15.91, -13.94, [{ a: -15.0, b: -14.3, hinge: 'b', side: 1 }]);   // WC : vantail rangé côté sud, la cuvette reste dégagée
     P.partition('z', -0.46, -15.91, -13.98, []);
-    P.partition('x', -15.91, -IN, 1.34, [{ a: -2.45, b: -1.7, hinge: 'a', side: -1 }]);
+    P.partition('x', -15.91, -IN, 1.34, [{ a: -2.45, b: -1.7, hinge: 'b', side: -1 }]);   // chambre 1 : vantail côté dressing, loin du chevet
     P.partition('z', -0.71, -19 + T, -15.95, [{ a: -17.0, b: -16.2, hinge: 'b', side: 1 }]);
     P.partition('z', 1.34, -19 + T, -13.9, []);
+    P.fill(1.3, 1.38, -13.9, -11.525); P.fill(-2.52, -1.58, -13.98, -13.9);
 
     // garde-corps des balcons et de la loggia C (collisions de la balade)
     const s = LY.slab, e = 0.07;
@@ -742,9 +788,10 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
   // petits objets : pas d'ombre portée (économise les passes d'ombre des projecteurs de baie)
-  const NO_CAST = new Set(['ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
+  const NO_CAST = new Set(['jute', 'ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
   function finish(P) {
     P.flushWalls();
+    P.emitSpots();
     // plinthes au pied des cloisons et murs intérieurs (4 faces, retours compris)
     if (P.skirts.length) P.walkOnly(() => { for (const [x0, x1, z0, z1] of P.skirts) { const e = SK_T, h = SK_H; P.B('skirt', x0 - e, x1 + e, 0, h, z0 - e, z0); P.B('skirt', x0 - e, x1 + e, 0, h, z1, z1 + e); P.B('skirt', x0 - e, x0, 0, h, z0, z1); P.B('skirt', x1, x1 + e, 0, h, z0, z1); } });
     const root = new THREE.Group(); root.name = 'plan:' + P.key;
@@ -994,7 +1041,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const s = lotState.get(String(id)); if (!s) return null;
     const L = s.data, fy = s.fy, all = lotRooms.get(L.id) || [];
     let viewpoint;
-    if (L.zone === 'A' && L.attique) viewpoint = look([1.4, DECK + 1.65, -1.25], [0.12, 1]);
+    if (L.zone === 'A' && L.attique) viewpoint = look([-2.4, DECK + 1.65, -1.1], [0.12, 1]);   // hors de la table du toit-terrasse
     else if (L.zone === 'A') viewpoint = look([3.2, fy + 0.008 + 1.65, 0.0], [0.18, 1], -9);
     else { const zc = (LY.loggias.C[0] + LY.loggias.C[1]) / 2, yC = s.yl + 0.55; viewpoint = look([HW - 1.15, yC + 0.012 + 1.65, zc], [1, 0.22], -10); }
     const entry = L.zone === 'A' ? { pos: [2.4, fy + 1.65, -4.4], yaw: Math.PI } : { pos: [2.1, fy + 1.65, -14.4], yaw: -1.03 };
@@ -1011,6 +1058,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       roomsOther: other.map(cp),
       surfaceCalculee: +own.reduce((a, r) => a + r.surface, 0).toFixed(1),
     };
+  }
+  // hauteur du sol de visite en (x, z) : sol fini du niveau, + 15 cm sur le dallage surélevé de la loggia C
+  // (seuil de la porte-fenêtre compris) ; viewer.js doit l'appeler à la place de floorY(cfg.walkFloor)
+  function walkFloorAt(key, x, z) {
+    const k = +key, y = floorY(k);
+    if (k >= 1 && k <= 3 && x > LY.loggias.depthX - T + 0.1 && x < HW + 0.1 && z > LY.loggias.C[0] && z < LY.loggias.C[1]) return y + 0.15;
+    return y;
   }
   function colliders(key) { const p = plans.get(key == null ? floorKey : +key); return p ? p.colliders.map(s => ({ a: s.a.slice(), b: s.b.slice() })) : []; }
   // ancres des étiquettes de pièces (rendu HTML côté viewer)
@@ -1035,7 +1089,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       if (i < FL.length) {
         const r0 = hi, r1 = hi + 1.0, e = 0.07, t = 0.05;
         b('garde-corps', s.x0, s.x1, r0, r1, s.z1 - e - t, s.z1 - e + t);
-        b('garde-corps', s.x1 - e - t, s.x1 - e + t, r0, r1, s.retZ, s.z1);
+        b('garde-corps', s.x1 - e - 0.02, s.x1 - e + t, r0, r1, s.retZ, s.z1);   // côté coursive : lisse fine
         b('garde-corps', s.x0 + 0.05 - t, s.x0 + 0.05 + t, r0, r1, 0, s.z1);
         b('garde-corps', HW, s.x1, r0, r1, s.retZ + e - t, s.retZ + e + t);
         const [za, zb] = LY.loggias.C;
@@ -1054,8 +1108,24 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     b('garde-corps', -HW, HW, 12.42, 13.5, -0.25, -0.15);
     const E = LY.edicule;
     b('edicule', E.x[0] - 0.1, E.x[1] + 0.1, 12.3, 14.9, E.z[0] - 0.1, E.z[1] + 0.1);
-    // fonds de loggia (le corps couvre déjà les creux : le drone n'y entre pas)
-    for (const k of ['A', 'B', 'C']) { const [za, zb] = LY.loggias[k]; b('loggia', LY.loggias.depthX - T, LY.loggias.depthX, 3, 12, za, zb); }
+    // fonds de loggia (le corps couvre déjà les creux : le drone n'y entre pas) ; la porte-fenêtre reste libre
+    // pour la visite (une boîte de part et d'autre du passage)
+    for (const k of ['A', 'B', 'C']) {
+      const [za, zb] = LY.loggias[k], [d0, d1] = LY.loggiaDoors[k], x0 = LY.loggias.depthX - T, x1 = LY.loggias.depthX;
+      b('loggia', x0, x1, 3, 12, za, d0); b('loggia', x0, x1, 3, 12, d1, zb);
+      // meneau central de la porte-fenêtre : on passe par l'un ou l'autre vantail, pas au travers
+      const zm = (d0 + d1) / 2; for (const y of FL) out.push({ kind: 'meuble', min: [x1 - 0.17, y + SLAB, zm - 0.03], max: [x1 - 0.06, y + SLAB + 2.2, zm + 0.03] });
+    }
+    // jardinières des balcons et loggias (building.js) : on ne les traverse plus. Emprise réduite côté passage
+    // (on s'approche du bord comme d'un muret ; la coursive est n'a que 65 cm entre façade et garde-corps)
+    for (const q of (bud.planters || [])) {
+      if (q.kind !== 'balcony' && q.kind !== 'loggia') continue;
+      const t = 0.035, px0 = q.x - q.w / 2 - t, px1 = q.x + q.w / 2 + t, pz0 = q.z - q.d / 2 - t, pz1 = q.z + q.d / 2 + t, y1 = q.y + 0.06, y0 = y1 - 0.45;
+      if (q.kind === 'loggia') { out.push({ kind: 'meuble', min: [px0 + 0.1, y0, pz0], max: [px1, y1, pz1] }); continue; }
+      if (pz1 - pz0 < px1 - px0) { out.push({ kind: 'meuble', min: [px0, y0, pz0 + 0.1], max: [px1, y1, pz1] }); continue; }   // rive sud : bord nord accessible
+      // rive est (devant les loggias A/B, angle sud-est) : bord ouest et extrémités accessibles
+      out.push({ kind: 'meuble', min: [px0 + 0.15, y0, pz0 + 0.2], max: [px1, y1, pz1 - (q.z > -1.5 ? 0 : 0.2)] });
+    }
     // mobilier des étages (îlots, tables, lits…) : bloque la visite à pied
     for (const p of plans.values()) for (const f of (p.furniture || [])) out.push({ kind: f.kind, min: f.min.slice(), max: f.max.slice() });
     return out;
@@ -1076,7 +1146,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
-    lot, colliders, floorY, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
+    lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },
     get floor() { return floorKey; }, get mode() { return mode; }, get viewMode() { return viewMode; },
   };
