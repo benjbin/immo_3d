@@ -487,7 +487,7 @@ export function createBuilding(THREE, M) {
         // loggia A : la porte donne sur le séjour modélisé ; loggia B : chambre (pièce simulée)
         windowUnit(FB, { s0: d0, s1: d1, y0: y + SLAB, y1: y + 2.6, gd: 0.1, mull: [(d0 + d1) / 2], threshold: true, room: za === LOG_A[0] });
         downlight((RET_X + HW) / 2, y + CEIL, (za + zb) / 2);
-        planter(SLAB_X1 - 0.5, SLAB_X1 - 0.12, za + 0.1, zb - 0.1, y + SLAB, 0.45, 'balcony');
+        planter(SLAB_X1 - 0.40, SLAB_X1 - 0.12, za + 0.35, zb - 0.35, y + SLAB, 0.45, 'balcony');   // jardinière fine : la coursive reste praticable
       }
       // loggia C creusée dans le mur plein
       const [za, zb] = LOG_C, yb = y + 0.55, yt = y + 2.75;
@@ -500,7 +500,7 @@ export function createBuilding(THREE, M) {
       wall(FB, 'woodSoffit', s0, s1, yb, yt, 0, T, [[d0, d1, yb, yt - 0.12]]);
       windowUnit(FB, { s0: d0, s1: d1, y0: yb, y1: yt - 0.12, gd: 0.1, mull: [(d0 + d1) / 2], threshold: true, room: true });
       downlight((RET_X + HW) / 2, yt, (za + zb) / 2);
-      planter(HW - 0.64, HW - 0.22, za + 0.08, zb - 0.08, yb + 0.012, 0.42, 'loggia');
+      planter(HW - 0.50, HW - 0.22, za + 0.08, zb - 0.08, yb + 0.012, 0.42, 'loggia');
       railing([[HW - 0.06, za + 0.04], [HW - 0.06, zb - 0.04]], yb + 0.012, 1.0);
     }
   }
@@ -557,7 +557,7 @@ export function createBuilding(THREE, M) {
     floorL(yb + 0.008);
     railing([[SLAB_X0 + 0.05, 0], [SLAB_X0 + 0.05, SLAB_Z1 - e], [SLAB_X1 - e, SLAB_Z1 - e], [SLAB_X1 - e, RET_Z + e], [HW, RET_Z + e]], yb, 1.0);
     planter(SLAB_X0 + 0.12, SLAB_X1 - 0.52, 1.0, 1.38, yb, 0.45, 'balcony');
-    planter(SLAB_X1 - 0.5, SLAB_X1 - 0.12, -0.95, 1.38, yb, 0.45, 'balcony');
+    planter(SLAB_X1 - 0.40, SLAB_X1 - 0.12, -0.6, 1.38, yb, 0.45, 'balcony');
     downlight(X(1.6), y + CEIL, -0.3);
     downlight(X(3.4), y + CEIL, -0.3);
     downlight(HW, y + CEIL, 0.4);

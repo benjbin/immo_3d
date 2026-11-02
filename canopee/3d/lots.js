@@ -265,7 +265,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         flat('cut', rect(x0, x1, z0, z1), cy + 0.002);
       });
       solids.push([x0, x1, z0, z1]);
-      if (faces && H > 0) wallViz.push([x0, x1, z0, z1]);          // volumes de visite émis par flushWalls (jonctions recouvrantes)
+      if (faces && H > 0) wallViz.push(Object.assign([x0, x1, z0, z1], { o: [x0, x1, z0, z1] }));          // volumes de visite émis par flushWalls (jonctions recouvrantes)
       if (faces && H > 0 && FIN) skirts.push([x0, x1, z0, z1]);
       if (collide) colliders.push(...rectSegs(x0, x1, z0, z1));
     };
@@ -276,8 +276,24 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const flushWalls = () => {
       const E = 0.02, eps = 0.001;
       const hit = (self, px, pz, alongX, t0, t1) => solids.some(r => r !== self && px > r[0] && px < r[1] && pz > r[2] && pz < r[3] && (alongX ? r[2] < t0 - eps && r[3] > t1 + eps : r[0] < t0 - eps && r[1] > t1 + eps));
+      // deux murs alignés bout à bout d'épaisseurs à peine différentes (quelques mm) : la tranche du plus épais
+      // dépasse et se lit comme un trait sombre vertical ; on leur donne la même épaisseur (faces affleurantes)
+      for (let pass = 0; pass < 2; pass++) for (const a of wallViz) for (const b of wallViz) {
+        if (a === b) continue;
+        const ax = a[1] - a[0] >= a[3] - a[2], bx = b[1] - b[0] >= b[3] - b[2];
+        if (ax !== bx) continue;
+        if (ax) {
+          const touch = Math.abs(a[1] - b[0]) < 0.03 || Math.abs(b[1] - a[0]) < 0.03;
+          if (!touch || a[3] < b[2] || b[3] < a[2] || Math.abs(a[2] - b[2]) > 0.03 || Math.abs(a[3] - b[3]) > 0.03) continue;
+          const z0 = Math.min(a[2], b[2]), z1 = Math.max(a[3], b[3]); a[2] = b[2] = z0; a[3] = b[3] = z1;
+        } else {
+          const touch = Math.abs(a[3] - b[2]) < 0.03 || Math.abs(b[3] - a[2]) < 0.03;
+          if (!touch || a[1] < b[0] || b[1] < a[0] || Math.abs(a[0] - b[0]) > 0.03 || Math.abs(a[1] - b[1]) > 0.03) continue;
+          const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[1], b[1]); a[0] = b[0] = x0; a[1] = b[1] = x1;
+        }
+      }
       for (const w of wallViz) {
-        let [x0, x1, z0, z1] = w; const self = solids.find(r => r[0] === w[0] && r[1] === w[1] && r[2] === w[2] && r[3] === w[3]);
+        let [x0, x1, z0, z1] = w; const o = w.o || w, self = solids.find(r => r[0] === o[0] && r[1] === o[1] && r[2] === o[2] && r[3] === o[3]);
         if (x1 - x0 >= z1 - z0) { const zc = (z0 + z1) / 2; if (hit(self, x0 - 0.01, zc, true, z0, z1)) x0 -= E; if (hit(self, x1 + 0.01, zc, true, z0, z1)) x1 += E; }
         else { const xc = (x0 + x1) / 2; if (hit(self, xc, z0 - 0.01, false, x0, x1)) z0 -= E; if (hit(self, xc, z1 + 0.01, false, x0, x1)) z1 += E; }
         walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
@@ -647,7 +663,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // passages ouverts : sol et plafond dans l'épaisseur de cloison absente (plus de fente herbe / ciel)
     P.fill(0.7, 1.9, -7.64, -7.56); P.fill(-0.93, -0.92, -5.21, -4.04);
     // angle nord-est de la salle de bains : vide de 26 × 9 cm entre le mur du noyau, la cloison z −7,6 et la cloison x −0,97 (ciel visible)
-    P.walkOnly(() => P.B('wall', -1.29, -0.995, 0, P.H, -7.6, -7.47, 'py ny', 0.5)); P.cap(-1.29, -0.995, -7.6, -7.47); P.colliders.push(...rectSegs(-1.275, -1.01, -7.56, -7.475));
+    P.walkOnly(() => P.B('wall', -1.275, -0.995, 0, P.H, -7.6, -7.475, 'py ny', 0.5)); P.cap(-1.275, -0.995, -7.6, -7.475);   // affleurant au mur voisin (sinon tranche de 5 mm = trait sombre) P.colliders.push(...rectSegs(-1.275, -1.01, -7.56, -7.475));
     // chambre 1 / suite : doublage peint du mur est (le bardage de façade se voyait entre l'armoire et la baie)
     P.lining('z', -1.02, -1, -1.62, -T, []); P.cap(-1.02, -0.6, -1.62, -T);
     // retombée plâtre le long de la façade droite : masque la sous-face des dalles de balcon (retour jusqu'à z = −11)
