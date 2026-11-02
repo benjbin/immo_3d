@@ -177,7 +177,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       g.clearGroups();
       const k = tag + '|' + mk;
       (buckets[k] || (buckets[k] = [])).push(g);
-      if (track && tag !== 'plan') { g.computeBoundingBox(); track.union(g.boundingBox); }
+      // collisions de visite : seules les pièces qui occupent la tranche du corps (10 cm – 1 m au-dessus du sol)
+      // comptent, rattachées au meuble le plus intérieur (une chaise, la table, le lit…) ; suspensions, tapis,
+      // objets muraux hauts n'entrent pas dans l'emprise
+      if (track && tag !== 'plan') {
+        g.computeBoundingBox(); const bb = g.boundingBox;
+        if (bb.min.y < fy + 1.0 && bb.max.y > fy + 0.1) track.union(bb);
+      }
     };
     // boîte en coordonnées « étage » (y relatif au sol fini) ; seg : subdivisions pour la cuisson
     const B = (mk, x0, x1, y0, y1, z0, z1, skip = '', seg = 0) => {
@@ -224,18 +230,18 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
       push(mk, g);
     };
+    // chaque at() est un meuble : sa propre emprise de collision (les meubles imbriqués — chaises autour
+    // d'une table, tabourets d'un îlot — ont la leur, au lieu d'un grand rectangle qui bouche la pièce)
     const at = (x, z, ry, fn) => {
-      const prev = xf, top = !track;
+      const prev = xf, parent = track;
       const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, 0, z); xf = prev ? prev.clone().multiply(m) : m;
-      if (top) track = new THREE.Box3();
+      track = new THREE.Box3();
       fn();
       xf = prev;
-      if (top) {
-        // meuble posé au sol, assez haut et assez grand pour qu'on bute dessus en visite (îlot, table, lit, canapé…)
-        const b = track; track = null;
-        if (!b.isEmpty() && b.min.y - fy < 0.5 && b.max.y - b.min.y > 0.3 && (b.max.x - b.min.x) * (b.max.z - b.min.z) > 0.12)
-          furniture.push({ kind: 'meuble', min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
-      }
+      const b = track; track = parent;
+      // posé au sol, qu'on heurte en marchant (îlot, table, chaise, lit, canapé, meuble bas…)
+      if (!b.isEmpty() && b.min.y - fy < 0.6 && b.max.y - b.min.y > 0.15 && (b.max.x - b.min.x) * (b.max.z - b.min.z) > 0.02)
+        furniture.push({ kind: 'meuble', min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
     };
     const planOnly = (fn) => withTag('plan', fn), walkOnly = (fn) => withTag('walk', fn);
 

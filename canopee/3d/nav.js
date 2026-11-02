@@ -57,7 +57,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
   const V3 = THREE.Vector3;
   const opt = {
     eye: 1.65, walkSpeed: 1.4, runSpeed: 3.5, indoorRun: 2.2, indoorFov: 70, droneSpeed: 9, droneRun: 22, climb: 5, droneRadius: 0.65, headroom: 0.25,
-    minAlt: 2, maxAlt: 80, radius: 0.32, walkFov: 66, droneFov: 58,
+    minAlt: 2, maxAlt: 80, radius: 0.32, indoorRadius: 0.22, furnRadius: 0.12, walkFov: 66, droneFov: 58,
     orbitRotSpeed: 1.6, orbitTiltSpeed: 1.0, zoomSpeed: 1.6, caption: true, ...options,
   };
   const S = {
@@ -288,13 +288,15 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     let hit = false;
     for (const b of colliders.boxes || []) {
       if (b.max[1] <= yLo || b.min[1] >= yHi) continue;
+      // meubles : on les frôle (genoux contre la table, mollets contre le canapé) — marge réduite
+      const rb = b.kind === 'meuble' ? Math.min(r, opt.furnRadius) : r;
       const cx = clamp(p.x, b.min[0], b.max[0]), cz = clamp(p.z, b.min[2], b.max[2]);
       let ex = p.x - cx, ez = p.z - cz; const d2 = ex * ex + ez * ez;
-      if (d2 >= r * r) continue;
-      if (d2 > 1e-10) { const d = Math.sqrt(d2); p.x = cx + ex / d * r; p.z = cz + ez / d * r; }
+      if (d2 >= rb * rb) continue;
+      if (d2 > 1e-10) { const d = Math.sqrt(d2); p.x = cx + ex / d * rb; p.z = cz + ez / d * rb; }
       else {
         const pen = [[p.x - b.min[0], -1, 0], [b.max[0] - p.x, 1, 0], [p.z - b.min[2], 0, -1], [b.max[2] - p.z, 0, 1]].sort((u, v) => u[0] - v[0])[0];
-        if (pen[1]) p.x = pen[1] < 0 ? b.min[0] - r : b.max[0] + r; else p.z = pen[2] < 0 ? b.min[2] - r : b.max[2] + r;
+        if (pen[1]) p.x = pen[1] < 0 ? b.min[0] - rb : b.max[0] + rb; else p.z = pen[2] < 0 ? b.min[2] - rb : b.max[2] + rb;
       }
       hit = true;
     }
@@ -325,9 +327,11 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     // aux étages, l'emprise du socle ne s'applique plus (balcons en saillie) : cloisons de l'étage + boîtes
     const ext = feet > 2.5 && indoor ? [] : (colliders.building || []);
     const segs = indoor && indoor.length ? ext.concat(indoor) : ext;
+    // dans un logement : gabarit d'épaules (≈ 45 cm) pour passer les portes et circuler entre les meubles
+    const r = indoor && indoor.length ? opt.indoorRadius : opt.radius;
     for (let it = 0; it < 4; it++) {
-      const a = pushSegs(p, opt.radius, segs); pushTrees(p, opt.radius);
-      const c = pushBoxes2D(p, opt.radius, feet + 0.3, eyeY + 0.12);
+      const a = pushSegs(p, r, segs); pushTrees(p, r);
+      const c = pushBoxes2D(p, r, feet + 0.3, eyeY + 0.12);
       if (!a && !c) break;
     }
   }
@@ -614,6 +618,8 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     get mode() { return S.mode; },
     setMode, teleport, update, setEnabled, dispose, getState,
     joystick: root,
+    /** Diagnostic : collisions de marche (carte des zones praticables). */
+    debug: { colliders, opt, walkResolve, floorAt },
     /** Cible d'orbite par défaut (retour à l'orbite). */
     setHome(target) { S.home.target.copy(Array.isArray(target) ? new V3(...target) : target); },
     /** Collisions remplacées à chaud (ex. cloisons de l'étage affiché). */
