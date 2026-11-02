@@ -597,6 +597,18 @@ async function start() {
   progress(0.94, 'Premier rendu…');
   await nextFrame();
   buildUI();
+  // préchauffage, sous l'écran de chargement : un rendu de chaque étage en coupe envoie ses géométries à la
+  // carte graphique (sinon saccade de ~40 ms la première fois que la coupe fait apparaître un étage)
+  try {
+    if (lots && lots.floors) {
+      const prev = lots.floor ?? null;
+      setSections(true);
+      for (const f of lots.floors) { lots.setFloor(f.key); renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); }
+      lots.setFloor(prev);
+      setSections(false);
+      renderer.shadowMap.needsUpdate = true;
+    }
+  } catch (e) { /* préchauffage facultatif */ }
   render();
   await nextFrame();
   progress(1, 'Prêt');
@@ -2380,14 +2392,21 @@ function setCutY(y) {
   hPlane.constant = y;
   renderer.shadowMap.needsUpdate = true;
 }
-let cutFrame = 0;
 function stepCut(now) {
   const an = cfg.cut.anim;
   if (!an) return;
   const t = Math.min(1, (now - an.t0) / an.dur), k = ease(t);
   cfg.cut.y = THREE.MathUtils.lerp(an.from, an.to, k);
   hPlane.constant = cfg.cut.y;
-  if ((cutFrame++ & 1) === 0 || t >= 1) renderer.shadowMap.needsUpdate = true;   // ombres une image sur deux pendant l'animation
+  // ombres à chaque image : une image sur deux donnait un rythme irrégulier (saccades)
+  renderer.shadowMap.needsUpdate = true;
+  // l'étage affiché suit la coupe : on voit l'étage que la coupe traverse, au lieu de pièces vides
+  // pendant la descente puis d'un mobilier qui apparaît d'un coup à l'arrivée
+  if (an.follow && lots && lots.floors) {
+    let kc = null;
+    for (const f of lots.floors) { const fy = lots.floorY(f.key); if (Number.isFinite(fy) && fy + 0.05 < cfg.cut.y && (kc == null || fy > lots.floorY(kc))) kc = f.key; }
+    if (kc != null && kc !== an.shown) { an.shown = kc; lots.setFloor(kc); }
+  }
   invalidate();
   if (t >= 1) { cfg.cut.anim = null; if (an.onEnd) an.onEnd(); }
 }
@@ -2446,9 +2465,11 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
     // le plan et les étiquettes n'apparaissent qu'une fois la coupe arrivée à l'étage ;
     // en visite à pied, l'étage est affiché tout de suite (on y entre en fondu)
     cfg.cut.ready = false;
-    lots.setFloor(view === 'walk' ? k : null);
+    const prev = lots.floor ?? null;
+    lots.setFloor(view === 'walk' ? k : prev);
     updateLabelSet();
     animateCut(target, onReady);
+    if (view !== 'walk' && cfg.cut.anim) { cfg.cut.anim.follow = true; cfg.cut.anim.shown = prev; }
   } else if (Math.abs(cfg.cut.y - target) > 0.01) animateCut(target);
   if (fly) { state.free = true; flyTo(floorPose(k, focus)); }
   if (nav && nav.setHome) nav.setHome(floorCenter(k));
