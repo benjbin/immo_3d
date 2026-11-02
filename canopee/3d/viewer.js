@@ -1414,9 +1414,9 @@ function xfAfterRender() {
   if (q && q.length) { q.shift(); invalidate(); if (!q.length) MOTION.xfq = null; }
 }
 function stopXFade() { if (xfadePass) xfadePass.enabled = false; MOTION.xfq = null; }
-const XF_SLAB = [0.6, 0.38, 0.2, 0.07];                                    // dalle franchie en pleine vitesse : 3 images
-const XF_SLAB_STILL = [0.78, 0.58, 0.4, 0.24, 0.1];               // dalle franchie caméra immobile (remontée)
-const XF_STILL = [0.94, 0.85, 0.73, 0.59, 0.45, 0.32, 0.2, 0.1, 0.03];   // caméra immobile : ~150 ms
+const XF_SLAB = [0.4];                                    // dalle franchie en pleine vitesse : 3 images
+const XF_SLAB_STILL = [0.6, 0.3];               // dalle franchie caméra immobile (remontée)
+const XF_STILL = [0.8, 0.6, 0.4, 0.2, 0.07];   // caméra immobile : ~80 ms
 // appelé par setFloor() au départ d'un changement d'étage animé
 function motionBegin() {
   if (REDUCED_MOTION || !composer) return;
@@ -1429,7 +1429,7 @@ function motionBegin() {
 const motionActive = () => !!(state.anim || cfg.cut.anim || cfg.vo.an);
 // Les premières images après un repos sont lentes (le GPU remonte en fréquence) : on en rend quelques-unes à la
 // pose de départ avant de lancer l'horloge, pour que le trajet démarre sur une cadence déjà régulière.
-const MOTION_HOLD = 3;
+const MOTION_HOLD = 1;
 function motionPre(now) {
   if (MOTION.phase === 'run' && MOTION.hold > 0) {
     if (state.anim) state.anim.t0 = now;
@@ -2680,6 +2680,8 @@ function cutAlong(an, u) {
 const CUT_EXT = () => bounds.height + 0.05;
 // fin de la remontée vers l'extérieur : la coupe du toit-terrasse. Au-delà, la coupe ne ferait que franchir d'un
 // coup le dessus de l'édicule (surface horizontale) ; ce reste apparaît dans le fondu final, caméra immobile.
+// durée de la remontée : plus courte que la descente (rien ne bouge à la caméra) ; pas de longue traîne d'aisance
+const extRiseDur = () => { const y = cfg.cut.y > 1e3 ? riseTop() : cfg.cut.y; return REDUCED_MOTION ? 1 : THREE.MathUtils.clamp(300 + Math.abs(riseTop() - y) * 70, 350, 900); };
 const riseTop = () => { const f = floorInfo(4); return f && Number.isFinite(f.cutY) ? Math.min(CUT_EXT(), f.cutY) : CUT_EXT(); };
 const easeD = (t) => (t < 0.5 ? 12 * t * t : 3 * (2 - 2 * t) ** 2);   // dérivée de ease
 const cutLen = (an) => Math.max(1e-6, Math.abs(an.to - an.from) - an.skips.reduce((a, q) => a + q[1] - q[0], 0));
@@ -2787,8 +2789,9 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
       } else animateCut(riseTop(), () => {
         if (cfg.floor != null) return;
         lots.setFloor(null); setCutY(1e4); setSections(false);
+        if (lots.update) lots.update(10);   // teintes et volumes des lots directement à leur état final (sous le fondu)
         startXFade(state.anim ? XF_SLAB_STILL : XF_STILL);
-      });
+      }, extRiseDur());
       const an = cfg.cut.anim;
       if (an) { an.follow = true; if (an.shown === undefined) an.shown = prev; an.endSwap = true; }
       motionBegin();
