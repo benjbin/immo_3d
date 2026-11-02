@@ -69,7 +69,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     fovTarget: camera.fov, orbitFov: camera.fov,
     home: controls ? { target: controls.target.clone() } : { target: new V3(0, 6, -9) },
     lastPose: new Float64Array(7), changed: true,
-    look: null, fade: null, exitCb: onExit, indoor: false,
+    look: null, fade: null, exitCb: onExit, lookMoveCb: null, indoor: false,
   };
 
   // ---------------------------------------------------------------------------
@@ -487,7 +487,11 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     const a = axes();
     if (S.mode === 'orbit') updateOrbit(a, dt);
     else if (S.mode === 'drone') updateDrone(a, dt);
-    else if (S.mode === 'look') updateLook(a, dt);
+    else if (S.mode === 'look') {
+      // « Vue depuis le lot » : dès qu'on veut avancer, on passe en visite à pied au lieu de rester figé
+      if (S.lookMoveCb && (Math.abs(a.mx) > 0.2 || Math.abs(a.my) > 0.2)) { const cb = S.lookMoveCb; S.lookMoveCb = null; cb(); return poseChanged(); }
+      updateLook(a, dt);
+    }
     else updateWalk(a, dt);
     // focale douce
     if (Math.abs(camera.fov - S.fovTarget) > 0.01) { camera.fov += (S.fovTarget - camera.fov) * damp(5, dt); camera.updateProjectionMatrix(); }
@@ -630,6 +634,8 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     },
     /** Rappel de sortie du mode regard (Échap) ; sinon retour à l'orbite. */
     setOnExit(fn) { S.exitCb = fn; },
+    /** Mode regard : rappel appelé au premier geste d'avance (joystick, ZQSD, flèches). */
+    setOnLookMove(fn) { S.lookMoveCb = fn; },
     exitLook,
   };
 }

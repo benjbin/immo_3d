@@ -253,9 +253,25 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         if (faces) B('wall', x0, x1, 0, CUT, z0, z1, 'py ny');
         flat('cut', rect(x0, x1, z0, z1), cy + 0.002);
       });
-      if (faces && H > 0) walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
+      solids.push([x0, x1, z0, z1]);
+      if (faces && H > 0) wallViz.push([x0, x1, z0, z1]);          // volumes de visite émis par flushWalls (jonctions recouvrantes)
       if (faces && H > 0 && FIN) skirts.push([x0, x1, z0, z1]);
       if (collide) colliders.push(...rectSegs(x0, x1, z0, z1));
+    };
+    // jonctions en T : un mur qui vient buter contre un autre (cloison contre mur porteur, façade…) est prolongé
+    // de 2 cm dans celui-ci, pour supprimer la fente lumineuse d'une arête non partagée ; seulement si le mur
+    // touché déborde des deux côtés de l'épaisseur (jamais deux faces coplanaires → pas de z-fighting)
+    const solids = [], wallViz = [];
+    const flushWalls = () => {
+      const E = 0.02, eps = 0.001;
+      const hit = (self, px, pz, alongX, t0, t1) => solids.some(r => r !== self && px > r[0] && px < r[1] && pz > r[2] && pz < r[3] && (alongX ? r[2] < t0 - eps && r[3] > t1 + eps : r[0] < t0 - eps && r[1] > t1 + eps));
+      for (const w of wallViz) {
+        let [x0, x1, z0, z1] = w; const self = solids.find(r => r[0] === w[0] && r[1] === w[1] && r[2] === w[2] && r[3] === w[3]);
+        if (x1 - x0 >= z1 - z0) { const zc = (z0 + z1) / 2; if (hit(self, x0 - 0.01, zc, true, z0, z1)) x0 -= E; if (hit(self, x1 + 0.01, zc, true, z0, z1)) x1 += E; }
+        else { const xc = (x0 + x1) / 2; if (hit(self, xc, z0 - 0.01, false, x0, x1)) z0 -= E; if (hit(self, xc, z1 + 0.01, false, x0, x1)) z1 += E; }
+        walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
+      }
+      wallViz.length = 0;
     };
     const lintel = (axis, c0, c1, a, b) => {
       if (H <= DOOR_H) return;
@@ -499,7 +515,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
 
     const setTint = (c) => { const p = tint; tint = c ? (Array.isArray(c) ? c : [c.r, c.g, c.b]) : [1, 1, 1]; return p; };
     const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
-    return { key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
+    return { flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
   function rectSegs(x0, x1, z0, z1) { return [{ a: [x0, z0], b: [x1, z0] }, { a: [x1, z0], b: [x1, z1] }, { a: [x1, z1], b: [x0, z1] }, { a: [x0, z1], b: [x0, z0] }]; }
@@ -607,7 +623,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.room('Dégagement', rect(-2.52, -1.62, -15.87, -13.98), 'parquet', idB, null, false);
     P.room('WC', rect(-1.54, -0.5, -15.87, -13.98), 'tile', idB);
     P.room("Salle d'eau", rect(-0.42, 1.3, -15.87, -13.98), 'tile', idB);
-    P.partition('z', -2.56, -15.91, -11.525, [{ a: -15.2, b: -14.4, hinge: 'a', side: 1 }]);
+    P.partition('z', -2.56, -15.91, -11.525, [{ a: -15.2, b: -14.4, hinge: 'a', side: -1 }]);   // vantail côté chambre (ne barre plus le dégagement)
     P.partition('x', -13.94, -1.58, 1.34, [{ a: 0.0, b: 0.75, hinge: 'b', side: 1 }]);
     P.partition('z', -1.58, -15.91, -13.94, [{ a: -15.0, b: -14.3, hinge: 'a', side: 1 }]);
     P.partition('z', -0.46, -15.91, -13.98, []);
@@ -728,6 +744,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   // petits objets : pas d'ombre portée (économise les passes d'ombre des projecteurs de baie)
   const NO_CAST = new Set(['ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
   function finish(P) {
+    P.flushWalls();
     // plinthes au pied des cloisons et murs intérieurs (4 faces, retours compris)
     if (P.skirts.length) P.walkOnly(() => { for (const [x0, x1, z0, z1] of P.skirts) { const e = SK_T, h = SK_H; P.B('skirt', x0 - e, x1 + e, 0, h, z0 - e, z0); P.B('skirt', x0 - e, x1 + e, 0, h, z1, z1 + e); P.B('skirt', x0 - e, x0, 0, h, z0, z1); P.B('skirt', x1, x1 + e, 0, h, z0, z1); } });
     const root = new THREE.Group(); root.name = 'plan:' + P.key;

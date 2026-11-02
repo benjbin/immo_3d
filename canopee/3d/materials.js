@@ -25,6 +25,9 @@
 //   Lumière   lampShade (lin, s'illumine le soir), bulb (ampoule/diffuseur) : viewer.js pilote
 //             leur emissiveIntensity selon l'heure et place de vraies lumières (PointLight) au centre
 //             des abat-jour et ampoules trouvés dans les maillages « walk » qui utilisent ces deux matériaux.
+// Gros plans : oakParquet* et wallPaint*/ceilingPaint portent une couche de détail (patchDetail :
+// pores du chêne, peau d'orange de la peinture) via onBeforeCompile + customProgramCacheKey ; un clone
+// doit recopier ces deux champs (lots.js le fait pour ses variantes « Walk »).
 // Variantes de couleur d'un même matériau : préférer l'attribut de sommet 'tint' de lots.js
 // ou ces variantes plutôt qu'un clone par objet.
 // ---------------------------------------------------------------------------
@@ -673,6 +676,42 @@ export function patchAntiTile(mat, k = 0.45) {
   return mat;
 }
 
+// Couche de détail pour les gros plans (0,5–1 m) : une petite texture répétée finement
+// (R, G = normale de détail ; B = pores / grain → albedo et rugosité) se superpose à la
+// texture principale, qui ne tient plus la distance à hauteur d'œil (micro-relief, rugosité variée).
+// Les clones « …Walk » de lots.js reprennent onBeforeCompile grâce à customProgramCacheKey.
+export function patchDetail(mat, detail, { rep = [8, 8], n = 0.3, albedo = 0.05, rough = 0.06, key = 'd' } = {}) {
+  const uni = { uDetail: { value: detail }, uDetailRep: { value: rep }, uDetailK: { value: [n, albedo, rough] } };
+  mat.userData.detail = uni;
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    prev && prev(sh, r);
+    Object.assign(sh.uniforms, uni);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D uDetail; uniform vec2 uDetailRep; uniform vec3 uDetailK;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        #ifdef USE_MAP
+          vec4 cnDet = texture2D( uDetail, vMapUv * uDetailRep );
+        #else
+          vec4 cnDet = vec4( 0.5 );
+        #endif
+        diffuseColor.rgb *= 1.0 + uDetailK.y * ( cnDet.b * 2.0 - 1.0 );`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = clamp( roughnessFactor + uDetailK.z * ( 1.0 - cnDet.b * 2.0 ), 0.04, 1.0 );`)
+      .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale;\n\tmapN.xy += ( cnDet.rg * 2.0 - 1.0 ) * uDetailK.x;');
+  };
+  mat.customProgramCacheKey = () => 'canopee-detail-' + key;
+  return mat;
+}
+// Texture de détail RGBA (normale + valeur) depuis une hauteur h et une valeur v (0..1), périodiques.
+function detailTexture(THREE, S, h, v, ns, aniso) {
+  const nd = normalData(h, S, S, ns);
+  for (let i = 0; i < S * S; i++) nd[i * 4 + 2] = clamp01(v[i]) * 255;
+  const t = new THREE.CanvasTexture(canvasRGBA(S, S, nd));
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso;
+  return t;
+}
+
 // ---------------------------------------------------------------------------
 // Fabrique principale
 // ---------------------------------------------------------------------------
@@ -1161,6 +1200,7 @@ export function createMaterials(THREE, renderer) {
 // en tête de fichier pour la liste des matériaux exportés.
 // ===========================================================================
 function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }) {
+  let PAINT_DETAIL = null;
   const V2 = (x, y = x) => new THREE.Vector2(x, y);
   const mark = (m, kind) => { m.userData.interior = kind || true; return m; };
   // matériaux coûteux et facultatifs : construits au premier accès (M.marbleWhite…), pas au chargement
@@ -1226,10 +1266,19 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
       }
     }
     const set = pbrSet(W, H, [TU, TV], col, rough, hgt, 2.2);
-    M.oakParquet = mark(std(set, { name: 'oakParquet', normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
+    M.oakParquet = mark(std(set, { name: 'oakParquet', normalScale: V2(0.55), envMapIntensity: 0.9 }), 'floor');
     // variante plus claire (chêne blanchi) et plus foncée (chêne fumé), mêmes textures
-    M.oakParquetLight = mark(std(set, { name: 'oakParquetLight', color: new THREE.Color('#fff6ea'), normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
-    M.oakParquetSmoked = mark(std(set, { name: 'oakParquetSmoked', color: new THREE.Color('#9b8c7c'), normalScale: V2(0.8), envMapIntensity: 0.9 }), 'floor');
+    M.oakParquetLight = mark(std(set, { name: 'oakParquetLight', color: new THREE.Color('#fff6ea'), normalScale: V2(0.55), envMapIntensity: 0.9 }), 'floor');
+    M.oakParquetSmoked = mark(std(set, { name: 'oakParquetSmoked', color: new THREE.Color('#9b8c7c'), normalScale: V2(0.55), envMapIntensity: 0.9 }), 'floor');
+    // gros plan : pores du chêne en traits allongés dans le fil (période 12 × 60 cm) et fibres fines,
+    // qui cassent le vernis « plastique » (rugosité plus forte dans les pores) et le flou de la texture principale
+    {
+      const S = 256, pr = fbm(S, S, { px: 64, py: 8, oct: 3, seed: 407 }), fi = fbm(S, S, { px: 96, py: 6, oct: 2, seed: 408 }), sp = fbm(S, S, { px: 24, py: 24, oct: 2, seed: 409 });
+      const h = new Float32Array(S * S), v = new Float32Array(S * S);
+      for (let i = 0; i < S * S; i++) { const pore = sstep(0.62, 0.74, pr[i]) * (0.5 + 0.5 * sp[i]); h[i] = 0.55 * fi[i] - 0.8 * pore; v[i] = 0.5 - 0.42 * pore + 0.12 * (fi[i] - 0.5); }
+      const det = detailTexture(THREE, S, h, v, 2.2, aniso);
+      for (const m of [M.oakParquet, M.oakParquetLight, M.oakParquetSmoked]) patchDetail(m, det, { rep: [TU / 0.1, TV / 0.5], n: 0.4, albedo: 0.11, rough: 0.14, key: 'oak' });
+    }
   }
 
   lap('int:parquet');
@@ -1246,9 +1295,19 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
     const paint = (name, c, kind = 'wall', p = {}) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.35), envMapIntensity: 0.6, ...p }), kind);
     M.wallPaint = paint('wallPaint', '#ece9e3');           // blanc chaud (murs)
     M.ceilingPaint = paint('ceilingPaint', '#f3f2ee', 'ceiling', { normalScale: V2(0.2) });
+    // peau d'orange du rouleau (visible en lumière rasante, à 1 m d'un mur) : période 25 cm
+    {
+      const S2 = 256, a = fbm(S2, S2, { px: 20, oct: 3, seed: 414 }), b = fbm(S2, S2, { px: 64, oct: 2, seed: 415 });
+      const h = new Float32Array(S2 * S2), v = new Float32Array(S2 * S2);
+      for (let i = 0; i < S2 * S2; i++) { h[i] = 0.7 * a[i] + 0.3 * b[i]; v[i] = 0.5 + 0.25 * (a[i] - 0.5); }
+      PAINT_DETAIL = detailTexture(THREE, S2, h, v, 1.6, aniso);
+    }
+    patchDetail(M.wallPaint, PAINT_DETAIL, { rep: [6, 6], n: 0.12, albedo: 0.012, rough: 0.05, key: 'paint' });
+    patchDetail(M.ceilingPaint, PAINT_DETAIL, { rep: [6, 6], n: 0.08, albedo: 0.01, rough: 0.04, key: 'paint' });
     M.wallPaintGreige = paint('wallPaintGreige', '#d6cec2');
     M.wallPaintSage = paint('wallPaintSage', '#b3b8a3');
     M.wallPaintClay = paint('wallPaintClay', '#c9a58c');
+    for (const m of [M.wallPaintGreige, M.wallPaintSage, M.wallPaintClay]) patchDetail(m, PAINT_DETAIL, { rep: [6, 6], n: 0.12, albedo: 0.012, rough: 0.05, key: 'paint' });
     M.skirting = mark(std({}, { name: 'skirting', color: new THREE.Color('#f0eee9'), roughness: 0.42, envMapIntensity: 0.7 }), 'wall');
   }
 

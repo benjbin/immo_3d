@@ -11,6 +11,68 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+/* ------------------------------------------------------------------ */
+/* Ombres douces « de ciel » (PCSS) pour les projecteurs des baies     */
+/* Une baie est une source étendue : l'ombre d'un pied de chaise est   */
+/* nette au contact et s'élargit avec la distance. Activé seulement    */
+/* pour les projecteurs dont shadow.radius ≥ 1000 (le rayon code alors  */
+/* la taille de source et le plan proche) ; soleil et autres lumières   */
+/* gardent le filtrage PCF doux de three (extérieur inchangé).         */
+/* ------------------------------------------------------------------ */
+(function patchSoftSpotShadows() {
+  const C = THREE.ShaderChunk;
+  const call = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( spotShadowMap[ i ], spotLightShadow.shadowMapSize, spotLightShadow.shadowBias, spotLightShadow.shadowRadius, vSpotLightCoord[ i ] ) : 1.0;';
+  if (/[?&]pcss=0/.test(location.search) || !C.lights_fragment_begin.includes(call) || !C.shadowmap_pars_fragment.includes('vec2 cubeToUV(')) return;
+  // disque de Vogel (offsets constants, tournés par pixel) ; boucles déroulées : sur Metal/ANGLE, une boucle
+  // GLSL de lectures de texture dans une fonction appelée 5 fois coûtait ~100 ms par image
+  const disk = (N, ph) => Array.from({ length: N }, (_, k) => { const r = Math.sqrt((k + 0.5) / N), t = k * 2.39996323 + ph; return `vec2( ${(r * Math.cos(t)).toFixed(4)}, ${(r * Math.sin(t)).toFixed(4)} )`; });
+  const NB = 6, NF = 8;
+  // biais « plan du récepteur » : dérivées écran de (u, v, profondeur) prises hors du test (flot uniforme)
+  C.lights_fragment_begin = C.lights_fragment_begin.replace(call, `{
+			float shS = 1.0;
+			if ( spotLightShadow.shadowRadius > 999.0 ) {   // test sur un uniforme : flot uniforme, dérivées valides
+				vec3 qS = vec3( vSpotLightCoord[ i ].xy / vSpotLightCoord[ i ].w, vSpotLightCoord[ i ].w ); vec3 dxS = dFdx( qS ), dyS = dFdy( qS );
+				if ( directLight.visible && receiveShadow ) shS = getSpotShadowSoft( spotShadowMap[ i ], spotLightShadow.shadowMapSize, spotLightShadow.shadowBias, spotLightShadow.shadowRadius, vSpotLightCoord[ i ], dxS, dyS );
+			} else if ( directLight.visible && receiveShadow ) shS = getShadow( spotShadowMap[ i ], spotLightShadow.shadowMapSize, spotLightShadow.shadowBias, spotLightShadow.shadowRadius, vSpotLightCoord[ i ] );
+			directLight.color *= shS;
+		}`);
+  C.shadowmap_pars_fragment = C.shadowmap_pars_fragment.replace('vec2 cubeToUV(', `#if NUM_SPOT_LIGHT_SHADOWS > 0
+	// profondeur linéaire (m, le long de l'axe du projecteur) d'un texel de la carte d'ombre
+	float cnpZ( sampler2D m, vec2 uv, float A, float B ) { return B / max( 1e-4, A - unpackRGBAToDepth( texture2D( m, uv ) ) ); }
+	float cnpCmp( sampler2D m, vec2 uv, float zc, vec2 size, float A, float B ) {
+		vec2 tc = uv * size - 0.5; vec2 f = fract( tc ); vec2 t = 1.0 / size; vec2 b = ( floor( tc ) + 0.5 ) * t;
+		vec4 s4 = step( vec4( zc ), vec4( cnpZ( m, b, A, B ), cnpZ( m, b + vec2( t.x, 0.0 ), A, B ), cnpZ( m, b + vec2( 0.0, t.y ), A, B ), cnpZ( m, b + t, A, B ) ) );
+		return mix( mix( s4.x, s4.y, f.x ), mix( s4.z, s4.w, f.x ), f.y );
+	}
+	float getSpotShadowSoft( sampler2D m, vec2 size, float bias, float code, vec4 sc, vec3 ddx, vec3 ddy ) {
+		vec2 p = sc.xy / sc.w;
+		if ( p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 ) return 1.0;
+		// code = 1000 + 10·round(100·K) + near, K = taille de source / (2 tan angle) ; far = near + 14
+		float c = code - 1000.0, k10 = floor( c / 10.0 ), n = c - k10 * 10.0, f = n + 14.0;
+		float A = f / ( f - n ), B = f * n / ( f - n ), K = k10 * 0.01, zr = sc.w, tx = 1.0 / size.x;
+		if ( zr > f ) return 1.0;
+		float phi = 6.2831853 * fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
+		mat2 rot = mat2( cos( phi ), sin( phi ), - sin( phi ), cos( phi ) );
+		// pente de la profondeur (m par unité d'UV) du plan récepteur, bornée (bords d'objets, incidences rasantes)
+		float det = ddx.x * ddy.y - ddx.y * ddy.x;
+		vec2 dz = abs( det ) > 1e-12 ? vec2( ddy.y * ddx.z - ddx.y * ddy.z, ddx.x * ddy.z - ddy.x * ddx.z ) / det : vec2( 0.0 );
+		float dzl = length( dz ); dz *= min( 1.0, 60.0 / max( dzl, 1e-6 ) );
+		float eps = 0.012 + 0.004 * zr;
+		// recherche des bloqueurs ; biais linéaire croissant avec le rayon (récepteurs rasants : sol, murs)
+		float sr = clamp( K * ( zr - n ) / ( n * zr ), 2.0 * tx, 0.024 ), sum = 0.0, cnt = 0.0, z; vec2 o;
+		${disk(NB, 0).map((v) => `o = rot * ${v} * sr; z = cnpZ( m, p + o, A, B ); if ( z < zr + dot( dz, o ) - eps ) { sum += z; cnt += 1.0; }`).join('\n\t\t')}
+		if ( cnt < 0.5 ) return 1.0;
+		float zb = sum / cnt;
+		// pénombre : nette au contact, large loin de l'objet (source étendue)
+		float pr = clamp( K * ( zr - zb ) / ( zb * zr ), 0.8 * tx, 0.024 ), s = 0.0;
+		${disk(NF, 1.3).map((v) => `o = rot * ${v} * pr; s += cnpCmp( m, p + o, zr + dot( dz, o ) - eps, size, A, B );`).join('\n\t\t')}
+		return s / ${NF}.0;
+	}
+	#endif
+	vec2 cubeToUV(`);
+})();
 
 /* ------------------------------------------------------------------ */
 /* Paramètres d'URL (utiles pour les captures et le débogage)          */
@@ -346,6 +408,55 @@ const FinishShader = {
 /* ------------------------------------------------------------------ */
 /* Démarrage                                                            */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Cellule d'exposition (intérieurs) : moyenne logarithmique pondérée   */
+/* au centre de la luminance de la scène (avant exposition et bloom),   */
+/* lue sur une vignette 16 × 10 quelques fois par seconde. L'appareil   */
+/* s'adapte lentement en passant d'une pièce claire à une pièce sombre. */
+/* ------------------------------------------------------------------ */
+const METER_W = 16, METER_H = 10;
+class MeterPass extends Pass {
+  constructor() {
+    super();
+    this.needsSwap = false;
+    this.rt = new THREE.WebGLRenderTarget(METER_W, METER_H, { depthBuffer: false });
+    this.buf = new Uint8Array(METER_W * METER_H * 4);
+    this.want = false; this.value = null;
+    this.quad = new FullScreenQuad(new THREE.ShaderMaterial({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+        void main(){
+          vec2 cell = vec2(${(1 / METER_W).toFixed(6)}, ${(1 / METER_H).toFixed(6)});
+          float s = 0.0;
+          for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+            vec3 c = texture2D(tDiffuse, vUv + (vec2(float(x), float(y)) - 1.5) * 0.25 * cell).rgb;
+            s += log2(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-5));
+          }
+          gl_FragColor = vec4(clamp((s / 16.0 + 14.0) / 20.0, 0.0, 1.0), 0.0, 0.0, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    }));
+  }
+  render(r, writeBuffer, readBuffer) {
+    if (!this.want) return;
+    this.want = false;
+    this.quad.material.uniforms.tDiffuse.value = readBuffer.texture;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this.rt); this.quad.render(r);
+    r.readRenderTargetPixels(this.rt, 0, 0, METER_W, METER_H, this.buf);
+    r.setRenderTarget(prev);
+    let s = 0, ws = 0;
+    for (let y = 0; y < METER_H; y++) for (let x = 0; x < METER_W; x++) {
+      const dx = (x + 0.5) / METER_W - 0.5, dy = (y + 0.5) / METER_H - 0.5, w = 1 - 1.6 * (dx * dx + dy * dy);
+      s += w * (this.buf[(y * METER_W + x) * 4] / 255 * 20 - 14); ws += w;
+    }
+    this.value = s / ws;   // log2 de la luminance moyenne
+  }
+  dispose() { this.rt.dispose(); this.quad.dispose(); }
+}
+let meterPass = null;
+
 let renderer, scene, camera, controls, composer, renderPass, gtaoPass, bloomPass, outputPass, finishPass;
 let sun, hemi, skyBg, skyEnv, skyScene, skyEnvScene, envGround, cubeRT, cubeCam, pmrem, envRT = null;
 let building, landscape, M, levels, bounds;
@@ -529,6 +640,8 @@ function buildPost() {
   patchGtaoGBuffer(gtaoPass);
   gtaoPass.enabled = q.ao;
   composer.addPass(gtaoPass);
+  meterPass = new MeterPass();
+  composer.addPass(meterPass);
 
   bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.08, 0.45, 0.95);
   bloomPass.enabled = q.bloom;
@@ -773,7 +886,7 @@ function applyHour(h, immediate = false) {
   renderer.toneMappingExposure = (PARAMS.exposure ?? LOOK.exposure) * (1 + 0.12 * dusk + 0.25 * night);
   state.baseExposure = renderer.toneMappingExposure; state.baseHemi = hemi.intensity;
   if (finishPass) { const fu = finishPass.uniforms; fu.warm.value = LOOK.warm; fu.contrast.value = LOOK.contrast; fu.saturation.value = LOOK.sat; fu.greens.value = LOOK.greens; fu.lift.value = LOOK.lift; fu.skyPop.value = LOOK.skyPop; fu.shadeWB.value.set(...LOOK.shadeWB); }
-  if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; }
+  if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; bloomPass.radius = 0.45; state.bloomBase = { s: bloomPass.strength }; }
   MIR.dirty = true;
   if (IN.ready && lots) lampGlow(Math.max(THREE.MathUtils.smoothstep(h, 18.75, 19.75), 1 - s.day));
   if (IN.ready && IN.k > 0) applyInterior();
@@ -1186,9 +1299,17 @@ const IN_LOOK = {
   lamp: 3.5, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
   ao: 0.85, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
+  sunBounce: 0.9,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
+  skySoft: 0.45,        // taille de source des ombres de ciel (× petite dimension de la baie) ; 0 = PCF
+  meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
+  bloom: 0.13,          // halo des baies vues de l'intérieur
+  key: 0.3,             // clé de la cellule (luminance moyenne visée après exposition)
 };
+// ombres de ciel PCSS : qualité haute seulement (moyenne et basse : PCF de three, moins coûteux)
+const softShadowsOn = () => IN_LOOK.skySoft > 0 && state.quality === 'high';
 try { if (URLP.has('inlook')) Object.assign(IN_LOOK, JSON.parse(URLP.get('inlook'))); } catch (e) { /* défaut */ }
 const N_SKY = 5, N_LAMP = 4, N_DOWN = 4;
+const N_SOFT = 2;   // ombres de ciel PCSS sur les deux plus grandes baies (les autres : PCF, budget ≈ +2 ms)
 
 function setupInteriorLighting() {
   const mk = (L) => { L.visible = false; scene.add(L); if (L.target) scene.add(L.target); return L; };
@@ -1357,9 +1478,16 @@ function updateRoomEnv(outDir, s) {
   const facing = Math.max(0, sd.dot(outDir)) * THREE.MathUtils.smoothstep(s.elev, 2, 12);
   const amb = (0.03 + 0.2 * day + 0.1 * facing * day) * IN_LOOK.env;
   const wall = new THREE.Color('#e9e7e2').multiplyScalar(amb), ceil = new THREE.Color('#f3f2ee').multiplyScalar(amb * 0.75);
-  const floor = new THREE.Color('#c4b9ab').multiplyScalar(amb * 1.7);   // sol éclairé par les baies : rebond vers le plafond
+  // sol éclairé par les baies : rebond vers le plafond et le bas des murs, teinté par le chêne
+  // (plus chaud quand la tache de soleil est au sol) — c'est le « color bleeding » du parquet
+  const floor = new THREE.Color('#c4b9ab').lerp(new THREE.Color('#cfae86'), 0.2 + 0.3 * facing * day).multiplyScalar(amb * 1.7);
   const mats = E.box.material; // +x, -x, +y, -y, +z, -z
   for (const i of [0, 1, 4, 5]) mats[i].color.copy(wall);
+  // le mur qui fait face à la baie est le plus lumineux de la pièce (il reçoit le ciel en direct) ;
+  // le mur de la baie, lui, ne voit que la pièce : un mur du fond plus clair débouche les trumeaux
+  const ix = Math.abs(outDir.x) > Math.abs(outDir.z), wi = ix ? (outDir.x > 0 ? 0 : 1) : (outDir.z > 0 ? 4 : 5), oi = wi ^ 1;
+  mats[oi].color.copy(wall).multiplyScalar(1.45);
+  mats[wi].color.copy(wall).multiplyScalar(0.8);
   mats[2].color.copy(ceil); mats[3].color.copy(floor);
   const winL = (0.3 + 2.4 * day + 0.3 * tw) * IN_LOOK.env;
   E.win.material.color.copy(sky).multiplyScalar(winL);
@@ -1414,20 +1542,67 @@ function assignSkyLights(lotId, k) {
     L.target.updateMatrixWorld();
     L.angle = Math.min(1.3, Math.atan(half / d) + 0.3);
     L.penumbra = 0.9;
-    L.shadow.camera.near = d + 0.09; L.shadow.camera.far = d + 14;
+    const near = Math.round((d + 0.09) * 100) / 100;
+    L.shadow.camera.near = near; L.shadow.camera.far = near + 14;
     L.shadow.camera.updateProjectionMatrix();
+    // ombre douce (PCSS) : taille de source ≈ ouverture utile de la baie, exprimée en UV de la carte
+    const Ls = IN_LOOK.skySoft * Math.min(w.w, w.h);
+    L.userData.softCode = 1000 + 10 * THREE.MathUtils.clamp(Math.round(100 * Ls / (2 * Math.tan(L.angle))), 1, 99) + near;
+    L.shadow.radius = softShadowsOn() && i < N_SOFT ? L.userData.softCode : 1;
     L.userData.n = n; L.userData.d = d;
     const Bn = IN.bounce[i];
     Bn.position.copy(c).addScaledVector(n, 1.1); Bn.position.y = fy + 0.15;
     Bn.target.position.copy(Bn.position).addScaledVector(n, 1.2); Bn.target.position.y = fy + 3;
     Bn.target.updateMatrixWorld();
+    Bn.userData.base = { pos: Bn.position.clone(), tgt: Bn.target.position.clone() };
+    Bn.userData.c = c; Bn.userData.fy = fy;
   });
-  IN.bounce.forEach((Bn, i) => { if (!IN.skyWins[i]) { Bn.position.set(0, -500, 0); Bn.target.position.set(0, -501, 0); Bn.target.updateMatrixWorld(); } });
+  IN.bounce.forEach((Bn, i) => { if (!IN.skyWins[i]) { Bn.userData.base = null; Bn.position.set(0, -500, 0); Bn.target.position.set(0, -501, 0); Bn.target.updateMatrixWorld(); } });
+  IN.sunKey = '';
   // lampes du logement
   const lp = lampsOfFloor(k);
   const inLot = (p) => rooms.some((r) => pointInPoly(r.poly, p.x, p.z));
   IN.lampList = lp.lamps.filter(inLot);
   IN.downList = lp.downs.filter((p) => inLot(p) && p.y > fy + 2.2);
+}
+// Tache de soleil de chaque baie : centre au sol et part du vitrage réellement ensoleillée
+// (rayons vers le soleil lancés contre le bâtiment : balcons, débords et refends masquent).
+// Calculé seulement quand l'heure ou le logement change.
+const _sunRay = new THREE.Raycaster();
+function sunPatches() {
+  const s = state.sun; if (!s) return;
+  const key = `${IN.lotId}|${IN.floor}|${state.hour.toFixed(2)}|${state.season}`;
+  if (key === IN.sunKey) return;
+  IN.sunKey = key;
+  const dir = s.dir.clone().normalize(), up = dir.y > 0.03 && s.day > 0.05;
+  IN.bounce.forEach((Bn, i) => {
+    const L = IN.sky[i], w = L && L.userData.win, b = Bn.userData.base;
+    Bn.userData.sun = 0;
+    if (!w || !b || !up) return;
+    const outN = L.userData.n.clone().negate(), cosI = outN.dot(dir);
+    if (cosI < 0.03) return;
+    const c = Bn.userData.c, fy = Bn.userData.fy;
+    // visibilité du soleil : 5 points du vitrage
+    const hor = w.axis === 'x' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+    let vis = 0;
+    for (const [a, h] of [[0, 0], [-0.35, -0.35], [0.35, -0.35], [-0.35, 0.35], [0.35, 0.35]]) {
+      const o = c.clone().addScaledVector(hor, a * w.w).add(new THREE.Vector3(0, h * w.h, 0)).addScaledVector(outN, 0.12);
+      _sunRay.set(o, dir); _sunRay.far = 40;
+      if (!_sunRay.intersectObject(building, true).some((x) => x.object.visible && x.object.material && !x.object.material.transparent && x.object.material !== M.glass)) vis += 0.2;
+    }
+    if (vis <= 0) return;
+    // centre de la tache au sol (le rayon descend de la baie vers l'intérieur), limité à 4 m de la baie
+    let t = Math.min((c.y - fy) / Math.max(dir.y, 0.05), 4 / Math.max(0.05, Math.hypot(dir.x, dir.z)));
+    const P = new THREE.Vector3();
+    const inR = (x, z) => !w.room || pointInPoly(w.room.poly, x, z);
+    for (let k = 0; k < 6; k++, t *= 0.7) { P.copy(c).addScaledVector(dir, -t); if (inR(P.x, P.z)) break; }
+    // source tenue à ~0,8 m des murs (sinon point chaud sur la cloison voisine)
+    const inner = c.clone().addScaledVector(L.userData.n, 1.0);
+    for (let k = 0; k < 6 && !(inR(P.x + 0.8, P.z) && inR(P.x - 0.8, P.z) && inR(P.x, P.z + 0.8) && inR(P.x, P.z - 0.8)); k++) P.lerp(inner, 0.35);
+    P.y = fy + 0.3;
+    Bn.userData.sun = vis * cosI * w.area;
+    Bn.userData.patch = P;
+  });
 }
 function placePracticals() {
   const cx = camera.position.x, cz = camera.position.z;
@@ -1583,8 +1758,9 @@ function mirrorsOfFloor(k) {
 function makeReflector(mr) {
   const geo = mr.round ? new THREE.CircleGeometry(mr.W / 2, 48) : new THREE.PlaneGeometry(mr.W, mr.H);
   // UV du disque : CircleGeometry les donne déjà en [0,1]² sur le carré englobant
-  const res = state.quality === 'high' && !MIR_TOUCH ? 384 : 256, tw = Math.round(mr.W >= mr.H ? res : res * mr.W / mr.H), th = Math.round(mr.W >= mr.H ? res * mr.H / mr.W : res);
-  const R = new Reflector(geo, { textureWidth: Math.max(64, tw), textureHeight: Math.max(64, th), clipBias: 0.003, multisample: 0, color: new THREE.Color(0.86, 0.9, 0.89), shader: MirrorShader });
+  // reflet net comme la pièce : ~1 texel par pixel d'écran pour un miroir vu à 1–2 m, MSAA en qualité haute
+  const hi = state.quality === 'high' && !MIR_TOUCH, res = hi ? 512 : MIR_TOUCH ? 320 : 448, tw = Math.round(mr.W >= mr.H ? res : res * mr.W / mr.H), th = Math.round(mr.W >= mr.H ? res * mr.H / mr.W : res);
+  const R = new Reflector(geo, { textureWidth: Math.max(64, tw), textureHeight: Math.max(64, th), clipBias: 0.003, multisample: hi ? 4 : 0, color: new THREE.Color(0.86, 0.9, 0.89), shader: MirrorShader });
   R.material.uniforms.color.value.setRGB(0.86, 0.9, 0.89);
   R.material.uniforms.uSize.value.set(mr.W, mr.H);
   R.material.uniforms.uRound.value = mr.round ? 1 : 0;
@@ -1605,7 +1781,10 @@ function makeReflector(mr) {
     // instancié, coûteux) n'est pas rendu dans le reflet : les miroirs sont en salle d'eau / entrée
     const others = MIR.active.filter((x) => x !== R && x.visible); others.forEach((x) => { x.visible = false; });
     const lv = landscape && landscape.visible; if (lv) landscape.visible = false;
+    // dans le reflet : ombres de ciel PCF simples (le PCSS y doublerait le coût pour un détail invisible)
+    const rad = IN.sky.map((L) => L.shadow.radius); IN.sky.forEach((L) => { L.shadow.radius = 1; });
     render.call(this, r, sc, cam);
+    IN.sky.forEach((L, i) => { L.shadow.radius = rad[i]; });
     if (lv) landscape.visible = true;
     others.forEach((x) => { x.visible = true; });
   };
@@ -1672,15 +1851,30 @@ function stepInterior(dt) {
   const e0 = IN.roomExpCur ?? 1;
   IN.roomExpCur = e0 + ((IN.roomExp ?? 1) - e0) * Math.min(1, dt * 2.5);
   if (Math.abs(IN.roomExpCur - e0) > 0.002) changed = true;
+  // cellule : exposition visée = clé / (exposition modèle × luminance moyenne), adaptation partielle (IN_LOOK.meter)
+  if (meterPass && IN.k > 0.01 && IN_LOOK.meter > 0) {
+    if (now - (IN.meterAt || 0) > (TOUCH || state.quality === 'low' ? 320 : 160)) { IN.meterAt = now; meterPass.want = true; }
+    if (meterPass.value != null && IN.modelExp) {
+      const ev = Math.log2(IN_LOOK.key) - (meterPass.value + Math.log2(IN.modelExp));
+      IN.meterT = THREE.MathUtils.clamp(Math.pow(2, ev * IN_LOOK.meter), 0.72, 1.7);
+    }
+  } else if (IN.k <= 0.01) { IN.meterT = 1; IN.meterC = 1; if (meterPass) meterPass.value = null; }
+  const c0 = IN.meterC ?? 1, cT = IN.meterT ?? 1;
+  // l'œil (et l'appareil) s'ouvre lentement dans le sombre, se ferme plus vite dans le clair
+  IN.meterC = c0 + (cT - c0) * Math.min(1, dt * (cT > c0 ? 1.4 : 2.4));
+  const meterMoved = Math.abs(IN.meterC - c0) > 0.0015;
   const k0 = IN.k;
   const rate = dt / 0.3;
   IN.k = IN.target > IN.k ? Math.min(IN.target, IN.k + rate) : Math.max(IN.target, IN.k - rate);
   if (IN.k !== k0 || changed) { applyInterior(); return true; }
+  // adaptation de la cellule seule : exposition mise à jour sans relancer reflets ni sources
+  if (meterMoved) { applyInterior(true); return true; }
   return false;
 }
-function applyInterior() {
+const _bounceSky = new THREE.Color('#f3dcc0'), _bounceSun = new THREE.Color('#ffd6ae');
+function applyInterior(exposureOnly = false) {
   const k = IN.k, s = state.sun; if (!s) return;
-  MIR.dirty = true;
+  if (!exposureOnly) MIR.dirty = true;
   const on = k > 0.001;
   const sm = k * k * (3 - 2 * k);
   // heure dorée : la lumière qui entre (ciel bas, façades et sol éclairés par le soleil couchant) se réchauffe
@@ -1688,9 +1882,10 @@ function applyInterior() {
   IN.skyColor.set('#dde6f2').lerp(new THREE.Color('#ffdcb8'), Math.max((1 - s.day) * 0.7, 0.75 * gold));
   // qualité basse : trois baies ombrées seulement (les plus grandes)
   const nSky = state.quality === 'low' ? 3 : N_SKY;
-  if (on !== IN.on || nSky !== IN.nSky) {
-    IN.on = on; IN.nSky = nSky;
-    IN.sky.forEach((L, i) => { L.visible = on && i < nSky; });
+  const soft = softShadowsOn();
+  if (on !== IN.on || nSky !== IN.nSky || soft !== IN.soft) {
+    IN.on = on; IN.nSky = nSky; IN.soft = soft;
+    IN.sky.forEach((L, i) => { L.visible = on && i < nSky; L.shadow.radius = soft && i < N_SOFT && L.userData.softCode ? L.userData.softCode : 1; });
     IN.bounce.forEach((L, i) => { L.visible = on && i < nSky; });
     renderer.shadowMap.needsUpdate = true;
     // environnement « pièce » pour les matériaux d'intérieur
@@ -1704,6 +1899,7 @@ function applyInterior() {
   for (const m of interiorMaterials()) { const e = envOn ? IN.envRT.texture : null; if (m.envMap !== e) m.envMap = e; }
   // lumière du ciel par les baies
   const sd = new THREE.Vector3(s.dir.x, 0, s.dir.z); const sdl = sd.length() || 1; sd.divideScalar(sdl);
+  if (on && IN.lotId) sunPatches();
   // ciel moins lumineux quand le soleil descend (heure dorée)
   const eve = THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75);
   const skyL = (0.04 * s.twilight + 0.36 * s.day * (0.55 + 0.45 * THREE.MathUtils.smoothstep(s.elev, 5, 30))) * IN_LOOK.sky * (1 - 0.3 * eve);
@@ -1716,7 +1912,19 @@ function applyInterior() {
     L.intensity = skyL * w.area * sunSide * (dd * dd) / 6.25 * sm;
     L.color.copy(IN.skyColor);
     const Bn = IN.bounce[IN.sky.indexOf(L)];
-    if (Bn) { Bn.intensity = skyL * w.area * sunSide * IN_LOOK.bounce * sm; Bn.color.copy(IN.skyColor).lerp(new THREE.Color('#f3dcc0'), 0.5); }
+    if (Bn) {
+      // rebond du ciel (sol près de la baie) + rebond de la tache de soleil sur le chêne (chaud, local)
+      const skyB = skyL * w.area * sunSide * IN_LOOK.bounce;
+      const sunB = (Bn.userData.sun || 0) * sun.intensity * 0.45 / Math.PI * IN_LOOK.sunBounce * (1 - 0.5 * eve);
+      Bn.intensity = (skyB + sunB) * sm;
+      const f = sunB / Math.max(1e-6, skyB + sunB), b = Bn.userData.base;
+      Bn.color.copy(IN.skyColor).lerp(_bounceSky, 0.5).lerp(_bounceSun, f);
+      if (b) {
+        if (f > 0.15 && Bn.userData.patch) { Bn.position.copy(Bn.userData.patch); Bn.target.position.copy(Bn.userData.patch).setY(Bn.userData.patch.y + 3); Bn.angle = 1.35; }
+        else { Bn.position.copy(b.pos); Bn.target.position.copy(b.tgt); Bn.angle = 1.25; }
+        Bn.target.updateMatrixWorld();
+      }
+    }
   }
   // lampes le soir (≥ 19 h) — et un peu par temps sombre
   const lampK = Math.max(eve, 1 - s.day) * sm;
@@ -1731,7 +1939,11 @@ function applyInterior() {
   IN.agx = sm;   // fondu ACES → AgX dans la passe de sortie (pas de saut au passage de la baie)
   const base = state.baseExposure ?? renderer.toneMappingExposure;
   // le soir, l'appareil ne « rattrape » plus la baisse du jour : les lampes prennent le relais
-  renderer.toneMappingExposure = base * THREE.MathUtils.lerp(1, IN_LOOK.exposure * (IN.roomExpCur ?? 1) * (1 - 0.22 * eve), sm);
+  IN.modelExp = base * IN_LOOK.exposure * (1 - 0.22 * eve);
+  const metered = IN_LOOK.meter > 0 && meterPass && IN.meterT != null;
+  renderer.toneMappingExposure = base * THREE.MathUtils.lerp(1, IN_LOOK.exposure * (metered ? IN.meterC ?? 1 : IN.roomExpCur ?? 1) * (1 - 0.22 * eve), sm);
+  // halo léger autour des baies vues de l'intérieur (photographique, pas « jeu vidéo »)
+  if (bloomPass && state.bloomBase) { bloomPass.strength = THREE.MathUtils.lerp(state.bloomBase.s, Math.max(state.bloomBase.s, IN_LOOK.bloom), sm); bloomPass.radius = THREE.MathUtils.lerp(0.45, 0.6, sm); }
   hemi.intensity = state.baseHemi * THREE.MathUtils.lerp(1, IN_LOOK.hemi, sm);
   sun.shadow.normalBias = THREE.MathUtils.lerp(0.035, 0.012, sm);
   sun.shadow.bias = THREE.MathUtils.lerp(-0.0003, -0.0002, sm);
@@ -2453,6 +2665,7 @@ function viewFromLot(id) {
   setCaption(`Lot ${L.id}`, 'Vue depuis le logement', `${(L.exterieurs || []).map((e) => e.type).join(' et ') || 'Depuis le séjour'} · orientation ${L.orientation || ''}`.trim());
   if (nav && !navIsStub) {
     nav.setMode('look', { pos, yaw, pitch, fov: camera.aspect < 1 ? 75 : THREE.MathUtils.clamp(L.viewpoint.fov || 60, 50, 70), fade: true, onExit: () => exitImmersive() });
+    if (nav.setOnLookMove) nav.setOnLookMove(() => walkFromView(String(L.id)));
   } else {
     const tgt = pos.clone().add(d.normalize().multiplyScalar(3));
     state.free = true;
@@ -2479,6 +2692,44 @@ function exitImmersive() {
     nav.setMode('orbit', { target: pose.tgt.toArray(), position: pose.pos.toArray() });
   }
   selectLot(back.lot, { fly: !nav || navIsStub });
+}
+// depuis « Vue depuis le lot », avancer fait entrer en visite à pied à l'endroit où l'on se tient
+function walkFromView(id) {
+  const L = lotData(id);
+  if (!L || !nav || navIsStub) return;
+  cfg.immersive = null;
+  document.body.classList.remove('immersive');
+  updateViewOffsetTarget();
+  setFloor(L.level, { fly: false, view: 'walk' });
+  cfg.walkFloor = L.level;
+  refreshBoxes('walk');
+  const c = camera.position, e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+  const y = lots.floorY(L.level) + 1.65;
+  // le point de vue est souvent au bord du balcon (garde-corps, jardinières) : s'il n'y a pas la place
+  // de faire quelques pas, on entre au séjour, tourné dans la même direction
+  let pos = [c.x, y, c.z];
+  const D = nav.debug;
+  if (D && D.walkResolve && L.entry) {
+    // surface praticable atteignable autour du point (maille 10 cm, rayon 3 m) : moins de 4 m², on entre au séjour
+    const s = 0.1, R = 30, N = 2 * R + 1, seen = new Uint8Array(N * N), st = [R * N + R];
+    const free = (i, j) => { const q = { x: c.x + (i - R) * s, z: c.z + (j - R) * s }; D.walkResolve(q, y); return Math.hypot(q.x - c.x - (i - R) * s, q.z - c.z - (j - R) * s) < 1e-3; };
+    let n = 0;
+    if (free(R, R)) { seen[R * N + R] = 1; } else st.length = 0;
+    while (st.length && n < 400) {
+      const k = st.pop(), i = k % N, j = (k / N) | 0; n++;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+        const kk = jj * N + ii; if (seen[kk]) continue; seen[kk] = 1;
+        if (free(ii, jj)) st.push(kk);
+      }
+    }
+    if (n < 400) pos = L.entry.pos;
+  }
+  nav.teleport({ pos, yaw: e.y, pitch: 0, mode: 'walk', duration: 0.6 });
+  setCaption(`Lot ${L.id} · balade`, 'Visite à pied', 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Orbite pour revenir au plan.');
+  closeSheetKeepSelection();
+  toggleLots(false);
+  invalidate(2000);
 }
 function visitLot(id) {
   const L = lotData(id);
@@ -3133,7 +3384,7 @@ function api() {
     viewFromLot, visitLot, toggleLots, pickAt, takeLift, exitImmersive, solarPosition, updateLift,
     projectLot: (id) => { const L = lotData(id); if (!L) return null; const v = L.labelAnchor.clone().project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, z: v.z }; },
     // éclairage intérieur : état et réglages en direct
-    interior: () => ({ k: IN.k, lot: IN.lotId, floor: IN.floor, windows: (IN.skyWins || []).map((w) => ({ axis: w.axis, p: +w.p.toFixed(2), cu: +w.cu.toFixed(2), w: +w.w.toFixed(2), h: +w.h.toFixed(2), inDir: w.inDir, room: w.room && w.room.name })), lamps: IN.lampList, downs: IN.downList, sky: IN.sky.map((L) => +L.intensity.toFixed(3)), look: { ...IN_LOOK } }),
+    interior: () => ({ k: IN.k, lot: IN.lotId, floor: IN.floor, windows: (IN.skyWins || []).map((w) => ({ axis: w.axis, p: +w.p.toFixed(2), cu: +w.cu.toFixed(2), w: +w.w.toFixed(2), h: +w.h.toFixed(2), inDir: w.inDir, room: w.room && w.room.name })), lamps: IN.lampList, downs: IN.downList, sky: IN.sky.map((L) => +L.intensity.toFixed(3)), meter: { log: meterPass && meterPass.value, model: IN.modelExp, t: IN.meterT, c: IN.meterC, exp: renderer.toneMappingExposure }, bounce: IN.bounce.map((B) => +B.intensity.toFixed(2)), look: { ...IN_LOOK } }),
     tuneInterior: (o = {}) => { Object.assign(IN_LOOK, o); IN.roomEnvKey = ''; applyInterior(); return { ...IN_LOOK }; },
     // réglages en direct (mise au point de la lumière)
     tune: (o = {}) => {
