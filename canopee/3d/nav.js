@@ -27,9 +27,9 @@ const CSS = `
 .cnv-joy.on .cnv-tick i{border-bottom-color:rgba(127,166,255,.9)}
 .cnv-knob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;
   background:radial-gradient(circle at 38% 32%,#cfe0ff,#7fa6ff 42%,#145cff 100%);
-  box-shadow:0 6px 16px rgba(0,0,0,.45),inset 0 -3px 6px rgba(80,55,20,.35),inset 0 2px 3px rgba(255,255,255,.6);
+  box-shadow:0 6px 16px rgba(0,0,0,.45),inset 0 -3px 6px rgba(5,16,38,.4),inset 0 2px 3px rgba(255,255,255,.6);
   transition:transform .32s cubic-bezier(.34,1.56,.5,1);will-change:transform}
-.cnv-knob::after{content:"";position:absolute;inset:30%;border-radius:50%;border:1px solid rgba(90,64,28,.35);background:radial-gradient(circle,rgba(255,255,255,.18),transparent 70%)}
+.cnv-knob::after{content:"";position:absolute;inset:30%;border-radius:50%;border:1px solid rgba(11,33,74,.35);background:radial-gradient(circle,rgba(255,255,255,.18),transparent 70%)}
 .cnv-joy.drag .cnv-knob{transition:none}
 .cnv-cap{position:absolute;left:0;right:0;bottom:-21px;text-align:center;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(127,166,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.6)}
 .cnv-btns{position:absolute;right:calc(26px + env(safe-area-inset-right) + var(--cnv-ir,0px));bottom:calc(30px + env(safe-area-inset-bottom) + var(--cnv-ib,0px));transition:right .35s ease,bottom .35s ease;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
@@ -56,7 +56,7 @@ const CAPTION = { orbit: 'Orbite', drone: 'Drone', walk: 'Balade', look: 'Regard
 export function createNavigation({ THREE, camera, controls = null, domElement, uiRoot = document.body, colliders = {}, onChange = null, onExit = null, options = {} }) {
   const V3 = THREE.Vector3;
   const opt = {
-    eye: 1.65, walkSpeed: 1.4, runSpeed: 3.5, indoorRun: 2.2, indoorFov: 70, droneSpeed: 9, droneRun: 22, climb: 5, droneRadius: 0.65, headroom: 0.25,
+    eye: 1.65, walkSpeed: 1.6, runSpeed: 3.5, indoorWalk: 2.2, indoorRun: 3.0, indoorFov: 70, droneSpeed: 9, droneRun: 22, climb: 5, droneRadius: 0.65, headroom: 0.25,
     minAlt: 2, maxAlt: 80, radius: 0.32, indoorRadius: 0.22, furnRadius: 0.12, walkFov: 66, droneFov: 58,
     orbitRotSpeed: 1.6, orbitTiltSpeed: 1.0, zoomSpeed: 1.6, caption: true, ...options,
   };
@@ -120,14 +120,14 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
 
   // Joystick : manette qui suit le pointeur, zone morte, réponse progressive, ressort au relâcher
   let joyPtr = null;
-  const DEAD = 0.12;
+  const DEAD = 0.08;
   function joyMove(e) {
     const r = joyEl.getBoundingClientRect(), R = r.width * 0.36;
     let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
     const d = Math.hypot(dx, dy);
     if (d > R) { dx *= R / d; dy *= R / d; }
     knob.style.transform = `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px)`;
-    const m = Math.min(1, d / R), k = m < DEAD ? 0 : Math.pow((m - DEAD) / (1 - DEAD), 1.6);
+    const m = Math.min(1, d / R), k = m < DEAD ? 0 : Math.pow((m - DEAD) / (1 - DEAD), 1.25);   // pleine déflexion = pleine vitesse ; finesse conservée près du centre
     S.joy.x = d > 0 ? (dx / Math.max(d, 1e-6)) * k : 0;
     S.joy.y = d > 0 ? (-dy / Math.max(d, 1e-6)) * k : 0;
   }
@@ -530,7 +530,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
   }
 
   function smoothLook(dt, kbTurn) {
-    S.tYaw -= kbTurn * 1.7 * dt;
+    S.tYaw -= kbTurn * 2.2 * dt;
     const k = damp(16, dt);
     S.yaw += (S.tYaw - S.yaw) * k;
     S.pitch += (S.tPitch - S.pitch) * k;
@@ -561,9 +561,10 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     smoothLook(dt, a.turn);
     S.fovTarget = S.indoor ? opt.indoorFov : opt.walkFov;
     fwd.set(-Math.sin(S.yaw), 0, -Math.cos(S.yaw)); right.set(-fwd.z, 0, fwd.x);
-    const sp = a.run ? (S.indoor ? opt.indoorRun : opt.runSpeed) : opt.walkSpeed;
+    const sp = a.run ? (S.indoor ? opt.indoorRun : opt.runSpeed) : (S.indoor ? opt.indoorWalk : opt.walkSpeed);
     want.copy(fwd).multiplyScalar(a.my * sp).addScaledVector(right, a.mx * sp); want.y = 0;
-    S.vel.lerp(want, damp(want.lengthSq() > S.vel.lengthSq() ? 5 : 7, dt));
+    // accélération ≈ 0,3 s à 95 %, arrêt un peu plus franc (précis près des meubles)
+    S.vel.lerp(want, damp(want.lengthSq() > S.vel.lengthSq() ? 10 : 12, dt));
     if (S.vel.lengthSq() < 1e-6) S.vel.set(0, 0, 0);
     const cam = camera.position, step = S.vel.clone().multiplyScalar(dt), n = Math.max(1, Math.ceil(step.length() / (opt.radius * 0.7)));
     const p = { x: cam.x, z: cam.z };

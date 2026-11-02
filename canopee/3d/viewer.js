@@ -452,8 +452,26 @@ class MeterPass extends Pass {
     this.quad.material.uniforms.tDiffuse.value = readBuffer.texture;
     const prev = r.getRenderTarget();
     r.setRenderTarget(this.rt); this.quad.render(r);
-    r.readRenderTargetPixels(this.rt, 0, 0, METER_W, METER_H, this.buf);
+    // lecture ASYNCHRONE (tampon de pixels + barrière) : readPixels synchrone attendait que le GPU ait fini toutes
+    // les images en file (~50–60 ms toutes les 160 ms en balade : la saccade périodique)
+    const gl = r.getContext();
+    if (!this.pbo) { this.pbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, this.buf.byteLength, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+    if (!this.fence) {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo);
+      gl.readPixels(0, 0, METER_W, METER_H, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+    }
     r.setRenderTarget(prev);
+    this.poll(gl);
+  }
+  poll(gl) {
+    if (!this.fence) return;
+    const st = gl.clientWaitSync(this.fence, 0, 0);
+    if (st !== gl.ALREADY_SIGNALED && st !== gl.CONDITION_SATISFIED) { this.want = true; return; }   // pas prêt : on réessaie à l'image suivante
+    gl.deleteSync(this.fence); this.fence = null;
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.buf); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     let s = 0, ws = 0;
     for (let y = 0; y < METER_H; y++) for (let x = 0; x < METER_W; x++) {
       const dx = (x + 0.5) / METER_W - 0.5, dy = (y + 0.5) / METER_H - 0.5, w = 1 - 1.6 * (dx * dx + dy * dy);
@@ -1438,7 +1456,34 @@ function motionPre(now) {
   }
 }
 // faut-il sauter cette image pour tenir la cadence ? (trajet, puis 700 ms d'arrivée : fondus des étiquettes et teintes)
+// balade / drone / regard : même cadence entière quand on rend en continu (marche, rotation). Le diviseur part
+// de la période d'affichage (120 Hz → 1 image sur 2) et monte d'un cran si le GPU manque des images ; jamais de
+// changement de réglage de rendu (image identique en mouvement et à l'arrêt).
+const walkPacing = (now) => !!(nav && nav.mode !== 'orbit') && MOTION.phase === 'idle' && now - MOTION.last < 3.5 * MOTION.vsync;
+function walkDivFor() {
+  if (!MOTION.walkDiv) MOTION.walkDiv = MOTION.vsync < 11 ? 2 : 1;
+  return MOTION.walkDiv;
+}
+function trackWalkPacing(now) {
+  if (!(nav && nav.mode !== 'orbit')) { MOTION.wLate = 0; MOTION.wN = 0; return; }
+  const dt = now - MOTION.last;
+  if (!(dt < 3.5 * MOTION.vsync)) return;   // reprise après un arrêt : pas un retard
+  const div = walkDivFor();
+  MOTION.wN = (MOTION.wN || 0) + 1;
+  if (dt > (div + 0.5) * MOTION.vsync) MOTION.wLate = (MOTION.wLate || 0) + 1;
+  if (MOTION.wN >= 40) {
+    if (MOTION.wLate > 4 && div < 4) MOTION.walkDiv = div + 1;   // > 10 % d'images en retard : cadence plus lente mais régulière
+    MOTION.wN = 0; MOTION.wLate = 0;
+  }
+}
 function motionSkip(now) {
+  if (walkPacing(now)) {
+    const div = walkDivFor();
+    if (div < 2) return false;
+    MOTION.ticks++;
+    if (now - MOTION.last > (div + 0.5) * MOTION.vsync) MOTION.ticks = 0;
+    return MOTION.ticks % div !== 0;
+  }
   const paced = MOTION.phase === 'run' || now < MOTION.tailUntil;
   if (!paced || MOTION.div < 2) return false;
   // on compte les rappels rAF (un par période d'affichage) : insensible à l'erreur d'estimation de la période
@@ -1448,6 +1493,7 @@ function motionSkip(now) {
 }
 // après un rendu : machine d'états départ / mouvement / arrivée
 function motionPost(now) {
+  trackWalkPacing(now);
   MOTION.last = now;
   if (MOTION.arm) {
     MOTION.arm = false;
@@ -1470,6 +1516,7 @@ function motionPost(now) {
 // à appeler avant tout changement de taille ou de qualité
 function motionAbort() {
   stopXFade();
+  MOTION.walkDiv = 0; MOTION.wN = 0; MOTION.wLate = 0;   // la cadence de balade se réévalue (taille, qualité)
   MOTION.arm = false; MOTION.phase = 'idle'; MOTION.tailUntil = 0;
 }
 
@@ -2266,7 +2313,7 @@ function render() {
 function measure(now) {
   // images cadencées volontairement (changement d'étage, arrivée) : hors mesure, sinon la qualité auto
   // lirait 40 ou 60 i/s « choisis » comme un manque de fluidité
-  if (MOTION.phase !== 'idle' || now < MOTION.tailUntil) { state.lastFrame = 0; return; }
+  if (MOTION.phase !== 'idle' || now < MOTION.tailUntil || (MOTION.walkDiv > 1 && nav && nav.mode !== 'orbit')) { state.lastFrame = 0; return; }
   if (state.lastFrame) {
     const dt = now - state.lastFrame;
     if (dt < 250) { state.fpsAcc += dt; state.fpsFrames++; }
