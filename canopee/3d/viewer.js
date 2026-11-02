@@ -94,6 +94,14 @@ const PARAMS = {
 };
 function clampInt(v, a, b, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d; }
 
+// Normales perturbées (cartes de normales sans tangentes) : quand les dérivées écran du repère tangent dégénèrent
+// (tissu bouclé tranché par la coupe à ~0,1 m du sol, en mouvement), normalize() rendait NaN ; le halo (flou séparable)
+// étalait ce pixel en un grand rectangle noir sur toute l'image. On retombe sur la normale géométrique (test sur les bits :
+// insensible aux optimisations « fast-math » du compilateur Metal).
+THREE.ShaderChunk.normal_fragment_maps = THREE.ShaderChunk.normal_fragment_maps.replace(
+  'normal = normalize( tbn * mapN );',
+  `vec3 cnpPN = tbn * mapN; float cnpPD = dot( cnpPN, cnpPN );
+	normal = ( cnpPD > 1e-12 && ( floatBitsToUint( cnpPD ) & 0x7f800000u ) != 0x7f800000u ) ? cnpPN * inversesqrt( cnpPD ) : nonPerturbedNormal;`);
 const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const TOUCH = matchMedia('(hover: none) and (pointer: coarse)').matches;
 document.documentElement.classList.add(TOUCH ? 'touch' : 'notouch');
@@ -462,7 +470,9 @@ let sun, hemi, skyBg, skyEnv, skyScene, skyEnvScene, envGround, cubeRT, cubeCam,
 let building, landscape, M, levels, bounds;
 let levelUniform, highlight = null;
 const state = {
-  quality: PARAMS.quality === 'auto' ? 'high' : PARAMS.quality,
+  // auto : la qualité haute (définition ×1,5) dépasse 4 Mpx sur un Retina plein écran et ne tient pas 60 i/s en
+  // mouvement ; on part alors de la moyenne (vérifié ensuite par la mesure au chargement)
+  quality: PARAMS.quality === 'auto' ? (innerWidth * innerHeight * Math.min(DPR, 1.5) ** 2 > 3.6e6 ? 'medium' : 'high') : PARAMS.quality,
   auto: PARAMS.quality === 'auto',
   hour: PARAMS.hour,
   season: PARAMS.season,
@@ -599,12 +609,31 @@ async function start() {
   buildUI();
   // préchauffage, sous l'écran de chargement : un rendu de chaque étage en coupe envoie ses géométries à la
   // carte graphique (sinon saccade de ~40 ms la première fois que la coupe fait apparaître un étage)
+  // Le rendu passe par toute la chaîne (composer : cible HalfFloat MSAA, G-buffer GTAO, ombres découpées) :
+  // Metal crée ses états de pipeline par format de cible ; un simple renderer.render() vers l'écran laissait
+  // ~50 ms de compilation à la première apparition du RDC pendant l'animation.
   try {
     if (lots && lots.floors) {
-      const prev = lots.floor ?? null;
+      const prev = lots.floor ?? null, pf = cfg.floor, py = cfg.cut.y, pp = camera.position.clone(), pt = controls.target.clone();
       setSections(true);
-      for (const f of lots.floors) { lots.setFloor(f.key); renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); }
-      lots.setFloor(prev);
+      for (const f of lots.floors) {
+        const fp = floorPose(f.key);
+        camera.position.copy(fp.pos); controls.target.copy(fp.tgt); camera.lookAt(fp.tgt); camera.updateMatrixWorld();
+        cfg.floor = f.key; lots.setFloor(f.key); setCutY(f.cutY);
+        if (xfadePass) xfadePass.enabled = f === lots.floors[0];   // compile aussi la passe de fondu
+        render();
+        if (xfadePass) xfadePass.enabled = false;
+      }
+      measureFrameCost();   // coût d'une image en coupe (cadence des changements d'étage)
+      // qualité « auto » : le niveau le plus fin qui tient 60 i/s réguliers en mouvement (le mouvement est rendu
+      // avec le réglage du repos : pas de changement de netteté à l'arrêt). Sur un Retina plein écran, la qualité
+      // haute (définition 1,5) coûte ~22 ms par image : on retient la moyenne (1,25), ~14 ms.
+      if (state.auto && MOTION.cost > MOTION_BUDGET * 16.7 && state.quality === 'high') {
+        setQuality('medium', true);
+        render(); measureFrameCost();
+      }
+      cfg.floor = pf; lots.setFloor(prev); setCutY(py);
+      camera.position.copy(pp); controls.target.copy(pt); camera.lookAt(pt);
       setSections(false);
       renderer.shadowMap.needsUpdate = true;
     }
@@ -656,15 +685,57 @@ function buildPost() {
   composer.addPass(meterPass);
 
   bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.08, 0.45, 0.95);
+  // garde-fou : un pixel non fini (NaN/Inf) en entrée du halo serait étalé en rectangle noir par le flou séparable
+  { const hp = bloomPass.materialHighPassFilter;
+    if (hp && hp.fragmentShader.includes('vec4 texel = texture2D( tDiffuse, vUv );')) {
+      hp.fragmentShader = hp.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );',
+        `vec4 texel = texture2D( tDiffuse, vUv );
+			float cnpS = dot( texel.rgb, vec3( 1.0 ) );
+			if ( !( cnpS >= 0.0 && cnpS < 1e6 ) || ( floatBitsToUint( cnpS ) & 0x7f800000u ) == 0x7f800000u ) texel = vec4( 0.0, 0.0, 0.0, 1.0 );`);
+      hp.needsUpdate = true;
+    } }
   bloomPass.enabled = q.bloom;
+  // le halo n'est plus ajouté par une passe plein écran à lui : la passe tonalité+finition lit sa texture et
+  // l'additionne (même opération que le mélange additif d'origine), une écriture plein écran de moins
+  { const fq = bloomPass.fsQuad, r0 = fq.render.bind(fq);
+    fq.render = (r) => { if (fq.material === bloomPass.blendMaterial && bloomPass.cnpDeferred) return; r0(r); }; }
   composer.addPass(bloomPass);
 
   outputPass = new ShaderPass(TonePassShader);   // = OutputPass, avec fondu ACES ↔ AgX (intérieurs)
   outputPass.material.toneMapped = false;        // jamais de second tone mapping automatique
-  composer.addPass(outputPass);
   finishPass = new ShaderPass(FinishShader);
-  composer.addPass(finishPass);
+  // Tonalité et finition en UNE passe plein écran (mêmes calculs, mêmes uniformes partagés avec outputPass et
+  // finishPass, qui restent les poignées de réglage) : une écriture plein écran de moins, ~2 ms par image en Retina
+  composer.addPass(makeToneFinishPass());
+  xfadePass = new ShaderPass(XFadeShader);   // fondu enchaîné des changements de définition (désactivé au repos)
+  xfadePass.enabled = false;
+  composer.addPass(xfadePass);
   setCheapGlass(q.cheapGlass);
+}
+
+function makeToneFinishPass() {
+  const tf = TonePassShader.fragmentShader, ff = FinishShader.fragmentShader;
+  const toneBody = tf.slice(tf.indexOf('void main(){') + 'void main(){'.length, tf.lastIndexOf('}'))
+    .replace('vec4 c = texture2D(tDiffuse, vUv);', 'vec4 c0 = texture2D(tDiffuse, vUv);')
+    .replace('gl_FragColor = sRGBTransferOETF(vec4(mix(a, b, w), c.a));', 'vec4 c = sRGBTransferOETF(vec4(mix(a, b, w), c0.a));')
+    .replace(/\bc\.rgb\b/g, 'c0.rgb');
+  const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom; uniform float uAgx, uBaseAgx, uBloom;')
+    .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', 'vec4 c0 = texture2D(tDiffuse, vUv); c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 } }),
+    vertexShader: FinishShader.vertexShader, fragmentShader: frag,
+  });
+  mat.toneMapped = false;
+  const pass = new ShaderPass(mat), r0 = pass.render.bind(pass);
+  pass.isToneFinish = true;
+  pass.render = (renderer, writeBuffer, readBuffer, dt, mask) => {
+    const on = !!(bloomPass && bloomPass.enabled);
+    bloomPass.cnpDeferred = true;
+    mat.uniforms.uBloom.value = on ? 1 : 0;
+    mat.uniforms.tBloom.value = on ? bloomPass.renderTargetsHorizontal[0].texture : null;
+    r0(renderer, writeBuffer, readBuffer, dt, mask);
+  };
+  return pass;
 }
 
 // Le G-buffer de la GTAO ignore par défaut l'alphaTest (feuillages) et les verres :
@@ -713,7 +784,7 @@ function patchGtaoGBuffer(pass) {
       if (o.isLine || o.isPoints || o.isSprite || o.userData.noAO) { hidden.push(o); return; }
       // pièces simulées d'interiors.js : masquées par shader dans la tranche de l'étage affiché ;
       // le G-buffer ne voit pas ce masquage (l'AO dessinerait des meubles « fantômes ») → exclues dès qu'un étage est coupé
-      if (cfg.floor != null && o.isMesh && /^interieurs:/.test(o.name || '')) { hidden.push(o); return; }
+      if (lots && lots.floor != null && o.isMesh && /^interieurs:/.test(o.name || '')) { hidden.push(o); return; }   // étage affiché (suit la coupe)
       if (!o.isMesh) return;
       const m = o.material;
       // qualité basse : le feuillage instancié est exclu du G-buffer (moitié moins de sommets à traiter)
@@ -1138,6 +1209,8 @@ function flyTo(f, { duration } = {}) {
     camera.zoom = f.zoom || 1; camera.updateProjectionMatrix();
     return 1.6;
   }
+  // cible dans les bornes de la boucle (0,5…16 m), pour arriver exactement où la caméra restera
+  if (f.tgt.y < 0.5 || f.tgt.y > 16) f = { ...f, tgt: f.tgt.clone().setY(THREE.MathUtils.clamp(f.tgt.y, 0.5, 16)) };
   controls.maxDistance = Math.max(90, f.pos.distanceTo(f.tgt) + 1);
   // durée selon l'amplitude du mouvement
   const a = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
@@ -1150,7 +1223,15 @@ function flyTo(f, { duration } = {}) {
     camera.position.copy(f.pos); controls.target.copy(f.tgt); camera.fov = f.fov; camera.zoom = f.zoom || 1; camera.updateProjectionMatrix();
     controls.update();
   } else {
-    state.anim = { t0: performance.now(), dur: dur * 1000, fromT: controls.target.clone(), toT: f.tgt, a, b, dTheta, fovFrom: camera.fov, fovTo: f.fov, zFrom: camera.zoom, zTo: f.zoom || 1 };
+    const now = performance.now(), prev = state.anim;
+    const an = { t0: now, dur: dur * 1000, fromT: controls.target.clone(), toT: f.tgt, a, b, dTheta, fovFrom: camera.fov, fovTo: f.fov, zFrom: camera.zoom, zTo: f.zoom || 1, vo: { x: cfg.vo.x, y: cfg.vo.y } };
+    // nouveau trajet pendant un trajet (second clic) : on garde la vitesse courante au lieu de repartir de zéro
+    if (prev && !REDUCED_MOTION) {
+      const e1 = animEval(prev, now), e0 = animEval(prev, now - 6), v = {};
+      for (const key of ANIM_KEYS) v[key] = (e1[key] - e0[key]) / 6;
+      an.v = v;
+    }
+    state.anim = an;
   }
   invalidate(dur * 1000 + 300);
   return dur;
@@ -1203,35 +1284,207 @@ function clearSight(pos, tgt) {
 
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const _sph = new THREE.Spherical();
+// canaux du trajet caméra à l'instant now : aisance + terme de vitesse héritée v·t(1−t)²·durée (nul aux deux bouts,
+// pente v au départ, pente nulle à l'arrivée)
+const ANIM_KEYS = ['tx', 'ty', 'tz', 'lr', 'ph', 'th', 'fov', 'zm', 'vx', 'vy'];
+function animEval(an, now) {
+  const L = THREE.MathUtils.lerp, t = THREE.MathUtils.clamp((now - an.t0) / an.dur, 0, 1), k = ease(t);
+  const o = {
+    t, tx: L(an.fromT.x, an.toT.x, k), ty: L(an.fromT.y, an.toT.y, k), tz: L(an.fromT.z, an.toT.z, k),
+    lr: L(Math.log(an.a.radius), Math.log(an.b.radius), k), ph: L(an.a.phi, an.b.phi, k), th: an.a.theta + an.dTheta * k,
+    fov: L(an.fovFrom, an.fovTo, k), zm: L(an.zFrom ?? 1, an.zTo ?? 1, k),
+    vx: an.vo ? L(an.vo.x, an.voT ? an.voT.x : cfg.vo.tx, k) : cfg.vo.x, vy: an.vo ? L(an.vo.y, an.voT ? an.voT.y : cfg.vo.ty, k) : cfg.vo.y,
+  };
+  if (an.v) { const g = t * (1 - t) * (1 - t) * an.dur; for (const key of ANIM_KEYS) o[key] += an.v[key] * g; }
+  return o;
+}
 function stepAnim(now) {
   const an = state.anim;
   if (!an) return;
-  const t = Math.min(1, (now - an.t0) / an.dur), k = ease(t);
-  controls.target.lerpVectors(an.fromT, an.toT, k);
-  _sph.radius = Math.exp(THREE.MathUtils.lerp(Math.log(an.a.radius), Math.log(an.b.radius), k));
-  _sph.phi = THREE.MathUtils.lerp(an.a.phi, an.b.phi, k);
-  _sph.theta = an.a.theta + an.dTheta * k;
+  if (an.vo) {
+    if (!an.voT) an.voT = { x: cfg.vo.tx, y: cfg.vo.ty };
+    else if (an.voT.x !== cfg.vo.tx || an.voT.y !== cfg.vo.ty) {
+      // la cible du cadrage change en route (panneau, sortie vers l'extérieur) : relais à l'animation propre du
+      // cadrage, vitesse conservée (sinon saut d'une image)
+      const t = THREE.MathUtils.clamp((now - an.t0) / an.dur, 0, 1), dk = easeD(t) / an.dur;
+      cfg.vo.an = { fx: cfg.vo.x, fy: cfg.vo.y, tx: cfg.vo.tx, ty: cfg.vo.ty, t0: now, dur: REDUCED_MOTION ? 1 : 900,
+        v: { x: (an.voT.x - an.vo.x) * dk, y: (an.voT.y - an.vo.y) * dk } };
+      an.vo = null;
+    }
+  }
+  const o = animEval(an, now);
+  controls.target.set(o.tx, o.ty, o.tz);
+  _sph.radius = Math.exp(o.lr); _sph.phi = o.ph; _sph.theta = o.th;
   camera.position.copy(controls.target).add(_v.setFromSpherical(_sph));
-  camera.fov = THREE.MathUtils.lerp(an.fovFrom, an.fovTo, k);
-  camera.zoom = THREE.MathUtils.lerp(an.zFrom ?? 1, an.zTo ?? 1, k);
-  camera.updateProjectionMatrix();
+  camera.fov = o.fov;
+  camera.zoom = o.zm;
+  // décalage du cadrage (panneaux) sur la même courbe que la caméra : il arrive avec elle, sans traîne
+  if (an.vo) { cfg.vo.x = o.vx; cfg.vo.y = o.vy; applyViewOffset(); }
+  else camera.updateProjectionMatrix();
   camera.lookAt(controls.target);
-  if (t >= 1) state.anim = null;
+  if (o.t >= 1) state.anim = null;
   invalidate();
 }
 
 /* ------------------------------------------------------------------ */
 /* Boucle de rendu (à la demande : rien n'est recalculé à l'arrêt)      */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Mouvement net : cadence régulière pendant les changements d'étage     */
+/* Une image qui dépasse la période d'affichage (Retina 120 Hz : 8,3 ms) */
+/* est présentée tantôt après 2, tantôt après 3 périodes : le trajet      */
+/* saccade même à 50 i/s. Pendant le mouvement on vise donc une cadence   */
+/* entière (1 image sur D) que le GPU tient avec de la marge, au besoin   */
+/* en rendant à une définition un peu plus basse ; à l'arrivée, l'image   */
+/* pleine définition apparaît en fondu enchaîné (aucun saut de netteté).  */
+/* ------------------------------------------------------------------ */
+const MOTION = {
+  arm: false, phase: 'idle', div: 1, pr: 0, restPr: 0, anchor: 0, last: 0,
+  vs: new Float32Array(48), vi: 0, vn: 0, hold: 0, ticks: 0, tailUntil: 0, vsync: 1000 / 60, cost: 0, costPr: 0,
+  snap: null, snapOk: false, xfq: null,
+};
+function trackVsync(dt) {
+  if (!(dt > 3 && dt < 60)) return;
+  MOTION.vs[MOTION.vi] = dt; MOTION.vi = (MOTION.vi + 1) % MOTION.vs.length; MOTION.vn = Math.min(MOTION.vs.length, MOTION.vn + 1);
+  if (MOTION.vn >= 12 && MOTION.vi % 8 === 0) {
+    const a = Array.from(MOTION.vs.subarray(0, MOTION.vn)).sort((x, y) => x - y);
+    MOTION.vsync = a[a.length >> 1];   // période d'affichage (médiane)
+  }
+}
+// coût GPU d'une image (ms), mesuré une fois sous l'écran de chargement (rendu + lecture synchrone d'un pixel)
+function measureFrameCost() {
+  try {
+    const gl = renderer.getContext(), px = new Uint8Array(4), a = [];
+    const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    for (let i = 0; i < 4; i++) { sync(); const t = performance.now(); composer.render(); sync(); a.push(performance.now() - t); }
+    a.sort((x, y) => x - y);
+    MOTION.cost = a[1]; MOTION.costPr = composer._pixelRatio || renderer.getPixelRatio();
+  } catch (e) { MOTION.cost = 0; }
+}
+// coût estimé à la définition pr : ≈ 30 % fixe (géométrie, ombres) + 70 % proportionnel au nombre de pixels
+const costAt = (pr) => MOTION.cost * (0.3 + 0.7 * (pr / MOTION.costPr) ** 2);
+// Le mouvement est rendu avec EXACTEMENT le réglage du repos (même définition, mêmes effets) : rien ne change
+// de netteté à l'arrêt. Seule la cadence s'adapte : une image sur D rappels rAF, D choisi pour que le GPU tienne
+// chaque image avec de la marge (120 Hz → 60 i/s si possible, sinon 40). La qualité « auto » est choisie au
+// chargement pour tenir 60 i/s (chooseAutoQuality).
+const MOTION_BUDGET = 0.88;
+function planMotion() {
+  const q = QUALITY[state.quality], vs = Math.max(4, MOTION.vsync);
+  MOTION.restPr = q.pr;
+  let div = 1;
+  if (MOTION.cost && !REDUCED_MOTION) div = Math.max(1, Math.min(4, Math.ceil(costAt(q.pr) / (MOTION_BUDGET * vs))));
+  MOTION.div = div;
+}
+// Fondu enchaîné dans la chaîne de rendu (franchissement de dalle, sortie vers l'extérieur) : l'image affichée est
+// copiée (copie GPU du tampon d'écran juste après son rendu), puis mélangée aux images suivantes selon une suite
+// de coefficients, une valeur par image rendue (cadence régulière, indépendante du temps).
+const XFadeShader = {
+  uniforms: { tDiffuse: { value: null }, tSnap: { value: null }, mixK: { value: 0 } },
+  vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`uniform sampler2D tDiffuse, tSnap; uniform float mixK; varying vec2 vUv;
+    void main(){ vec4 a = texture2D(tDiffuse, vUv); gl_FragColor = vec4(mix(a.rgb, texture2D(tSnap, vUv).rgb, mixK), a.a); }`,
+};
+let xfadePass = null;
+const _xfOrigin = new THREE.Vector2();
+function snapFrame() {
+  const W = renderer.domElement.width, H = renderer.domElement.height;
+  if (!MOTION.snap || MOTION.snap.image.width !== W || MOTION.snap.image.height !== H) {
+    if (MOTION.snap) MOTION.snap.dispose();
+    MOTION.snap = new THREE.FramebufferTexture(W, H);
+  }
+  renderer.setRenderTarget(null);
+  renderer.copyFramebufferToTexture(_xfOrigin, MOTION.snap);
+  MOTION.snapOk = true; MOTION.snapFresh = true; Promise.resolve().then(() => { MOTION.snapFresh = false; });
+}
+// lance un fondu depuis l'image figée : ks = coefficients de l'image figée pour les prochaines images rendues
+function startXFade(ks) {
+  if (!xfadePass || !MOTION.snapOk) return;
+  xfadePass.uniforms.tSnap.value = MOTION.snap;
+  MOTION.xfq = ks.slice();
+  MOTION.snapOk = false;   // une image figée ne sert qu'une fois
+  invalidate();
+}
+function xfBeforeRender() {
+  const q = MOTION.xfq;
+  if (q && q.length) { xfadePass.uniforms.mixK.value = q[0]; xfadePass.enabled = true; }
+  else if (xfadePass && xfadePass.enabled) xfadePass.enabled = false;
+}
+function xfAfterRender() {
+  const q = MOTION.xfq;
+  if (q && q.length) { q.shift(); invalidate(); if (!q.length) MOTION.xfq = null; }
+}
+function stopXFade() { if (xfadePass) xfadePass.enabled = false; MOTION.xfq = null; }
+const XF_SLAB = [0.6, 0.38, 0.2, 0.07];                                    // dalle franchie en pleine vitesse : 3 images
+const XF_SLAB_STILL = [0.78, 0.58, 0.4, 0.24, 0.1];               // dalle franchie caméra immobile (remontée)
+const XF_STILL = [0.94, 0.85, 0.73, 0.59, 0.45, 0.32, 0.2, 0.1, 0.03];   // caméra immobile : ~150 ms
+// appelé par setFloor() au départ d'un changement d'étage animé
+function motionBegin() {
+  if (REDUCED_MOTION || !composer) return;
+  MOTION.tailUntil = 0;
+  if (MOTION.phase === 'run') { MOTION.hold = 0; return; }
+  MOTION.snapOk = MOTION.snapOk && MOTION.snapFresh;   // (image figée à l'instant par setFloor : gardée)   // déjà en mouvement : on continue (vitesse conservée)
+  planMotion();
+  MOTION.arm = true;
+}
+const motionActive = () => !!(state.anim || cfg.cut.anim || cfg.vo.an);
+// Les premières images après un repos sont lentes (le GPU remonte en fréquence) : on en rend quelques-unes à la
+// pose de départ avant de lancer l'horloge, pour que le trajet démarre sur une cadence déjà régulière.
+const MOTION_HOLD = 3;
+function motionPre(now) {
+  if (MOTION.phase === 'run' && MOTION.hold > 0) {
+    if (state.anim) state.anim.t0 = now;
+    if (cfg.cut.anim) cfg.cut.anim.t0 = now;
+    if (cfg.vo.an) cfg.vo.an.t0 = now;
+  }
+}
+// faut-il sauter cette image pour tenir la cadence ? (trajet, puis 700 ms d'arrivée : fondus des étiquettes et teintes)
+function motionSkip(now) {
+  const paced = MOTION.phase === 'run' || now < MOTION.tailUntil;
+  if (!paced || MOTION.div < 2) return false;
+  // on compte les rappels rAF (un par période d'affichage) : insensible à l'erreur d'estimation de la période
+  MOTION.ticks++;
+  if (now - MOTION.last > (MOTION.div + 0.5) * MOTION.vsync) MOTION.ticks = 0;   // retard : on se recale
+  return MOTION.ticks % MOTION.div !== 0;
+}
+// après un rendu : machine d'états départ / mouvement / arrivée
+function motionPost(now) {
+  MOTION.last = now;
+  if (MOTION.arm) {
+    MOTION.arm = false;
+    if (!motionActive()) return;
+    MOTION.phase = 'run'; MOTION.hold = MOTION_HOLD; MOTION.ticks = 0;
+    return;
+  }
+  if (MOTION.phase !== 'run') return;
+  if (MOTION.hold > 0) { MOTION.hold--; return; }
+  if (!motionActive()) { MOTION.phase = 'idle'; MOTION.tailUntil = now + 700; return; }
+  // franchissement de dalle imminent (à la prochaine image rendue) : on fige l'image actuelle pour le fondu
+  const an = cfg.cut.anim;
+  MOTION.snapOk = false;
+  if (an && an.follow) {
+    // (fenêtre de 2,5 images : une image en retard ne fait pas manquer la copie ; on recopie à chaque image)
+    const next = now + 2.5 * MOTION.div * MOTION.vsync;
+    if (shownFloorFor(cutAt(an, next)) !== an.shown || (an.endSwap && next >= an.t0 + an.dur)) snapFrame();
+  }
+}
+// à appeler avant tout changement de taille ou de qualité
+function motionAbort() {
+  stopXFade();
+  MOTION.arm = false; MOTION.phase = 'idle'; MOTION.tailUntil = 0;
+}
+
 function invalidate(ms = 0) {
   state.needsRender = true;
   if (ms) state.activeUntil = Math.max(state.activeUntil, performance.now() + ms);
 }
-let lastLoop = 0, liftTick = 0;
+let lastLoop = 0, liftTick = 0, loopRendered = false;
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = lastLoop ? Math.min(0.1, (now - lastLoop) / 1000) : 0.016;
+  if (lastLoop && !loopRendered) trackVsync(now - lastLoop);   // intervalle après une image sans rendu = période d'affichage
+  loopRendered = false;
   lastLoop = now;
+  motionPre(now);
   const orbit = !nav || nav.mode === 'orbit';
   if (nav && nav.update(dt)) invalidate();
   if (lots && lots.update && lots.update(dt)) invalidate();
@@ -1246,7 +1499,7 @@ function loop(now) {
   // garde-fous : jamais sous le sol, cible raisonnable
   if (camera.position.y < 1.1) { camera.position.y = 1.1; if (orbit) camera.lookAt(controls.target); }
   stepCut(now);
-  stepViewOffset();
+  stepViewOffset(now);
   if (nav && nav.mode === 'walk' && (++liftTick % 10) === 0) updateLift();
   if (cfg.pointer.dirty) updateHover();
   controls.target.y = THREE.MathUtils.clamp(controls.target.y, 0.5, 16);
@@ -1265,10 +1518,17 @@ function loop(now) {
     if (highlight.scale.y !== s) { highlight.scale.y = Math.max(0.001, s); invalidate(); }
   }
   if (state.needsRender || now < state.activeUntil) {
+    // cadence régulière pendant un changement d'étage : image sautée (scène, étiquettes et mini-carte restent
+    // synchrones ; l'état est recalculé à l'heure de la prochaine image rendue)
+    if (motionSkip(now)) return;
+    xfBeforeRender();
     render();
+    xfAfterRender();
     updateLabels();
     updateMinimap();
     measure(now);
+    motionPost(now);
+    loopRendered = true;
     state.needsRender = false;
   } else {
     state.lastFrame = 0;
@@ -2004,6 +2264,9 @@ function render() {
 
 /* Mesure de fluidité et qualité automatique */
 function measure(now) {
+  // images cadencées volontairement (changement d'étage, arrivée) : hors mesure, sinon la qualité auto
+  // lirait 40 ou 60 i/s « choisis » comme un manque de fluidité
+  if (MOTION.phase !== 'idle' || now < MOTION.tailUntil) { state.lastFrame = 0; return; }
   if (state.lastFrame) {
     const dt = now - state.lastFrame;
     if (dt < 250) { state.fpsAcc += dt; state.fpsFrames++; }
@@ -2013,7 +2276,7 @@ function measure(now) {
     state.fps = (1000 * state.fpsFrames) / state.fpsAcc;
     state.fpsAcc = 0; state.fpsFrames = 0;
     ui.fps.textContent = `${Math.round(state.fps)} i/s`;
-    if (state.auto && now - state.qualityChangedAt > 3000) {
+    if (state.auto && now - state.qualityChangedAt > 3000 && !motionActive()) {
       if (state.fps < 40) {
         state.lowFpsStreak++;
         const idx = QUALITY_ORDER.indexOf(state.quality);
@@ -2029,6 +2292,7 @@ function measure(now) {
 function setQuality(name, fromAuto = false) {
   const q = QUALITY[name];
   if (!q) return;
+  motionAbort();
   state.quality = name;
   state.qualityChangedAt = performance.now();
   state.fpsAcc = 0; state.fpsFrames = 0; state.lowFpsStreak = 0;
@@ -2057,12 +2321,15 @@ function updateQualityUI(fromAuto) {
 }
 
 function onResize() {
+  motionAbort();
   const w = innerWidth, h = innerHeight, q = QUALITY[state.quality];
   camera.aspect = w / h;
   renderer.setSize(w, h, false);
   composer.setPixelRatio(q.pr);
   composer.setSize(w, h);
   gtaoPass.setSize(Math.round(w * q.pr * q.aoScale), Math.round(h * q.pr * q.aoScale));
+  // halo calculé à demi-définition (effet très flou, intensité 0,08 : identique à l'œil, ~1 ms de moins par image)
+  bloomPass.setSize(Math.round(w * q.pr / 2), Math.round(h * q.pr / 2));
   finishPass.uniforms.aspect.value = w / h;
   if (state.ready) { updateViewOffsetTarget(); cfg.vo.x = cfg.vo.tx; cfg.vo.y = cfg.vo.ty; }
   applyViewOffset();
@@ -2360,7 +2627,11 @@ const CUT_TOP = () => bounds.height + 1.6;
 function updateShadowClip() {
   const on = cfg.cut.y < 1e3 && camera.position.y > cfg.cut.y + 0.05;
   let y = cfg.cut.y;
-  if (on && cfg.floor != null) { try { const f = lots.floorY(cfg.floor); if (Number.isFinite(f)) y = Math.min(y, f + 0.05); } catch (e) { /* coupe */ } }
+  // étage pris en compte : celui qui est affiché (pendant l'animation, l'étage traversé par la coupe) ; l'ombre
+  // ne change donc qu'au franchissement d'une dalle, en même temps que l'étage affiché (avant : saut de l'ombre
+  // portée sur le jardin à la 1re image d'une descente, et carte d'ombre recalculée à chaque image)
+  const fk = cfg.cut.anim && cfg.cut.anim.follow ? (lots.floor ?? null) : cfg.floor;
+  if (on && fk != null) { try { const f = lots.floorY(fk); if (Number.isFinite(f)) y = Math.min(y, f + 0.05); } catch (e) { /* coupe */ } }
   if (on === cfg.shadowClip && (!on || Math.abs(y - cfg.shadowCutY) < 1e-3)) return;
   if (on !== cfg.shadowClip) for (const mt of cfg.clipMats) mt.clipShadows = on;
   cfg.shadowClip = on; cfg.shadowCutY = y;
@@ -2405,10 +2676,45 @@ function cutAlong(an, u) {
   }
   return THREE.MathUtils.clamp(y + dir * d, Math.min(an.from, an.to), Math.max(an.from, an.to));
 }
+// coupe hors bâtiment : juste au-dessus du toit (au-delà, la coupe ne change plus rien à l'image)
+const CUT_EXT = () => bounds.height + 0.05;
+// fin de la remontée vers l'extérieur : la coupe du toit-terrasse. Au-delà, la coupe ne ferait que franchir d'un
+// coup le dessus de l'édicule (surface horizontale) ; ce reste apparaît dans le fondu final, caméra immobile.
+const riseTop = () => { const f = floorInfo(4); return f && Number.isFinite(f.cutY) ? Math.min(CUT_EXT(), f.cutY) : CUT_EXT(); };
+const easeD = (t) => (t < 0.5 ? 12 * t * t : 3 * (2 - 2 * t) ** 2);   // dérivée de ease
+const cutLen = (an) => Math.max(1e-6, Math.abs(an.to - an.from) - an.skips.reduce((a, q) => a + q[1] - q[0], 0));
+// progression le long du trajet : courbe d'aisance + terme de vitesse initiale c·t(1−t)² (vitesse héritée d'un
+// trajet interrompu : pas d'arrêt net au second clic)
+function cutProgress(an, now) {
+  const t = THREE.MathUtils.clamp((now - an.t0) / an.dur, 0, 1);
+  return { t, p: THREE.MathUtils.clamp(ease(t) + (an.c || 0) * t * (1 - t) * (1 - t), -0.12, 1) };   // < 0 : demi-tour en douceur
+}
+function cutAt(an, now) { const { t, p } = cutProgress(an, now); return t >= 1 ? an.to : cutAlong(an, p); }
+// vitesse verticale de la coupe le long du trajet (m/ms, > 0 vers le haut), hors sauts de dalle
+function cutSpeed(an, now) {
+  const t = THREE.MathUtils.clamp((now - an.t0) / an.dur, 0, 1);
+  if (t >= 1) return 0;
+  const dp = (easeD(t) + (an.c || 0) * (1 - t) * (1 - 3 * t)) / an.dur;
+  return (an.to >= an.from ? 1 : -1) * cutLen(an) * dp;
+}
+// étage traversé par la coupe y (même seuil que le saut de dalle, fy + 0,02 : l'étage change exactement quand
+// la coupe franchit la dalle)
+function shownFloorFor(y) {
+  let kc = null, ky = -Infinity;
+  for (const f of (lots && lots.floors) || []) { const fy = lots.floorY(f.key); if (Number.isFinite(fy) && fy + 0.02 <= y + 1e-6 && fy > ky) { kc = f.key; ky = fy; } }
+  return kc;
+}
 function animateCut(to, onEnd, durMs) {
-  const from = cfg.cut.y > 1e3 ? CUT_TOP() : cfg.cut.y;
+  const now = performance.now(), prev = cfg.cut.anim;
+  const from = cfg.cut.y > 1e3 ? riseTop() : cfg.cut.y;
   const dur = REDUCED_MOTION ? 1 : (durMs || THREE.MathUtils.clamp(500 + Math.abs(to - from) * 90, 450, 1400));
-  cfg.cut.anim = { from, to, t0: performance.now(), dur, onEnd, skips: slabSkips(from, to) };
+  const an = { from, to, t0: now, dur, onEnd, skips: slabSkips(from, to), c: 0 };
+  if (prev && !REDUCED_MOTION) {
+    const v = cutSpeed(prev, now) * (to >= from ? 1 : -1);   // vitesse dans le sens du nouveau trajet
+    an.c = THREE.MathUtils.clamp(v * dur / cutLen(an), -0.8, 1);
+    if (prev.follow) { an.follow = true; an.shown = prev.shown; }
+  }
+  cfg.cut.anim = an;
   if (from !== cfg.cut.y) setCutY(from);
   invalidate(dur + 100);
 }
@@ -2420,17 +2726,18 @@ function setCutY(y) {
 function stepCut(now) {
   const an = cfg.cut.anim;
   if (!an) return;
-  const t = Math.min(1, (now - an.t0) / an.dur), k = ease(t);
-  cfg.cut.y = t >= 1 ? an.to : cutAlong(an, k);
+  const t = Math.min(1, (now - an.t0) / an.dur);
+  cfg.cut.y = cutAt(an, now);
   hPlane.constant = cfg.cut.y;
-  // ombres à chaque image : une image sur deux donnait un rythme irrégulier (saccades)
-  renderer.shadowMap.needsUpdate = true;
-  // l'étage affiché suit la coupe : on voit l'étage que la coupe traverse, au lieu de pièces vides
-  // pendant la descente puis d'un mobilier qui apparaît d'un coup à l'arrivée
+  // carte d'ombre : recalculée par updateShadowClip() seulement quand la coupe d'ombre change (franchissement de dalle)
+  // l'étage affiché suit la coupe (descente comme montée) : on voit toujours l'étage meublé que la coupe traverse
   if (an.follow && lots && lots.floors) {
-    let kc = null;
-    for (const f of lots.floors) { const fy = lots.floorY(f.key); if (Number.isFinite(fy) && fy + 0.05 < cfg.cut.y && (kc == null || fy > lots.floorY(kc))) kc = f.key; }
-    if (kc != null && kc !== an.shown) { an.shown = kc; lots.setFloor(kc); }
+    const kc = shownFloorFor(cfg.cut.y);
+    if (kc != null && kc !== an.shown) {
+      an.shown = kc; lots.setFloor(kc);
+      // franchissement de dalle : fondu sur 3 images depuis l'image d'avant (figée par motionPost) au lieu d'un saut
+      startXFade(state.anim ? XF_SLAB : XF_SLAB_STILL);
+    }
   }
   invalidate();
   if (t >= 1) { cfg.cut.anim = null; if (an.onEnd) an.onEnd(); }
@@ -2462,10 +2769,30 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
   if (k == null) {
     if (cfg.floor == null && !cfg.cut.anim) return;
     cfg.floor = null; cfg.cut.ready = false;
-    lots.setFloor(null);
     if (lots.setViewMode) lots.setViewMode('plan');
     cfg.viewMode = 'plan';
-    animateCut(CUT_TOP(), () => { if (cfg.floor == null) { setCutY(1e4); setSections(false); } });
+    if (!fly) {
+      // expérience (fly: false) : elle pilote la coupe elle-même et termine l'animation aussitôt
+      lots.setFloor(null);
+      animateCut(CUT_TOP(), () => { if (cfg.floor == null) { setCutY(1e4); setSections(false); } });
+    } else {
+      // remontée : comme la descente, l'étage meublé suit la coupe ; la coupe s'arrête au ras du toit, puis la
+      // maquette repasse en vue extérieure (plans retirés) par un fondu, caméra immobile
+      const prev = lots.floor ?? null;
+      if (cfg.cut.y < 1e3 && Math.abs(riseTop() - cfg.cut.y) < 0.05 && !cfg.cut.anim) {
+        // déjà au niveau du toit : passage direct à la vue extérieure, en fondu (image actuelle figée d'abord)
+        render(); snapFrame();
+        cfg.cut.anim = null; lots.setFloor(null); setCutY(1e4); setSections(false);
+        startXFade(XF_STILL);
+      } else animateCut(riseTop(), () => {
+        if (cfg.floor != null) return;
+        lots.setFloor(null); setCutY(1e4); setSections(false);
+        startXFade(state.anim ? XF_SLAB_STILL : XF_STILL);
+      });
+      const an = cfg.cut.anim;
+      if (an) { an.follow = true; if (an.shown === undefined) an.shown = prev; an.endSwap = true; }
+      motionBegin();
+    }
     cfg.walkFloor = null;
     document.body.classList.remove('cut-on');
     syncFloorUI();
@@ -2479,6 +2806,10 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
   if (!f) return;
   if (cfg.availability) setAvailability(false);
   const changing = cfg.floor !== k;
+  // depuis la vue extérieure : la coupe démarre au niveau du toit-terrasse (le dessus de l'édicule et le plan du toit
+  // apparaissent dans un fondu pendant la mise en route, caméra encore immobile, au lieu d'un saut en début de trajet)
+  const fromExt = changing && cfg.cut.y > 1e3 && view !== 'walk' && fly && !REDUCED_MOTION && (!nav || nav.mode === 'orbit') && !!composer;
+  if (fromExt) { render(); snapFrame(); }   // image extérieure actuelle, figée pour le fondu
   cfg.floor = k;
   document.body.classList.add('cut-on');
   setSections(true);
@@ -2490,15 +2821,16 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
     // le plan et les étiquettes n'apparaissent qu'une fois la coupe arrivée à l'étage ;
     // en visite à pied, l'étage est affiché tout de suite (on y entre en fondu)
     cfg.cut.ready = false;
-    const prev = lots.floor ?? null;
+    const prev = fromExt ? shownFloorFor(riseTop()) : (lots.floor ?? null);
     lots.setFloor(view === 'walk' ? k : prev);
     updateLabelSet();
     // caméra et coupe partent et arrivent ensemble, sur la même courbe (sinon la caméra glisse encore
     // une seconde après la coupe et les étiquettes apparaissent pendant qu'elle bouge)
     let camDur = 0;
-    if (fly) { state.free = true; camDur = flyTo(floorPose(k, focus), { duration: REDUCED_MOTION ? 0 : 1.0 }); fly = false; }   // changement d'étage : 1 s, net
+    if (fly) { state.free = true; camDur = flyTo(floorPose(k, focus), { duration: REDUCED_MOTION ? 0 : 1.0 }); fly = false; if (camDur > 0 && (!nav || nav.mode === 'orbit')) motionBegin(); }   // changement d'étage : 1 s, net
     animateCut(target, onReady, camDur > 0 && camDur < 2.2 ? camDur * 1000 : undefined);
     if (view !== 'walk' && cfg.cut.anim) { cfg.cut.anim.follow = true; cfg.cut.anim.shown = prev; }
+    if (fromExt) startXFade(XF_STILL);
   } else if (Math.abs(cfg.cut.y - target) > 0.01) animateCut(target);
   if (fly) { state.free = true; flyTo(floorPose(k, focus)); }
   if (nav && nav.setHome) nav.setHome(floorCenter(k));
@@ -2576,7 +2908,9 @@ function onFloorButton(k) {
   }
   setFloor(k);
 }
+let floorUiT = 0;
 function syncFloorUI() {
+  ui.floorList.classList.add('instant'); clearTimeout(floorUiT); floorUiT = setTimeout(() => ui.floorList.classList.remove('instant'), 1500);
   ui.floorList.querySelectorAll('.lvl').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === String(cfg.floor ?? 'ext'))));
   updateLabelSet();
 }
@@ -3193,7 +3527,7 @@ const _lv = new THREE.Vector3();
 function updateLabels() {
   if (!cfg.labels.size && !roomEls.length) return;
   const W = innerWidth, H = innerHeight;
-  const topSafe = isMobile() ? 150 : 84, botSafe = H - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock-h')) || 110) - 24;
+  const topSafe = isMobile() ? 150 : 84, botSafe = H - (parseFloat(document.documentElement.style.getPropertyValue('--dock-h')) || 110) - 24;   // style en ligne (posé par syncDock) : pas de recalcul de style forcé à chaque image
   const placed = [];
   const items = [];
   for (const [id, el] of cfg.labels) {
@@ -3256,19 +3590,31 @@ function updateViewOffsetTarget() {
   vo.ty = THREE.MathUtils.clamp(H / 2 - (top + bottom) / 2, -H * 0.2, H * 0.2);
   invalidate(800);
 }
-function stepViewOffset() {
+// décalage du cadrage hors trajet caméra (ouverture/fermeture de panneau, sortie vers l'extérieur) : même courbe
+// d'aisance que les trajets, en temps réel (l'ancienne approche exponentielle partait à pleine vitesse : à-coup
+// à la première image), vitesse conservée si la cible change en route
+function voEval(an, now) {
+  const t = THREE.MathUtils.clamp((now - an.t0) / an.dur, 0, 1), k = ease(t), g = t * (1 - t) * (1 - t) * an.dur;
+  return { t, x: THREE.MathUtils.lerp(an.fx, an.tx, k) + an.v.x * g, y: THREE.MathUtils.lerp(an.fy, an.ty, k) + an.v.y * g };
+}
+function stepViewOffset(now = performance.now()) {
   const vo = cfg.vo;
-  if (Math.abs(vo.tx - vo.x) < 0.5 && Math.abs(vo.ty - vo.y) < 0.5) {
-    if (vo.x !== vo.tx || vo.y !== vo.ty) { vo.x = vo.tx; vo.y = vo.ty; applyViewOffset(); }
-    return;
+  if (state.anim && state.anim.vo) { vo.an = null; return; }   // suit la caméra (stepAnim)
+  if (vo.x === vo.tx && vo.y === vo.ty) { vo.an = null; return; }
+  let an = vo.an;
+  if (!an || an.tx !== vo.tx || an.ty !== vo.ty) {
+    let v = { x: 0, y: 0 };
+    if (an) { const e1 = voEval(an, now), e0 = voEval(an, now - 6); v = { x: (e1.x - e0.x) / 6, y: (e1.y - e0.y) / 6 }; }
+    an = vo.an = { fx: vo.x, fy: vo.y, tx: vo.tx, ty: vo.ty, t0: now, dur: REDUCED_MOTION ? 1 : 900, v };
   }
-  vo.x += (vo.tx - vo.x) * 0.12; vo.y += (vo.ty - vo.y) * 0.12;
+  const e = voEval(an, now);
+  if (e.t >= 1) { vo.x = vo.tx; vo.y = vo.ty; vo.an = null; } else { vo.x = e.x; vo.y = e.y; }
   applyViewOffset();
   invalidate();
 }
 function applyViewOffset() {
   const vo = cfg.vo, W = innerWidth, H = innerHeight;
-  if (Math.abs(vo.x) < 0.5 && Math.abs(vo.y) < 0.5) camera.clearViewOffset();
+  if (Math.abs(vo.x) < 0.01 && Math.abs(vo.y) < 0.01) camera.clearViewOffset();
   else camera.setViewOffset(W, H, vo.x, vo.y, W, H);
   camera.updateProjectionMatrix();
 }
@@ -3538,7 +3884,7 @@ function api() {
     get state() { return { ...state, sun: undefined }; },
     stats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, programs: renderer.info.programs.length, fps: state.fps, quality: state.quality }),
     views: VIEWS,
-    get lots() { return lots; }, get nav() { return nav; }, cfg,
+    get lots() { return lots; }, get nav() { return nav; }, cfg, motion: MOTION,
     setFloor: (k, o) => setFloor(k, o), selectLot: (id, o) => selectLot(id, o), closeSheet, setAvailability, setNavMode,
     viewFromLot, visitLot, toggleLots, pickAt, takeLift, exitImmersive, solarPosition, updateLift,
     projectLot: (id) => { const L = lotData(id); if (!L) return null; const v = L.labelAnchor.clone().project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, z: v.z }; },
