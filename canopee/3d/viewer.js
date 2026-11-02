@@ -2380,10 +2380,35 @@ function patchShadowPass() {
     try { return orig.call(this, lights, sc, cam); } finally { hPlane.constant = c; for (const o of off) o.castShadow = true; }
   };
 }
-function animateCut(to, onEnd) {
+// épaisseurs de dalle traversées par la coupe : elle les franchit d'un coup (sinon la tranche noire de la
+// dalle s'affiche quelques images au milieu de l'animation)
+const SLAB_BELOW = 0.85;   // dalle + sous-face des balcons
+function slabSkips(from, to) {
+  const lo = Math.min(from, to), hi = Math.max(from, to), out = [];
+  for (const f of (lots && lots.floors) || []) {
+    if (!f.key) continue;
+    const fy = lots.floorY(f.key); if (!Number.isFinite(fy)) continue;
+    const a = Math.max(lo, fy - SLAB_BELOW), b = Math.min(hi, fy + 0.02);
+    if (b > a) out.push([a, b]);
+  }
+  return out.sort((p, q) => p[0] - q[0]);
+}
+// position de la coupe pour une progression u (0…1) le long du trajet, dalles exclues
+function cutAlong(an, u) {
+  const dir = an.to >= an.from ? 1 : -1, total = Math.abs(an.to - an.from), skip = an.skips.reduce((a, s) => a + s[1] - s[0], 0);
+  let d = u * Math.max(0, total - skip), y = an.from;
+  const segs = dir > 0 ? an.skips : [...an.skips].reverse();
+  for (const [a, b] of segs) {
+    const edge = dir > 0 ? a : b, gap = Math.abs(edge - y);
+    if (d <= gap) return y + dir * d;
+    d -= gap; y = dir > 0 ? b : a;
+  }
+  return THREE.MathUtils.clamp(y + dir * d, Math.min(an.from, an.to), Math.max(an.from, an.to));
+}
+function animateCut(to, onEnd, durMs) {
   const from = cfg.cut.y > 1e3 ? CUT_TOP() : cfg.cut.y;
-  const dur = REDUCED_MOTION ? 1 : THREE.MathUtils.clamp(500 + Math.abs(to - from) * 90, 450, 1400);
-  cfg.cut.anim = { from, to, t0: performance.now(), dur, onEnd };
+  const dur = REDUCED_MOTION ? 1 : (durMs || THREE.MathUtils.clamp(500 + Math.abs(to - from) * 90, 450, 1400));
+  cfg.cut.anim = { from, to, t0: performance.now(), dur, onEnd, skips: slabSkips(from, to) };
   if (from !== cfg.cut.y) setCutY(from);
   invalidate(dur + 100);
 }
@@ -2396,7 +2421,7 @@ function stepCut(now) {
   const an = cfg.cut.anim;
   if (!an) return;
   const t = Math.min(1, (now - an.t0) / an.dur), k = ease(t);
-  cfg.cut.y = THREE.MathUtils.lerp(an.from, an.to, k);
+  cfg.cut.y = t >= 1 ? an.to : cutAlong(an, k);
   hPlane.constant = cfg.cut.y;
   // ombres à chaque image : une image sur deux donnait un rythme irrégulier (saccades)
   renderer.shadowMap.needsUpdate = true;
@@ -2468,7 +2493,11 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
     const prev = lots.floor ?? null;
     lots.setFloor(view === 'walk' ? k : prev);
     updateLabelSet();
-    animateCut(target, onReady);
+    // caméra et coupe partent et arrivent ensemble, sur la même courbe (sinon la caméra glisse encore
+    // une seconde après la coupe et les étiquettes apparaissent pendant qu'elle bouge)
+    let camDur = 0;
+    if (fly) { state.free = true; camDur = flyTo(floorPose(k, focus), { duration: REDUCED_MOTION ? 0 : 1.0 }); fly = false; }   // changement d'étage : 1 s, net
+    animateCut(target, onReady, camDur > 0 && camDur < 2.2 ? camDur * 1000 : undefined);
     if (view !== 'walk' && cfg.cut.anim) { cfg.cut.anim.follow = true; cfg.cut.anim.shown = prev; }
   } else if (Math.abs(cfg.cut.y - target) > 0.01) animateCut(target);
   if (fly) { state.free = true; flyTo(floorPose(k, focus)); }
