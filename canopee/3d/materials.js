@@ -823,8 +823,12 @@ export function createMaterials(THREE, renderer) {
   // Vitrage de fenêtre (passe 4) : reflet de l'environnement pondéré par Fresnel (Schlick, F0 = 4 %),
   // l'opacité suit Fresnel : ~10 % de face (l'intérieur reste lisible, à peine teinté),
   // quasi miroir en incidence rasante. Le verre est exclu de l'AO (userData.noAO).
+  // Passe « verre » : double vitrage extra-clair. Transmission ~78 % de face (l'intérieur reste lisible mais
+  // plus sombre que dehors, comme en photo), Fresnel de Schlick (F0 = 4 %) vers le miroir en incidence rasante ;
+  // les reflets viennent d'une sonde locale (arbres, rue, ciel) posée par viewer.js (M.glass.envMap),
+  // légèrement teintés vert-gris (tranche du verre).
   M.glass = new THREE.MeshPhysicalMaterial({
-    name: 'glass', color: 0x0a0e10, metalness: 0, roughness: 0.03, envMapIntensity: 1.0, ior: 1.52,
+    name: 'glass', color: 0x040506, metalness: 0, roughness: 0.02, envMapIntensity: 1.0, ior: 1.52,
     transparent: true, opacity: 0.5, blending: THREE.CustomBlending,
     blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
   });
@@ -833,11 +837,12 @@ export function createMaterials(THREE, renderer) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
       {
         float gNoV = clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
-        float gF = 0.04 + 0.96 * pow( 1.0 - gNoV, 5.0 );
-        gl_FragColor.a = clamp( 0.1 + 0.9 * gF, 0.0, 0.96 );
+        float gF = 0.05 + 0.95 * pow( 1.0 - gNoV, 5.0 );   // verre extra-clair à couche : ~5 % de face
+        gl_FragColor.rgb *= vec3( 0.93, 1.0, 0.97 );
+        gl_FragColor.a = clamp( 0.16 + 0.84 * gF, 0.0, 0.97 );
       }`);
   };
-  M.glass.customProgramCacheKey = () => 'glass-fresnel-v1';
+  M.glass.customProgramCacheKey = () => 'glass-fresnel-v2';
   M.glassRail = new THREE.MeshPhysicalMaterial({
     name: 'glassRail', color: 0x0e1714, metalness: 0, roughness: 0.05, envMapIntensity: 1.0, ior: 1.5,
     transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, blending: THREE.CustomBlending,

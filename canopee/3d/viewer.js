@@ -10,6 +10,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 
 /* ------------------------------------------------------------------ */
 /* Paramètres d'URL (utiles pour les captures et le débogage)          */
@@ -759,10 +760,21 @@ function applyHour(h, immediate = false) {
     M.interiorWarm.emissiveIntensity = state.interiorBase * (1 + 0.9 * dusk + 1.2 * night);
   }
   setInteriorGain(1 + 0.35 * dusk + 0.6 * night);
+  // de jour, une pièce vue de la rue est bien plus sombre que la façade ensoleillée (rapport ~1:5 en photo) :
+  // intérieurs simulés d'interiors.js atténués, et leur reflet de ciel uniforme réduit (le verre de façade
+  // porte désormais les vrais reflets : arbres, rue, ciel)
+  if (!state.daylightUni) { state.daylightUni = null; building.traverse((o) => { if (!state.daylightUni && o.userData && o.userData.daylight) state.daylightUni = o.userData.daylight; }); }
+  const DLu = state.daylightUni;
+  if (DLu) {
+    if (DLu.uExpo) DLu.uExpo.value = THREE.MathUtils.lerp(1, 0.72, s.day);
+    if (DLu.uRoomDayK) DLu.uRoomDayK.value = THREE.MathUtils.lerp(1, 0.75, s.day);
+    if (DLu.uRefl) DLu.uRefl.value = THREE.MathUtils.lerp(0.5, 0.18, s.day);
+  }
   renderer.toneMappingExposure = (PARAMS.exposure ?? LOOK.exposure) * (1 + 0.12 * dusk + 0.25 * night);
   state.baseExposure = renderer.toneMappingExposure; state.baseHemi = hemi.intensity;
   if (finishPass) { const fu = finishPass.uniforms; fu.warm.value = LOOK.warm; fu.contrast.value = LOOK.contrast; fu.saturation.value = LOOK.sat; fu.greens.value = LOOK.greens; fu.lift.value = LOOK.lift; fu.skyPop.value = LOOK.skyPop; fu.shadeWB.value.set(...LOOK.shadeWB); }
   if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; }
+  MIR.dirty = true;
   if (IN.ready && lots) lampGlow(Math.max(THREE.MathUtils.smoothstep(h, 18.75, 19.75), 1 - s.day));
   if (IN.ready && IN.k > 0) applyInterior();
   // arrière-plan : cubemap du ciel (peu coûteux)
@@ -794,8 +806,37 @@ function updateEnvironment() {
   if (envRT) envRT.dispose();
   envRT = rt;
   scene.environment = rt.texture;
+  updateGlassProbe();
   updateFogColor();
   invalidate(60);
+}
+// Sonde de reflets des vitrages : cube capturé depuis le cœur du bâtiment (bâtiment et logements masqués),
+// donc arbres, rue, jardin et ciel réels au lieu d'un ciel uniforme ; mise à jour avec l'environnement.
+let glassProbe = null;
+function updateGlassProbe() {
+  if (!M || !M.glass || !building || !landscape) return;
+  try {
+    if (!glassProbe) {
+      const rtc = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+      glassProbe = { rtc, cam: new THREE.CubeCamera(0.5, 900, rtc), env: null };
+      glassProbe.cam.position.set((bounds.minX + bounds.maxX) / 2, 6.5, (bounds.minZ + bounds.maxZ) / 2);
+      glassProbe.cam.updateMatrixWorld(true);
+    }
+    const hidden = [building, lots && lots.group, highlight, ...MIR.active].filter((o) => o && o.visible);
+    const cut = hPlane ? hPlane.constant : null;
+    if (hPlane) hPlane.constant = 1e4;           // arbres entiers, même pendant une coupe d'étage
+    // fond = ciel d'environnement (désaturé, avec sol) plutôt que le bleu « carte postale » de l'arrière-plan
+    const bg = scene.background; if (scene.environment) scene.background = scene.environment;
+    for (const o of hidden) o.visible = false;
+    glassProbe.cam.update(renderer, scene);
+    for (const o of hidden) o.visible = true;
+    scene.background = bg;
+    if (hPlane && cut != null) hPlane.constant = cut;
+    const env = pmrem.fromCubemap(glassProbe.rtc.texture);
+    if (glassProbe.env) glassProbe.env.dispose();
+    glassProbe.env = env;
+    M.glass.envMap = env.texture; M.glass.envMapIntensity = 1.3;   // verre à couche : reflets nets mais discrets de face
+  } catch (e) { /* reflets du ciel seul */ }
 }
 // couleur du brouillard = horizon du ciel, à 90° du soleil (perspective atmosphérique cohérente avec le fond)
 const fogPix = new Float32Array(8 * 8 * 4);
@@ -1061,6 +1102,7 @@ function loop(now) {
   if (nav && nav.update(dt)) invalidate();
   if (lots && lots.update && lots.update(dt)) invalidate();
   if (stepInterior(dt)) invalidate();
+  stepMirrors();
   const animating = !!state.anim;
   if (!animating && orbit) {
     controls.autoRotate = ui.rotate.getAttribute('aria-pressed') === 'true';
@@ -1456,6 +1498,146 @@ function interiorTarget() {
   }
   return r ? { t: 1, lot: r.lot, k, room: r } : { t: 0 };
 }
+
+/* ------------------------------------------------------------------ */
+/* Miroirs du logement visité : reflet plan réel (Reflector), 1 à 2     */
+/* miroirs proches et face à la caméra, basse résolution, recalculés    */
+/* seulement quand la caméra bouge ; légère teinte, biseau, défauts.    */
+/* ------------------------------------------------------------------ */
+const MirrorShader = {
+  name: 'CanopeeMirror',
+  uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, uSize: { value: new THREE.Vector2(1, 1) }, uRound: { value: 0 } },
+  vertexShader: /* glsl */`
+    uniform mat4 textureMatrix; varying vec4 vUvP; varying vec2 vUv0;
+    #include <common>
+    void main() { vUv0 = uv; vUvP = textureMatrix * vec4( position, 1.0 ); gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 color; uniform sampler2D tDiffuse; uniform vec2 uSize; uniform float uRound; varying vec4 vUvP; varying vec2 vUv0;
+    float hsh( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+    float vn( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+      return mix( mix( hsh( i ), hsh( i + vec2( 1, 0 ) ), f.x ), mix( hsh( i + vec2( 0, 1 ) ), hsh( i + vec2( 1, 1 ) ), f.x ), f.y ); }
+    void main() {
+      vec2 m = vUv0 * uSize;                                   // position sur le miroir (m)
+      // distance au bord (m) : rectangle ou disque
+      float d = uRound > 0.5 ? ( 0.5 * uSize.x - length( m - 0.5 * uSize ) ) : min( min( m.x, uSize.x - m.x ), min( m.y, uSize.y - m.y ) );
+      // planéité imparfaite (ondulation de la glace) et biseau qui dévie le reflet
+      vec2 w = vec2( vn( m * 3.1 ), vn( m * 3.1 + 7.3 ) ) - 0.5;
+      float bev = 1.0 - smoothstep( 0.0, 0.012, d );
+      vec4 uvp = vUvP; uvp.xy += ( w * 0.0025 + vec2( bev * 0.012 ) ) * uvp.w;
+      vec3 c = texture2DProj( tDiffuse, uvp ).rgb;
+      c *= color;                                              // argenture ~90 %, verre légèrement vert
+      float smudge = vn( m * 9.0 ) * vn( m * 2.3 + 3.0 );
+      c *= 1.0 - 0.05 * smudge;
+      c = mix( c, c * 1.35 + 0.02, bev * 0.8 );                 // biseau : arête plus claire
+      c *= 1.0 - 0.6 * ( 1.0 - smoothstep( 0.0, 0.0018, d ) ); // tranche sombre au ras du cadre
+      gl_FragColor = vec4( c, 1.0 );
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+};
+const MIR = { list: new Map(), active: [], dirty: true, frame: 0 };
+function mirrorsOfFloor(k) {
+  if (MIR.list.has(k)) return MIR.list.get(k);
+  const out = [];
+  try {
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+    const tris = [];
+    lots.group.updateMatrixWorld(true);
+    lots.group.traverse((o) => {
+      if (!o.isMesh || !o.geometry || !new RegExp(`^lots:${k}:`).test(o.name || '')) return;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (!o.userData.mirror && !/:mirror(#\d+)?$/.test(o.name || '') && !(m && (m === M.mirror || /mirror/i.test(m.name || '')))) return;
+      const pos = o.geometry.attributes.position, idx = o.geometry.index, cnt = idx ? idx.count : pos.count;
+      for (let t = 0; t + 2 < cnt; t += 3) {
+        a.fromBufferAttribute(pos, idx ? idx.getX(t) : t).applyMatrix4(o.matrixWorld);
+        b.fromBufferAttribute(pos, idx ? idx.getX(t + 1) : t + 1).applyMatrix4(o.matrixWorld);
+        c.fromBufferAttribute(pos, idx ? idx.getX(t + 2) : t + 2).applyMatrix4(o.matrixWorld);
+        n.subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+        if (n.lengthSq() < 1e-10) continue;
+        n.normalize();
+        tris.push({ n: n.clone(), p: [a.clone(), b.clone(), c.clone()], d: n.dot(a) });
+      }
+    });
+    // regroupement : même plan, triangles jointifs
+    const groups = [];
+    for (const t of tris) {
+      let g = groups.find((G) => G.n.dot(t.n) > 0.995 && Math.abs(G.d - t.d) < 0.01 && t.p.some((q) => G.box.distanceToPoint(q) < 0.02));
+      if (!g) { g = { n: t.n, d: t.d, box: new THREE.Box3(), pts: [], tri: 0 }; groups.push(g); }
+      for (const q of t.p) { g.box.expandByPoint(q); g.pts.push(q); }
+      g.tri++;
+    }
+    for (const g of groups) {
+      const nn = g.n.clone(), u = Math.abs(nn.y) < 0.9 ? new THREE.Vector3(0, 1, 0).cross(nn).normalize() : new THREE.Vector3(1, 0, 0);
+      const v = new THREE.Vector3().crossVectors(nn, u);
+      let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+      for (const q of g.pts) { const x = q.dot(u), y = q.dot(v); u0 = Math.min(u0, x); u1 = Math.max(u1, x); v0 = Math.min(v0, y); v1 = Math.max(v1, y); }
+      const W = u1 - u0, H = v1 - v0;
+      if (W < 0.15 || H < 0.15) continue;
+      const ctr = u.clone().multiplyScalar((u0 + u1) / 2).add(v.clone().multiplyScalar((v0 + v1) / 2)).add(nn.clone().multiplyScalar(g.d));
+      out.push({ n: nn, u, v, W, H, round: g.tri > 8, c: ctr, refl: null });
+    }
+  } catch (e) { /* pas de miroir */ }
+  MIR.list.set(k, out);
+  return out;
+}
+function makeReflector(mr) {
+  const geo = mr.round ? new THREE.CircleGeometry(mr.W / 2, 48) : new THREE.PlaneGeometry(mr.W, mr.H);
+  // UV du disque : CircleGeometry les donne déjà en [0,1]² sur le carré englobant
+  const res = state.quality === 'high' && !MIR_TOUCH ? 384 : 256, tw = Math.round(mr.W >= mr.H ? res : res * mr.W / mr.H), th = Math.round(mr.W >= mr.H ? res * mr.H / mr.W : res);
+  const R = new Reflector(geo, { textureWidth: Math.max(64, tw), textureHeight: Math.max(64, th), clipBias: 0.003, multisample: 0, color: new THREE.Color(0.86, 0.9, 0.89), shader: MirrorShader });
+  R.material.uniforms.color.value.setRGB(0.86, 0.9, 0.89);
+  R.material.uniforms.uSize.value.set(mr.W, mr.H);
+  R.material.uniforms.uRound.value = mr.round ? 1 : 0;
+  R.position.copy(mr.c).addScaledVector(mr.n, 0.0025);
+  R.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(mr.u, mr.v, mr.n));
+  R.name = 'miroir:reflet'; R.userData.noAO = true; R.renderOrder = 1;
+  R.visible = false;
+  // reflet recalculé seulement si la caméra (ou la lumière) a changé
+  const render = R.onBeforeRender, last = new THREE.Matrix4(), lastP = new THREE.Matrix4();
+  let primed = false;
+  R.onBeforeRender = function (r, sc, cam) {
+    if (cam !== camera) return;
+    if (primed && !MIR.dirty && last.equals(cam.matrixWorld) && lastP.equals(cam.projectionMatrix)) return;
+    // en mouvement : une image sur deux suffit (le reflet suit avec 16 ms de retard, imperceptible)
+    if (primed && !MIR.dirty && (MIR.frame & 1) === 1) return;
+    primed = true; last.copy(cam.matrixWorld); lastP.copy(cam.projectionMatrix);
+    // pas de miroir dans le miroir (évite la récursion entre deux miroirs actifs) ; le jardin (feuillage
+    // instancié, coûteux) n'est pas rendu dans le reflet : les miroirs sont en salle d'eau / entrée
+    const others = MIR.active.filter((x) => x !== R && x.visible); others.forEach((x) => { x.visible = false; });
+    const lv = landscape && landscape.visible; if (lv) landscape.visible = false;
+    render.call(this, r, sc, cam);
+    if (lv) landscape.visible = true;
+    others.forEach((x) => { x.visible = true; });
+  };
+  scene.add(R);
+  return R;
+}
+const _mf = new THREE.Frustum(), _mm = new THREE.Matrix4(), _ms = new THREE.Sphere();
+// reflets vivants selon la qualité : 2 en haute, 1 en moyenne (et sur écran tactile), aucun en basse
+// (le miroir garde alors son reflet d'environnement de pièce) ; la qualité auto peut donc les couper
+const MIR_TOUCH = matchMedia('(pointer: coarse)').matches;
+const MIR_MAX = { high: 2, medium: 1, low: 0 };
+function stepMirrors() {
+  const want = [];
+  const maxLive = Math.min(MIR_MAX[state.quality] ?? 1, MIR_TOUCH ? 1 : 2);
+  if (maxLive > 0 && IN.k > 0.5 && IN.floor != null) {
+    _mm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); _mf.setFromProjectionMatrix(_mm);
+    const cp = camera.position, cand = [];
+    for (const mr of mirrorsOfFloor(IN.floor)) {
+      const toCam = cp.clone().sub(mr.c), dist = toCam.length();
+      if (dist > 7 || toCam.dot(mr.n) < 0.05 * dist) continue;
+      _ms.set(mr.c, 0.5 * Math.hypot(mr.W, mr.H));
+      if (!_mf.intersectsSphere(_ms)) continue;
+      cand.push({ mr, dist });
+    }
+    cand.sort((p, q) => p.dist - q.dist);
+    for (const cd of cand.slice(0, maxLive)) { if (!cd.mr.refl) cd.mr.refl = makeReflector(cd.mr); want.push(cd.mr.refl); }
+  }
+  for (const R of MIR.active) if (!want.includes(R)) R.visible = false;
+  for (const R of want) R.visible = true;
+  MIR.active = want;
+}
+
 // appelée à chaque image (léger) : fondu intérieur/extérieur et réaffectation des sources
 function stepInterior(dt) {
   if (!IN.ready || !lots) return false;
@@ -1498,6 +1680,7 @@ function stepInterior(dt) {
 }
 function applyInterior() {
   const k = IN.k, s = state.sun; if (!s) return;
+  MIR.dirty = true;
   const on = k > 0.001;
   const sm = k * k * (3 - 2 * k);
   // heure dorée : la lumière qui entre (ciel bas, façades et sol éclairés par le soleil couchant) se réchauffe
@@ -1571,6 +1754,7 @@ function render() {
   }
   updateAoRadius();
   composer.render();
+  MIR.dirty = false; MIR.frame = (MIR.frame + 1) | 0;
 }
 
 /* Mesure de fluidité et qualité automatique */

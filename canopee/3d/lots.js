@@ -147,6 +147,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     if (!s || s.isMeshBasicMaterial) return (WALK[k] = s);
     // visite éclairée : même matériau PBR (soleil, ombres, environnement), occlusion bakée en couleurs de sommet
     const m = s.clone(); m.name = s.name + 'Walk'; m.vertexColors = true; m.userData = { ...s.userData }; disposables.push(m);
+    if (s.onBeforeCompile && s.customProgramCacheKey) { m.onBeforeCompile = s.onBeforeCompile; const ck = s.customProgramCacheKey(); m.customProgramCacheKey = () => ck + ':walk'; }
     // en visite, les doublages affleurent la face intérieure des façades : ils doivent toujours gagner
     // (sinon le bardage traverse en rayures sombres quand on bouge)
     Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
@@ -731,19 +732,25 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     for (const [k, list] of Object.entries(P.buckets)) {
       const [tag, mk] = k.split('|');
       if (mk === 'none' || !list.length) continue;
-      const mat = MAT[mk];
+      const base = mk.split('#')[0];                    // 'mirror#12' : un maillage par miroir, même matériau
+      const mat = MAT[base];
       if (!mat) continue;
       const geo = mergeGeometries(list, false); for (const x of list) x.dispose();
       if (tag !== 'plan' && !mat.isMeshBasicMaterial) bake(geo, P);
       geo.deleteAttribute('tint');
       geo.computeBoundingSphere();
-      const walkM = walkMat(mk);
+      const walkM = walkMat(base);
       const mesh = new THREE.Mesh(geo, tag === 'walk' ? walkM : mat);
       mesh.name = `lots:${P.key}:${tag}:${mk}`;
       // visite : les intérieurs reçoivent le soleil des baies ; meubles et cloisons portent ombre
       const lit = tag !== 'plan' && !mat.isMeshBasicMaterial && !mat.transparent;
-      mesh.castShadow = lit && !NO_CAST.has(mk); mesh.receiveShadow = lit;
-      if (['glass', 'arc', 'cut', 'sill', 'rail', 'screen', 'spot', 'contact', 'sheer', 'glassClear'].includes(mk)) mesh.userData.noAO = true;
+      mesh.castShadow = lit && !NO_CAST.has(base); mesh.receiveShadow = lit;
+      if (base === 'mirror') { // repère pour viewer.js (reflets) : centre, normale, demi-taille
+        geo.computeBoundingBox(); const bb = geo.boundingBox, nrm = geo.attributes.normal;
+        mesh.userData.mirror = true; mesh.castShadow = false;
+        mesh.userData.mirrorCenter = bb.getCenter(new THREE.Vector3()).toArray(); mesh.userData.mirrorNormal = [nrm.getX(0), nrm.getY(0), nrm.getZ(0)]; mesh.userData.mirrorSize = bb.getSize(new THREE.Vector3()).toArray();
+      }
+      if (['glass', 'arc', 'cut', 'sill', 'rail', 'screen', 'spot', 'contact', 'sheer', 'glassClear', 'mirror'].includes(base)) mesh.userData.noAO = true;
       if (tag === 'plan') gPlan.add(mesh); else if (tag === 'walk') gWalk.add(mesh); else { root.add(mesh); common.push({ mesh, plan: mat, walk: walkM }); }
     }
     const lg = new THREE.Group(); lg.name = 'labels:' + P.key;

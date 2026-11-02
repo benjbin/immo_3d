@@ -95,8 +95,10 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     o[0] = o[1] = o[2] = 236 * l; o[1] *= 0.995; o[2] *= 0.985; o[3] = h; o[4] = 0.95;
   });
   const linenSet = set(linen, 0.2, 0.2, 2.5, { roughness: 1, normalScale: new THREE.Vector2(0.55, 0.55) });
-  D.textile = std('decoTextile', 0xffffff, { ...linenSet });
-  D.cloth = std('decoCloth', 0xffffff, { ...linenSet, side: THREE.DoubleSide });
+  // tissus : MeshPhysicalMaterial avec sheen (velouté rasant, pas de reflet plastique), spéculaire très bas
+  const fab = (name, p, extra = {}) => { const m = new THREE.MeshPhysicalMaterial({ name, color: 0xffffff, roughness: 1, metalness: 0, sheen: 1, sheenRoughness: 0.7, sheenColor: new THREE.Color(0x6e6a64), specularIntensity: 0.18, envMapIntensity: 0.7, ...p, ...extra }); list.push(m); return m; };
+  D.textile = fab('decoTextile', linenSet);
+  D.cloth = fab('decoCloth', linenSet, { side: THREE.DoubleSide });
   // --- bouclé écru : boucles serrées, 0,12 m
   const R = rng(41), loops = new Float32Array(256 * 256);
   for (let k = 0; k < 2600; k++) {
@@ -104,7 +106,7 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) { const d = Math.hypot(x, y); if (d > r + 1.2) continue; const v = Math.max(0, 1 - Math.abs(d - r * 0.7) / 1.3); const i = (((cy + y) | 0) & 255) * 256 + (((cx + x) | 0) & 255); loops[i] = Math.max(loops[i], v * (0.6 + 0.4 * R())); }
   }
   const boucle = paint(256, 256, (u, v, o) => { const h = loops[((v * 256) | 0) * 256 + ((u * 256) | 0)]; const l = 0.9 + 0.08 * h + 0.03 * fbmP(u, v, 8, 8, 2, 3); o[0] = 240 * l; o[1] = 234 * l; o[2] = 222 * l; o[3] = h; o[4] = 1; });
-  D.boucle = std('decoBoucle', 0xffffff, set(boucle, 0.12, 0.12, 6, { roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3) }));
+  D.boucle = fab('decoBoucle', set(boucle, 0.12, 0.12, 6, { roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3) }), { sheenRoughness: 0.9, sheenColor: new THREE.Color(0x8a867e) });
   // --- tapis berbère (laine écrue, losanges brun-noir), motif répété tous les 0,8 m
   const rug = paint(512, 512, (u, v, o) => {
     const tuft = fbmP(u, v, 96, 96, 2, 13), big = fbmP(u, v, 4, 4, 3, 2);
@@ -115,10 +117,10 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     if (line) { o[0] = 70 * l; o[1] = 60 * l; o[2] = 52 * l; } else { o[0] = 238 * l; o[1] = 230 * l; o[2] = 214 * l; }
     o[3] = tuft; o[4] = 1;
   });
-  D.rug = std('decoRug', 0xffffff, set(rug, 0.8, 0.8, 4, { roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8) }));
+  D.rug = fab('decoRug', set(rug, 0.8, 0.8, 4, { roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8) }), { sheenRoughness: 0.9 });
   // laine unie (tapis de chambre, plaids épais)
   const wool = paint(256, 256, (u, v, o) => { const t = fbmP(u, v, 48, 48, 3, 77); const l = 0.85 + 0.15 * t; o[0] = o[1] = o[2] = 235 * l; o[3] = t; o[4] = 1; });
-  D.wool = std('decoWool', 0xffffff, set(wool, 0.3, 0.3, 5, { roughness: 1 }));
+  D.wool = fab('decoWool', set(wool, 0.3, 0.3, 5, { roughness: 1 }), { sheenRoughness: 0.9 });
   // --- travertin (plateaux, vasque, sol de salle de bains) : 1,2 m
   const trav = paint(1024, 1024, (u, v, o) => {
     const band = fbmP(u, v, 2, 14, 4, 31), w = fbmP(u, v, 6, 30, 3, 8);
@@ -173,8 +175,16 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   D.bark = (M && M.bark) ? M.bark.clone() : std('decoBark', 0x6b5a48, { roughness: 0.9 });
   if (M && M.bark) { D.bark.name = 'decoBark'; list.push(D.bark); }
   // --- feuillage d'intérieur : atlas (figuier lyre | rameau d'olivier | sansevieria)
-  D.leaf = std('decoLeaf', 0xffffff, { map: leafAtlas(THREE, T), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.55 });
-  D.leaf.map.repeat.set(1, 1);
+  // feuillage modélisé : atlas opaque de nervures (la découpe vient de la géométrie), envers plus clair
+  const lAt = leafAtlas2(THREE, T);
+  const leafMat = (name, rough, extra = {}) => {
+    const m = std(name, 0xffffff, { map: lAt, side: THREE.DoubleSide, roughness: rough, envMapIntensity: 0.8, ...extra });
+    m.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  if (!gl_FrontFacing) diffuseColor.rgb *= vec3(1.32, 1.36, 1.18);'); };
+    m.customProgramCacheKey = () => 'decoLeafBack'; return m;
+  };
+  D.leafG = leafMat('decoLeafGloss', 0.34);
+  D.leafM = leafMat('decoLeafMatte', 0.68);
+  D.leaf = D.leafM;
   // --- œuvres : atlas 2048 × 1024 (UV propres)
   D.art = std('decoArt', 0xffffff, { map: artAtlas(THREE, T), roughness: 0.85 });
   D.art.map.repeat.set(1, 1);
@@ -231,6 +241,43 @@ export function stoneTile(THREE, opt = {}) {
   });
   const mk = (cv, srgb) => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 1.2, 1 / 1.2); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = opt.anisotropy || 8; (opt.disposables || []).push(t); return t; };
   return { map: mk(p.color, true), roughnessMap: mk(p.rough, false), normalMap: mk(normalCanvas(p.hgt, 1024, 1024, 2), false) };
+}
+
+
+// atlas opaque des limbes 1024² : nervure médiane en u = 0,5, base en v = 0, pointe en v = 1
+// [0,.5]²: figuier lyre | [.5,1]×[0,.5]: strelitzia | ligne haute : olivier, basilic, sansevieria, feuille séchée
+function leafAtlas2(THREE, T) {
+  const S = 1024, cv = canvas(S, S), g = cv.getContext('2d'), R = rng(17);
+  const cell = (x0, y0, w, h, fn) => { g.save(); g.translate(x0, y0); g.beginPath(); g.rect(0, 0, w, h); g.clip(); fn(w, h); g.restore(); };
+  // v (bas → haut) : canvas y inversé ; on dessine pointe en haut (y = 0) donc v = 1 - y/h
+  const base = (w, h, c0, c1, c2) => { const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, c0); gr.addColorStop(0.5, c1); gr.addColorStop(1, c2); g.fillStyle = gr; g.fillRect(0, 0, w, h); };
+  const mottle = (w, h, n, a, cols) => { for (let k = 0; k < n; k++) { g.fillStyle = cols[k % cols.length].replace('A', (a * R()).toFixed(3)); g.beginPath(); g.ellipse(R() * w, R() * h, 3 + R() * 18, 3 + R() * 26, R() * 3, 0, 7); g.fill(); } };
+  // figuier lyre : vert profond brillant, nervure claire, nervures secondaires arquées vers la pointe
+  cell(0, 512, 512, 512, (w, h) => {
+    base(w, h, '#2c4a1f', '#3f6229', '#2a461d'); mottle(w, h, 700, 0.07, ['rgba(20,40,12,A)', 'rgba(110,140,70,A)']);
+    g.strokeStyle = 'rgba(196,208,140,0.95)'; g.lineWidth = 9; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2, 6); g.stroke();
+    g.lineWidth = 3.5; g.strokeStyle = 'rgba(170,190,110,0.7)';
+    for (let i = 1; i < 12; i++) { const y = h * (1 - i / 12.5); for (const sd of [-1, 1]) { g.beginPath(); g.moveTo(w / 2, y); g.quadraticCurveTo(w / 2 + sd * w * 0.22, y - h * 0.03, w / 2 + sd * w * 0.48, y - h * 0.1); g.stroke(); } }
+    g.lineWidth = 1.2; g.strokeStyle = 'rgba(150,170,95,0.35)'; for (let k = 0; k < 160; k++) { const x = R() * w, y = R() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 30, y - R() * 20); g.stroke(); }
+  });
+  // strelitzia : vert bleuté, nervures parallèles obliques fines
+  cell(512, 512, 512, 512, (w, h) => {
+    base(w, h, '#36552c', '#4b6d37', '#36552c'); mottle(w, h, 300, 0.05, ['rgba(30,50,20,A)', 'rgba(140,160,110,A)']);
+    g.strokeStyle = 'rgba(205,210,150,0.9)'; g.lineWidth = 10; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2, 0); g.stroke();
+    g.lineWidth = 1.6; g.strokeStyle = 'rgba(160,185,120,0.4)';
+    for (let i = -40; i < 80; i++) for (const sd of [-1, 1]) { const y = i * 9; g.beginPath(); g.moveTo(w / 2, y); g.lineTo(w / 2 + sd * w / 2, y - w * 0.45); g.stroke(); }
+  });
+  // olivier : dessus vert-gris mat (l'envers argenté vient du shader)
+  cell(0, 0, 256, 512, (w, h) => { base(w, h, '#5c6748', '#6d7856', '#5c6748'); mottle(w, h, 200, 0.06, ['rgba(40,50,30,A)', 'rgba(170,175,150,A)']); g.strokeStyle = 'rgba(190,195,165,0.7)'; g.lineWidth = 5; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2, 0); g.stroke(); });
+  // basilic : vert tendre brillant, nervures en creux
+  cell(256, 0, 256, 512, (w, h) => { base(w, h, '#3f7a26', '#56962f', '#3f7a26'); g.strokeStyle = 'rgba(170,210,120,0.8)'; g.lineWidth = 5; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2, 0); g.stroke(); g.lineWidth = 2.5; for (let i = 1; i < 7; i++) { const y = h * (1 - i / 7.5); for (const sd of [-1, 1]) { g.beginPath(); g.moveTo(w / 2, y); g.quadraticCurveTo(w / 2 + sd * w * 0.25, y - 20, w / 2 + sd * w * 0.48, y - 60); g.stroke(); } } });
+  // sansevieria : bandes zébrées, liseré jaune
+  cell(512, 0, 256, 512, (w, h) => {
+    for (let y = 0; y < h; y++) { const t = y / h, zig = Math.sin(t * 70 + Math.sin(t * 13) * 2); const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, '#c2ad4c'); gr.addColorStop(0.08, '#3c5a2a'); gr.addColorStop(0.5, zig > 0.35 ? '#6a8a4c' : '#2a4420'); gr.addColorStop(0.92, '#3c5a2a'); gr.addColorStop(1, '#c2ad4c'); g.fillStyle = gr; g.fillRect(0, y, w, 1); }
+  });
+  // feuille séchée (eucalyptus) : gris-vert poudré, nervure fine
+  cell(768, 0, 256, 512, (w, h) => { base(w, h, '#b9bba6', '#cfd0bd', '#b9bba6'); mottle(w, h, 150, 0.08, ['rgba(120,110,90,A)', 'rgba(240,235,220,A)']); g.strokeStyle = 'rgba(150,140,115,0.6)'; g.lineWidth = 3; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2, 0); g.stroke(); });
+  const t = T(cv, 1, 1); t.repeat.set(1, 1); t.flipY = true; return t;
 }
 
 // atlas de feuillage 1024² : [0, .5]×[0, 1] feuille de figuier lyre ; [.5, 1]×[.5, 1] rameau d'olivier ; [.5, 1]×[0, .5] sansevieria
@@ -356,6 +403,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // couleur sRGB → linéaire, avec légère variation (imperfections)
   const C = (hex, j = 0) => { const c = new THREE.Color(hex); if (j) { const k = 1 + (R() - 0.5) * j; c.r *= k * (1 + (R() - 0.5) * j * 0.3); c.g *= k; c.b *= k * (1 + (R() - 0.5) * j * 0.3); } return [c.r, c.g, c.b]; };
   const WHITE = [1, 1, 1];
+  let mirrorN = P.key * 100;                         // un maillage par miroir (repéré userData.mirror par lots.js)
   const put = (mk, g, c = WHITE, keepUV = false) => { g.translate(0, fy, 0); P.push(mk, g, { tint: c, keepUV }); };
   const rot = (g, o) => { if (o.rz) g.rotateZ(o.rz); if (o.rx) g.rotateX(o.rx); if (o.ry) g.rotateY(o.ry); return g; };
   // --- primitives (y depuis le sol fini)
@@ -385,7 +433,9 @@ export function createDecor(THREE, P, ctx = {}) {
   const sq = (mk, a, b, cz, x, y, z, col, o = {}) => {
     const e1 = o.e1 ?? 0.3, e2 = o.e2 ?? 0.25, nu = o.nu || 24, nv = o.nv || 14, pos = [], idx = [];
     const Cf = (w, m) => Math.sign(Math.cos(w)) * Math.pow(Math.abs(Math.cos(w)), m), Sf = (w, m) => Math.sign(Math.sin(w)) * Math.pow(Math.abs(Math.sin(w)), m);
-    const pinch = o.pinch ?? 0, sag = o.sag ?? 0, puff = o.puff ?? 0, wob = o.wob ?? 0, seed = R() * 10;
+    const pinch = o.pinch ?? 0, sag = o.sag ?? 0, puff = o.puff ?? 0, wob = o.wob ?? 0, seed = R() * 10, squash = o.squash ?? 0, dimple = o.dimple ?? 0, crease = o.crease ?? 0;
+    // plis (froissés) : quelques sillons doux partant des bords
+    const CR = crease ? Array.from({ length: 4 }, () => { const a0 = R() * 6.28; return { px: Math.cos(a0) * 0.85, pz: Math.sin(a0) * 0.85, dx: -Math.cos(a0 + jit(0.9)), dz: -Math.sin(a0 + jit(0.9)), L: 0.35 + R() * 0.4, w: 0.05 + R() * 0.05 }; }) : null;
     for (let j = 0; j <= nv; j++) {
       const ph = -Math.PI / 2 + Math.PI * j / nv;
       for (let i = 0; i <= nu; i++) {
@@ -394,6 +444,9 @@ export function createDecor(THREE, P, ctx = {}) {
         const nx = px / a, nz = pz / cz, m = Math.min(1, Math.max(Math.abs(nx), Math.abs(nz)));
         py *= 1 - pinch * Math.pow(m, 5) + puff * (1 - m * m);
         if (py > 0) py -= sag * b * (1 - nx * nx) * (1 - nz * nz);
+        if (py < 0) py *= 1 - squash;
+        if (py > 0 && dimple) py -= dimple * b * Math.exp(-(nx * nx + nz * nz) / 0.08);
+        if (CR) { let cr = 0; for (const c of CR) { const qx = nx - c.px, qz = nz - c.pz, t = qx * c.dx + qz * c.dz; if (t < 0 || t > c.L) continue; const dd = Math.abs(qx * c.dz - qz * c.dx); cr += Math.exp(-Math.pow(dd / c.w, 2)) * (1 - t / c.L); } py -= Math.sign(py) * crease * b * cr; }
         if (wob) { const w = wob * (Math.sin(px * 23 + seed) * Math.cos(pz * 19 + seed) + 0.5 * Math.sin(py * 31 + seed)); px += w * nx; pz += w * nz; py += w * 0.5; }
         pos.push(px, py, pz);
       }
@@ -472,72 +525,161 @@ export function createDecor(THREE, P, ctx = {}) {
     return prof[prof.length - 1][1];
   }
   // branchages secs dans un vase (tiges fines + petits rameaux)
-  function branches(x, y0, z, h = 0.6, n = 5) {
-    for (let i = 0; i < n; i++) {
-      const a = R() * 6.28, s = 0.12 + R() * 0.18, top = [x + Math.cos(a) * s, y0 + h * (0.75 + R() * 0.3), z + Math.sin(a) * s];
-      tube('bark', [[x, y0 - 0.02, z], [x + Math.cos(a) * s * 0.3, y0 + h * 0.4, z + Math.sin(a) * s * 0.3], top], 0.004, C(0x7a6a55), { seg: 8, rad: 3 });
-      for (let k = 0; k < 3; k++) leafCard(lerp3([x, y0, z], top, 0.55 + 0.15 * k), 0.12, R() * 6.28, 0.4 + R() * 0.6, 'olive', C(0x8a9070, 0.2));
-    }
-  }
-  const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   function bowl(x, y0, z, r = 0.12, c = 0xe8e0d2, mk = 'stoneware') { lathe(mk, [[0, 0], [r * 0.45, 0], [r * 0.85, r * 0.25], [r, r * 0.5], [r * 0.96, r * 0.52], [r * 0.8, r * 0.28], [0, r * 0.1]], x, y0, z, C(c, 0.06), { seg: 30 }); }
   function candle(x, y0, z, h = 0.12) { cyl('lacquer', 0.035, 0.035, h, x, y0, z, C(0xf2ece0)); cyl('black', 0.002, 0.002, 0.01, x, y0 + h, z, WHITE, { seg: 4 }); }
   function tray(x, y0, z, w, d, ry = 0, mk = 'oak', c = WHITE) { slab(mk, w, d, 0.012, 0.05, x, y0, z, c, { ry, bevel: 0.003 }); const t = 0.012; slab(mk, w, d, 0.006, 0.05, x, y0 + 0.012, z, c, { ry }); return y0 + t; }
   function fruitBowl(x, y0, z) { bowl(x, y0, z, 0.16, 0xd8cfc0, 'stoneware'); for (let i = 0; i < 5; i++) { const a = i * 1.3 + R(), r = 0.06 * (i ? 1 : 0); sq('ceramic', 0.035, 0.034, 0.035, x + Math.cos(a) * r, y0 + 0.07 + (i ? 0 : 0.02), z + Math.sin(a) * r, C(pick([0xd8a03a, 0xb3402a, 0xc7c25a]), 0.15), { e1: 1, e2: 1, nu: 10, nv: 6 }); } }
 
-  // ------------------------------------------------------------ feuillage
-  // carte de feuille : centre p, taille s, azimut a, inclinaison (0 = verticale), région d'atlas
-  const ATL = { fig: [0, 0, 0.5, 1], olive: [0.5, 0.5, 1, 1], snake: [0.5, 0, 1, 0.5] };
-  function leafCard(p, s, az, tilt, reg, col, bend = 0.25, aspect = 1) {
-    const [u0, v0, u1, v1] = ATL[reg], w = s * aspect, h = s, pos = [], uv = [], idx = [], nu = 2, nv = 3;
-    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
-      const u = i / nu, v = j / nv, lx = (u - 0.5) * w, ly = v * h, lz = bend * h * v * v - Math.abs(u - 0.5) * w * 0.25;
-      pos.push(lx, ly, lz); uv.push(u0 + (u1 - u0) * u, v0 + (v1 - v0) * v);
+  // ------------------------------------------------------------ végétal modélisé (passe 2)
+  // Feuille = bande maillée le long de la nervure (largeur selon x, longueur selon +z, face vers +y),
+  // pli en V, courbure, ondulation du limbe, torsion ; UV propres dans l'atlas opaque de nervures.
+  // Matériaux : 'leafG' (cuir brillant : figuier, strelitzia, basilic), 'leafM' (mat : olivier, sansevieria, séchés).
+  const LEAF = {
+    fig: { reg: [0, 0, 0.5, 0.5], nu: 7, nv: 10, w: (t) => Math.pow(Math.sin(Math.PI * Math.pow(t, 0.82)), 0.55) * (1 - 0.16 * Math.exp(-Math.pow((t - 0.42) / 0.12, 2))) * (0.72 + 0.4 * t) * Math.sqrt(Math.max(0, 1 - Math.pow(t, 10))) },
+    strelitzia: { reg: [0.5, 0, 1, 0.5], nu: 7, nv: 12, w: (t) => Math.pow(Math.sin(Math.PI * t), 0.45) * (0.85 + 0.15 * Math.sin(t * 3)) },
+    olive: { reg: [0, 0.5, 0.25, 1], nu: 3, nv: 3, w: (t) => Math.pow(Math.sin(Math.PI * t), 0.85) * (1 - 0.25 * t) },
+    basil: { reg: [0.25, 0.5, 0.5, 1], nu: 5, nv: 5, w: (t) => Math.pow(Math.sin(Math.PI * Math.pow(t, 0.7)), 0.8) },
+    snake: { reg: [0.5, 0.5, 0.75, 1], nu: 5, nv: 10, w: (t) => Math.pow(Math.max(0, 1 - Math.pow(t, 1.6)), 0.75) * (0.92 + 0.08 * Math.sin(t * 7)) },
+    dried: { reg: [0.75, 0.5, 1, 1], nu: 3, nv: 4, w: (t) => Math.pow(Math.sin(Math.PI * t), 0.55) },
+  };
+  // p : base de la feuille ; dir : direction [az, élévation] ; o : { L, W, fold, droop, curl, wave, twist, roll }
+  function leaf(mk, kind, p, az, el, o, col) {
+    const S = LEAF[kind], [u0, v0, u1, v1] = S.reg, nu = S.nu, nv = o.nv || S.nv, L = o.L, Wd = o.W, pos = [], uv = [], idx = [];
+    const fold = o.fold ?? 0.25, droop = o.droop ?? 0.2, curl = o.curl ?? 0.1, wave = o.wave ?? 0, twist = o.twist ?? 0, ph = R() * 6;
+    for (let j = 0; j <= nv; j++) {
+      const t = j / nv, hw = Wd / 2 * S.w(t), dz = droop * L, ang = twist * t;
+      for (let i = 0; i < nu; i++) {
+        const a = (i / (nu - 1)) * 2 - 1, aa = Math.abs(a);
+        let x = a * hw, y = (fold * aa + curl * aa * aa * aa) * hw + wave * hw * aa * Math.sin(t * 13 + ph + a), z = t * L;
+        y -= dz * t * t; z -= 0.35 * dz * t * t * t;                          // retombée de la pointe
+        const cx = Math.cos(ang), sx = Math.sin(ang); [x, y] = [x * cx - y * sx, x * sx + y * cx];
+        pos.push(x, y, z); uv.push(u0 + (u1 - u0) * (a * 0.5 + 0.5), v0 + (v1 - v0) * t);
+      }
     }
-    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a0 = j * (nu + 1) + i, b0 = a0 + nu + 1; idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0); }
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu - 1; i++) { const a0 = j * nu + i, b0 = a0 + nu; idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-    g.computeVertexNormals(); g.rotateX(-tilt); g.rotateY(az); g.translate(p[0], p[1], p[2]); put('leaf', g, col, true);
+    g.computeVertexNormals();
+    g.rotateZ(o.roll || 0); g.rotateX(-el); g.rotateY(az); g.translate(p[0], p[1], p[2]);
+    put(mk, g, col, true);
+  }
+  const dirOf = (d) => { const L = Math.hypot(d[0], d[1], d[2]) || 1; return [Math.atan2(d[0], d[2]), Math.asin(d[1] / L)]; };
+  const add3 = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+  const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const curvePts = (pts, n) => { const c = new THREE.CatmullRomCurve3(pts.map(q => new V3(...q)), false, 'centripetal'); return c.getSpacedPoints(n).map(v => [v.x, v.y, v.z]); };
+  // tige effilée (rayon r0 → r1) le long d'une polyligne : tube à rayon variable
+  function stem(mk, pts, r0, r1, col, rad = 5, seg = null) {
+    const c = new THREE.CatmullRomCurve3(pts.map(q => new V3(...q)), false, 'centripetal'), n = seg || Math.max(4, pts.length * 4);
+    const g = new THREE.TubeGeometry(c, n, 1, rad, false), p = g.attributes.position;
+    const fr = c.computeFrenetFrames(n, false);
+    for (let i = 0; i <= n; i++) { const P0 = c.getPointAt(i / n), r = r0 + (r1 - r0) * (i / n); for (let k = 0; k <= rad; k++) { const id = i * (rad + 1) + k, v = new V3(p.getX(id), p.getY(id), p.getZ(id)).sub(P0); p.setXYZ(id, P0.x + v.x * r, P0.y + v.y * r, P0.z + v.z * r); } }
+    g.computeVertexNormals(); put(mk, g, col);
   }
   function pot(x, z, r, h, c, kind = 0) {
-    const pr = kind === 0 ? [[0, 0], [r * 0.78, 0], [r * 0.95, h * 0.5], [r, h * 0.97], [r * 0.93, h], [r * 0.88, h * 0.92], [0, h * 0.9]]
-      : [[0, 0], [r * 0.7, 0], [r * 0.98, h * 0.35], [r * 0.92, h * 0.85], [r * 0.85, h], [r * 0.8, h * 0.93], [0, h * 0.9]];
-    lathe('stoneware', pr, x, 0, z, C(c, 0.05), { seg: 32 });
-    disc('soil', r * 0.86, x, h * 0.9, z, C(0x6a5544, 0.1), 24);
+    const pr = kind === 0 ? [[0, 0], [r * 0.74, 0], [r * 0.8, 0.012], [r * 0.95, h * 0.5], [r, h * 0.96], [r * 1.02, h], [r * 0.95, h], [r * 0.92, h * 0.95], [r * 0.9, h * 0.86], [0, h * 0.86]]
+      : [[0, 0], [r * 0.66, 0], [r * 0.72, 0.012], [r * 0.98, h * 0.35], [r * 0.93, h * 0.86], [r * 0.88, h], [r * 0.82, h], [r * 0.8, h * 0.95], [r * 0.8, h * 0.88], [0, h * 0.88]];
+    lathe('stoneware', pr, x, 0, z, C(c, 0.05), { seg: 36 });
+    // terreau légèrement bombé, grains et quelques cailloux
+    const sr = (kind === 0 ? 0.9 : 0.8) * r, sy = h * (kind === 0 ? 0.86 : 0.88);
+    lathe('soil', [[sr, 0], [sr * 0.7, 0.008], [sr * 0.35, 0.014], [0, 0.016]], x, sy, z, C(0x5e4a3a, 0.1), { seg: 24 });
+    for (let i = 0; i < 7; i++) { const a = R() * 6.28, rr = sr * (0.3 + 0.6 * R()); sq('stoneware', 0.008 + R() * 0.006, 0.005, 0.007 + R() * 0.005, x + Math.cos(a) * rr, sy + 0.01, z + Math.sin(a) * rr, C(pick([0xb9b0a2, 0x8c8274, 0xd8d0c2])), { e1: 0.8, e2: 0.8, nu: 6, nv: 4, ry: R() * 3 }); }
     contact(x, z, r * 3, r * 3, 0.008);
+    return sy + 0.012;
   }
-  // figuier lyre (Ficus lyrata) : tronc fin, grandes feuilles coriaces étagées
+  // figuier lyre : tronc élancé + 2 ramifications, grandes feuilles coriaces en spirale (pétiole court)
   function figTree(x, z, h = 1.7, potC = 0xe7dfd1) {
-    pot(x, z, 0.2, 0.42, potC, 1);
-    const trunk = [[x, 0.38, z], [x + 0.03, 0.9, z - 0.02], [x - 0.02, h * 0.75, z + 0.03], [x + 0.02, h * 0.95, z]];
+    const y0 = pot(x, z, 0.2, 0.42, potC, 1);
     walk(() => {
-      tube('bark', trunk, 0.018, C(0x7c6a55), { seg: 14, rad: 5 });
-      const n = 34;
-      for (let i = 0; i < n; i++) {
-        const t = 0.35 + 0.65 * (i / n), y = h * (0.42 + 0.56 * t), az = i * 2.4 + jit(0.6), out = 0.08 + 0.18 * (1 - t) + R() * 0.06;
-        const p = [x + Math.sin(az) * out * 0.5, y, z + Math.cos(az) * out * 0.5], s = 0.26 + R() * 0.12;
-        leafCard(p, s, az, 0.45 + R() * 0.6 - t * 0.2, 'fig', C(pick([0x9fb07c, 0xb6c48e, 0x8ea26c]), 0.2), 0.12, 0.62);
+      const trunk = curvePts([[x, y0 - 0.02, z], [x + 0.02, 0.8, z - 0.01], [x - 0.02, h * 0.68, z + 0.02], [x + 0.01, h * 0.97, z]], 14);
+      stem('bark', trunk, 0.02, 0.008, C(0x7a6b58), 6);
+      const br = [trunk];
+      for (const [k, a] of [[7, 0.6], [9, 3.4]]) { const b0 = trunk[k], e = [b0[0] + Math.sin(a) * 0.28, b0[1] + 0.42, b0[2] + Math.cos(a) * 0.28]; const pts = curvePts([b0, lerp3(b0, e, 0.5).map((v, i) => v + (i === 1 ? 0.05 : 0)), e], 8); stem('bark', pts, 0.011, 0.005, C(0x7a6b58), 5); br.push(pts); }
+      let n = 0;
+      for (const pts of br) for (let i = Math.floor(pts.length * (pts === trunk ? 0.35 : 0.15)); i < pts.length; i++, n++) {
+        const q = pts[i], t = i / (pts.length - 1), az = n * 2.39996 + jit(0.4), size = (0.27 + 0.13 * (1 - t) + R() * 0.06) * (pts === trunk ? 1 : 0.9);
+        const pet = [q[0] + Math.sin(az) * 0.05, q[1] + 0.02, q[2] + Math.cos(az) * 0.05];
+        stem('leafG', [q, pet], 0.004, 0.003, C(0x6f7f3e), 3, 2);
+        leaf('leafG', 'fig', pet, az, 0.35 + 0.65 * t * R() + 0.15, { L: size, W: size * 0.62, fold: 0.12, droop: 0.12 + 0.12 * (1 - t), curl: -0.18, wave: 0.06, twist: jit(0.3), roll: jit(0.25) }, C(pick([0xffffff, 0xeaf0dc, 0xdfe8cc]), 0.12));
       }
     });
   }
-  // olivier en pot : tronc noueux, ramure en boule irrégulière de rameaux gris-vert
+  // olivier : deux troncs tressés, charpentières, rameaux fins portant des paires de feuilles lancéolées gris-vert
   function oliveTree(x, z, h = 1.8, potC = 0xcfc6b8) {
-    pot(x, z, 0.27, 0.48, potC, 0);
+    const y0 = pot(x, z, 0.27, 0.48, potC, 0);
     walk(() => {
-      const base = [x, 0.44, z], top = [x + 0.05, h * 0.62, z - 0.04];
-      tube('bark', [base, [x - 0.05, 0.8, z + 0.03], [x + 0.04, 1.05, z - 0.02], top], 0.035, C(0x8a7d6a), { seg: 18, rad: 6 });
-      const arms = [];
-      for (let b = 0; b < 4; b++) { const a = b * 1.6 + jit(0.5), e = [top[0] + Math.cos(a) * 0.3, h * (0.75 + R() * 0.15), top[2] + Math.sin(a) * 0.3]; tube('bark', [lerp3(base, top, 0.85), lerp3(top, e, 0.5), e], 0.014, C(0x8a7d6a), { seg: 8, rad: 4 }); arms.push(e); }
-      for (let i = 0; i < 90; i++) {
-        const e = arms[i % 4], a = R() * 6.28, rr = 0.1 + R() * 0.3, p = [e[0] + Math.cos(a) * rr, e[1] + (R() - 0.35) * 0.4, e[2] + Math.sin(a) * rr];
-        leafCard(p, 0.2 + R() * 0.1, R() * 6.28, 0.2 + R() * 1.1, 'olive', C(pick([0xd9ddc8, 0xc8cdb4, 0xbfc8a8]), 0.2), 0.2);
+      const barkC = C(0x8f8372, 0.06), yTop = h * 0.6;
+      for (const s of [0, Math.PI]) { const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12, a = s + t * Math.PI * 2.6, r = 0.022 * (1 - 0.3 * t); pts.push([x + Math.cos(a) * r + 0.03 * t, y0 - 0.02 + (yTop - y0) * t, z + Math.sin(a) * r - 0.02 * t]); } stem('bark', pts, 0.024, 0.016, barkC, 6, 36); }
+      const top = [x + 0.03, yTop, z - 0.02];
+      // ramure : 7 charpentières, rameaux et sous-rameaux ; houppier en boule irrégulière (~1 500 feuilles)
+      const twig = (q, ta, tl, tu, pairs) => {
+        const te = [q[0] + Math.cos(ta) * tl, q[1] + tu, q[2] + Math.sin(ta) * tl];
+        const tw = curvePts([q, lerp3(q, te, 0.5).map((v, i) => v + (i === 1 ? 0.02 : 0)), te], pairs);
+        stem('bark', tw, 0.0035, 0.0012, C(0x8a8a6a), 3, pairs);
+        for (let m = 1; m <= pairs; m++) {
+          const p0 = tw[m], d = [tw[m][0] - tw[m - 1][0], tw[m][1] - tw[m - 1][1], tw[m][2] - tw[m - 1][2]], [daz, del] = dirOf(d);
+          for (const sd of [-1, 1]) leaf('leafM', 'olive', p0, daz + sd * (0.5 + R() * 0.45), del + 0.1 + jit(0.5), { L: 0.07 + R() * 0.025, W: 0.014 + R() * 0.005, fold: 0.35, droop: 0.18, curl: 0.15, twist: jit(0.6), roll: sd * 0.5 + jit(0.4) }, C(pick([0xffffff, 0xf0f2e6, 0xe2e8d6, 0xd6dccb, 0xc9d1bd]), 0.08));
+        }
+        leaf('leafM', 'olive', te, ...dirOf([te[0] - tw[pairs - 1][0], te[1] - tw[pairs - 1][1], te[2] - tw[pairs - 1][2]]), { L: 0.06, W: 0.012, fold: 0.3, droop: 0.1 }, C(0xf4f6ee));
+        return tw;
+      };
+      for (let b = 0; b < 7; b++) {
+        const a = b * 0.898 + jit(0.35), up = 0.22 + R() * 0.38, len = 0.3 + R() * 0.2;
+        const e = [top[0] + Math.cos(a) * len, yTop + up, top[2] + Math.sin(a) * len];
+        const bp = curvePts([top, [top[0] + Math.cos(a) * len * 0.45, yTop + up * 0.35 + 0.05, top[2] + Math.sin(a) * len * 0.45], e], 10);
+        stem('bark', bp, 0.013, 0.005, barkC, 5);
+        for (let k = 2; k <= 10; k++) {
+          const tw = twig(bp[k], a + jit(2.2), 0.12 + R() * 0.12, -0.03 + R() * 0.14, 6);
+          if (R() < 0.55) twig(tw[3], a + jit(2.5), 0.08 + R() * 0.07, R() * 0.08, 5);
+        }
       }
     });
   }
-  // sansevieria : lames dressées
-  function snakePlant(x, z, h = 0.75, potC = 0xb8684a) {
-    pot(x, z, 0.14, 0.3, potC, 1);
-    walk(() => { for (let i = 0; i < 11; i++) { const a = i * 2.3, rr = 0.03 + R() * 0.06; leafCard([x + Math.cos(a) * rr, 0.27, z + Math.sin(a) * rr], h * (0.6 + R() * 0.5), a + 1.4, 0.05 + R() * 0.2, 'snake', C(0xffffff, 0.2), 0.08, 0.12); } });
+  // oiseau de paradis (Strelitzia nicolai) : longs pétioles en éventail, grandes feuilles en pagaie, pli central marqué
+  function strelitzia(x, z, h = 1.7, potC = 0xb8684a) {
+    const y0 = pot(x, z, 0.22, 0.44, potC, 1);
+    walk(() => {
+      const n = 11;
+      for (let i = 0; i < n; i++) {
+        const az = i * 2.39996 + jit(0.3), lean = 0.1 + R() * 0.25, sh = h * (0.62 + 0.3 * R()) - y0 - 0.4;
+        const base = [x + Math.sin(az) * 0.03, y0 - 0.01, z + Math.cos(az) * 0.03], tip = [base[0] + Math.sin(az) * sh * lean, y0 + sh, base[2] + Math.cos(az) * sh * lean];
+        const pts = curvePts([base, lerp3(base, tip, 0.5), tip], 8);
+        stem('leafG', pts, 0.011, 0.007, C(0x9aa56c), 5);
+        const L = 0.42 + R() * 0.16, [daz, del] = dirOf([tip[0] - pts[6][0], tip[1] - pts[6][1], tip[2] - pts[6][2]]);
+        leaf('leafG', 'strelitzia', tip, daz, Math.min(1.45, del + jit(0.25)), { L, W: L * 0.36, fold: 0.42, droop: 0.22, curl: -0.05, wave: 0.04, twist: jit(0.6), roll: Math.PI / 2 + jit(0.8) }, C(pick([0xffffff, 0xeef2e2, 0xdde6cc]), 0.1));
+      }
+    });
   }
+  // sansevieria : lames épaisses dressées, légère torsion
+  function snakePlant(x, z, h = 0.75, potC = 0xb8684a) {
+    const y0 = pot(x, z, 0.14, 0.3, potC, 1);
+    walk(() => { for (let i = 0; i < 12; i++) { const a = i * 2.39996, rr = 0.015 + R() * 0.07; leaf('leafM', 'snake', [x + Math.cos(a) * rr, y0 - 0.01, z + Math.sin(a) * rr], a, 1.3 + R() * 0.22, { L: h * (0.5 + 0.55 * R()), W: 0.055 + R() * 0.03, fold: 0.3, droop: 0.04, curl: 0.15, twist: jit(0.9), roll: R() * 3 }, C(0xffffff, 0.15)); } });
+  }
+  // basilic en pot de terre cuite (plan de travail)
+  function herbs(x, y, z, potC = 0xb8684a) {
+    lathe('stoneware', [[0, 0], [0.045, 0], [0.06, 0.09], [0.066, 0.1], [0.066, 0.11], [0.058, 0.11], [0.055, 0.1], [0, 0.1]], x, y, z, C(potC, 0.06), { seg: 24 });
+    disc('soil', 0.054, x, y + 0.098, z, C(0x4e3c30), 16);
+    walk(() => {
+      for (let s = 0; s < 5; s++) {
+        const a = s * 1.3 + jit(0.4), r = 0.015 + R() * 0.02, top = [x + Math.cos(a) * (r + 0.03), y + 0.2 + R() * 0.08, z + Math.sin(a) * (r + 0.03)];
+        const pts = curvePts([[x + Math.cos(a) * r, y + 0.095, z + Math.sin(a) * r], top], 5);
+        stem('leafG', pts, 0.0028, 0.0018, C(0x7f9a45), 3, 5);
+        for (let k = 1; k <= 5; k++) { const q = pts[k], sz = 0.03 + 0.025 * (1 - k / 6); for (const sd of [-1, 1]) leaf('leafG', 'basil', q, a + sd * 1.4 + k * 0.7, 0.3 + jit(0.4), { L: sz, W: sz * 0.7, fold: 0.3, droop: 0.25, curl: -0.3 }, C(pick([0xffffff, 0xf2ffe0]), 0.1)); }
+      }
+    });
+  }
+  // branchages secs dans un vase : tiges ramifiées, petites feuilles rondes séchées (eucalyptus / olivier)
+  function branches(x, y0, z, h = 0.6, n = 5) {
+    walk(() => {
+      for (let i = 0; i < n; i++) {
+        const a = R() * 6.28, s = 0.1 + R() * 0.2, top = [x + Math.cos(a) * s, y0 + h * (0.75 + R() * 0.3), z + Math.sin(a) * s];
+        const pts = curvePts([[x, y0 - 0.03, z], [x + Math.cos(a) * s * 0.25, y0 + h * 0.4, z + Math.sin(a) * s * 0.25], top], 10);
+        stem('bark', pts, 0.0035, 0.0015, C(0x7a6a55), 3, 10);
+        const dc = pick([0xe8e0c4, 0xd9ccb0, 0xc9cfbf]);
+        for (let k = 4; k <= 10; k++) { const q = pts[k], [daz, del] = dirOf([q[0] - pts[k - 1][0], q[1] - pts[k - 1][1], q[2] - pts[k - 1][2]]); for (const sd of [-1, 1]) leaf('leafM', 'dried', q, daz + sd * 1.2, del - 0.2 + jit(0.4), { L: 0.03 + R() * 0.012, W: 0.024, fold: 0.15, droop: 0.2, curl: 0.2, twist: jit(0.6), roll: sd * 0.6 }, C(dc, 0.1)); }
+      }
+    });
+  }
+  // compatibilité : anciennes cartes (non utilisées)
+  function leafCard(p, s, az, tilt, reg, col) { leaf('leafM', 'olive', p, az, Math.PI / 2 - tilt, { L: s * 0.5, W: s * 0.12 }, col); }
 
   // ------------------------------------------------------------ luminaires
   function tableLamp(x, y0, z, kind = 0, baseC = 0xd9cfbf) {
@@ -578,8 +720,31 @@ export function createDecor(THREE, P, ctx = {}) {
     });
   }
 
-  // ------------------------------------------------------------ textiles
-  function pillow(x, y, z, s, t, col, o = {}) { sq('textile', s / 2, t / 2, s / 2, x, y, z, col, { e1: 0.35, e2: 0.22, pinch: 0.75, puff: 0.15, nu: 20, nv: 12, rx: o.rx || 0, ry: o.ry || 0, rz: o.rz || 0, wob: 0.004 }); }
+  // ------------------------------------------------------------ textiles (passe 2)
+  // coussin : superquadrique pincée à la couture, ventre bombé, léger tassement côté appui, passepoil de couture
+  function pillow(x, y, z, s, t, col, o = {}) {
+    const a = s / 2, b = t / 2, ro = { rx: o.rx || 0, ry: o.ry || 0, rz: o.rz || 0 };
+    sq(o.mk || 'textile', a, b, a, x, y, z, col, { e1: 0.42, e2: 0.2, pinch: 0.82, puff: 0.22, squash: 0.18, dimple: 0.12, crease: 0.05, nu: 22, nv: 12, wob: 0.003, ...ro });
+    seamLoop(o.mk || 'textile', a * 0.985, a * 0.985, 0.0035, x, y, z, col.map(v => v * 0.9), ro, 0.2, 40);
+  }
+  // couture / passepoil en superellipse dans le plan local y = 0, avec les mêmes rotations que l'objet
+  function seamLoop(mk, a, c, r, x, y, z, col, o = {}, e = 0.2, n = 64) {
+    const pts = []; for (let k = 0; k < n; k++) { const th = -Math.PI + 2 * Math.PI * k / n, cc = Math.cos(th), ss = Math.sin(th); pts.push(new V3(a * Math.sign(cc) * Math.pow(Math.abs(cc), e), 0, c * Math.sign(ss) * Math.pow(Math.abs(ss), e))); }
+    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true, 'centripetal'), n, r, 3, true); rot(g, o); g.translate(x, y, z); put(mk, g, col);
+  }
+  // tombé d'un textile au-delà d'un bord arrondi (rayon rr) : distance horizontale dd depuis le bord → [débord, chute]
+  const fallOf = (dd, rr) => (dd <= 0 ? [0, 0] : dd < rr * Math.PI / 2 ? [rr * Math.sin(dd / rr), -rr + rr * Math.cos(dd / rr)] : [rr, -rr - (dd - rr * Math.PI / 2)]);
+  // nappe épaisse : surface f(u, v) + envers décalé de e + ourlets roulés sur les bords libres (u = 0, u = 1, v = 1)
+  function thickSheet(mk, nu, nv, f, col, e = 0.012, hems = 'u0 u1 v1') {
+    sheet(mk, nu, nv, f, col);
+    sheet(mk, nu, nv, (u, v) => { const p = f(u, v), q = f(Math.min(1, u + 1e-3), v), r = f(u, Math.min(1, v + 1e-3)); const ax = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], bx = [r[0] - p[0], r[1] - p[1], r[2] - p[2]]; let n = [ax[1] * bx[2] - ax[2] * bx[1], ax[2] * bx[0] - ax[0] * bx[2], ax[0] * bx[1] - ax[1] * bx[0]]; const L = Math.hypot(...n) || 1; return [p[0] - n[0] / L * e, p[1] - n[1] / L * e, p[2] - n[2] / L * e]; }, col.map(v => v * 0.92));
+    const edge = (fn, m) => { const pts = []; for (let k = 0; k <= m; k++) pts.push(new V3(...fn(k / m))); const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), m * 2, e * 0.62, 5, false); put(mk, g, col.map(v => v * 0.95)); };
+    const off = (p, u, v) => p;
+    if (hems.includes('u0')) edge((t) => off(f(0, t)), nv);
+    if (hems.includes('u1')) edge((t) => off(f(1, t)), nv);
+    if (hems.includes('v1')) edge((t) => off(f(t, 1)), nu);
+    if (hems.includes('v0')) edge((t) => off(f(t, 0)), nu);
+  }
   // tapis : plateau souple + franges aux extrémités (selon x local)
   function fringe(w, d, mk = 'rug') {
     for (const s of [-1, 1]) for (let z = -d / 2 + 0.015; z < d / 2 - 0.01; z += 0.024) {
@@ -588,14 +753,20 @@ export function createDecor(THREE, P, ctx = {}) {
     }
   }
   function rugF(w, d, mk = 'rug', col = WHITE, withFringe = true) { rbb(mk, -w / 2, w / 2, 0.004, 0.016, -d / 2, d / 2, 0.006, col); if (withFringe) fringe(w, d, mk); contact(0, 0, w + 0.1, d + 0.1, 0.006); }
-  // plaid drapé sur un accoudoir : profil (x, y) local, largeur selon z
+  // plaid épais drapé sur un accoudoir : profil (x, y) local, largeur selon z, plis souples
   function plaidOverArm(xa, armTop, armW, z0, z1, col) {
-    const prof = [[xa - armW / 2 - 0.22, 0.47], [xa - armW / 2 - 0.05, armTop - 0.02], [xa - armW * 0.2, armTop + 0.012], [xa + armW * 0.25, armTop + 0.012], [xa + armW / 2 + 0.01, armTop - 0.04], [xa + armW / 2 + 0.02, armTop - 0.32]];
+    const prof = [[xa - armW / 2 - 0.2, 0.465], [xa - armW / 2 - 0.06, armTop - 0.03], [xa - armW * 0.2, armTop + 0.016], [xa + armW * 0.25, armTop + 0.016], [xa + armW / 2 + 0.015, armTop - 0.045], [xa + armW / 2 + 0.03, armTop - 0.34]];
     const curve = new THREE.CatmullRomCurve3(prof.map(([px, py]) => new V3(px, py, 0)));
-    sheet('cloth', 10, 24, (u, v) => { const p = curve.getPoint(v); const z = z0 + (z1 - z0) * u; const fold = Math.sin(u * 7.0 + v * 2.0); return [p.x + 0.006 * fold * v, p.y + 0.006 * Math.sin(u * 5.5 + 1) * Math.sin(v * 3.1), z + 0.012 * Math.sin(v * 4.5) * (1 - u * 0.5)]; }, col);
+    thickSheet('cloth', 18, 30, (u, v) => {
+      const p = curve.getPoint(v), z = z0 + (z1 - z0) * u, hangK = Math.max(0, (v - 0.6) / 0.4);
+      const fold = Math.sin(u * 9.0 + 1.3) * 0.5 + Math.sin(u * 17.0 + v * 3) * 0.2;
+      return [p.x + 0.018 * fold * hangK, p.y + 0.004 * Math.sin(u * 6 + 1) * (1 - hangK), z + 0.03 * hangK * hangK * Math.sin(u * 3.1 + 0.4)];
+    }, col, 0.009, 'u0 u1 v1 v0');
   }
-  // plaid plié posé (x, y0, z), w × d
-  function foldedThrow(x, y0, z, w, d, col, ry = 0) { sq('cloth', w / 2, 0.02, d / 2, x, y0 + 0.02, z, col, { e1: 0.3, e2: 0.15, pinch: 0.2, ry, nu: 18, nv: 8, wob: 0.003 }); }
+  // plaid plié posé (x, y0, z), w × d : trois épaisseurs et pli arrondi
+  function foldedThrow(x, y0, z, w, d, col, ry = 0) {
+    for (let k = 0; k < 3; k++) sq('cloth', w / 2 - k * 0.004, 0.009, d / 2 - k * 0.003, x, y0 + 0.009 + k * 0.016, z + k * 0.002, col.map(v => v * (1 - 0.03 * k)), { e1: 0.35, e2: 0.12, pinch: 0.1, ry, nu: 20, nv: 6, wob: 0.002 });
+  }
 
   // ------------------------------------------------------------ assises
   // canapé 3 places à coussins séparés (lin), passepoils, pieds en chêne, coussins déco et plaid
@@ -609,11 +780,11 @@ export function createDecor(THREE, P, ctx = {}) {
     const n = w > 2.1 ? 3 : 2, inner = w - 2 * armW, cw = inner / n;
     for (let i = 0; i < n; i++) {
       const x = -inner / 2 + cw * (i + 0.5), cd = d - 0.2, cz = 0.085;
-      sq('textile', cw / 2 - 0.006, 0.08, cd / 2, x, seatY + 0.08, cz, C(o.col || PAL.linenSand, 0.03), { e1: 0.22, e2: 0.14, pinch: 0.28, sag: 0.12, nu: 26, nv: 12, wob: 0.002 });
+      sq('textile', cw / 2 - 0.006, 0.08, cd / 2, x, seatY + 0.08, cz, C(o.col || PAL.linenSand, 0.03), { e1: 0.24, e2: 0.14, pinch: 0.3, puff: 0.18, sag: 0.1, crease: 0.07, nu: 30, nv: 14, wob: 0.002 });
       // passepoil sur l'arête supérieure du coussin
       const pts = []; for (let k = 0; k < 28; k++) { const th = -Math.PI + 2 * Math.PI * k / 28, cc = Math.cos(th), ss = Math.sin(th); pts.push([x + (cw / 2 - 0.006) * Math.sign(cc) * Math.pow(Math.abs(cc), 0.14), seatY + 0.08 + 0.055, cz + cd / 2 * Math.sign(ss) * Math.pow(Math.abs(ss), 0.14)]); }
       tube('textile', pts, 0.0045, colD, { closed: true, seg: 80, rad: 4 });
-      sq('textile', cw / 2 - 0.008, 0.21, 0.1, x, seatY + 0.16 + 0.2, -d / 2 + 0.24, C(o.col || PAL.linenSand, 0.03), { e1: 0.25, e2: 0.2, pinch: 0.45, puff: 0.2, rx: -0.16, nu: 22, nv: 14, wob: 0.003 });
+      sq('textile', cw / 2 - 0.008, 0.21, 0.1, x, seatY + 0.16 + 0.2, -d / 2 + 0.24, C(o.col || PAL.linenSand, 0.03), { e1: 0.27, e2: 0.2, pinch: 0.45, puff: 0.24, crease: 0.08, squash: 0.05, rx: -0.16, nu: 24, nv: 16, wob: 0.003 });
     }
     // coussins décoratifs
     const pc = o.pillows || [PAL.terracotta, PAL.linenOat, PAL.ochre, PAL.sage];
@@ -771,27 +942,44 @@ export function createDecor(THREE, P, ctx = {}) {
     box('oak', -w / 2 + 0.08, w / 2 - 0.08, 0, 0.08, z0 + 0.1, z0 + L - 0.1, C(0x5a4636));
     rbb('textile', -w / 2 - 0.02, w / 2 + 0.02, 0.07, 0.33, z0, z0 + L + 0.02, 0.03, hb);
     sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
-    // couette : nappe qui retombe sur les côtés et au pied
-    const hang = 0.24, zA = z0 + 0.55, zB = z0 + L + 0.02, rr = 0.05;
-    const fall = (dd) => (dd <= 0 ? [0, 0] : dd < rr * Math.PI / 2 ? [rr * Math.sin(dd / rr), -rr + rr * Math.cos(dd / rr)] : [rr, -rr - (dd - rr * Math.PI / 2)]);
-    sheet('cloth', 40, 46, (u, v) => {
-      const s = (u - 0.5) * (w + 2 * hang), t = v * (zB - zA + hang);
-      const dx = Math.abs(s) - w / 2 - 0.01, dz = t - (zB - zA);
-      const [ox, oy1] = fall(dx), [oz, oy2] = fall(dz);
-      const x = Math.sign(s) * (Math.min(Math.abs(s), w / 2 + 0.01) + ox) + 0.008 * Math.sin(t * 17 + s * 3);
-      const z = zA + Math.min(t, zB - zA) + oz;
-      let y = top + 0.02 + oy1 + oy2 + 0.014 * Math.sin(s * 9 + t * 4) * Math.cos(t * 6) + 0.008 * Math.sin(s * 23 - t * 17) + 0.012 * Math.exp(-Math.pow((t - 0.1) / 0.12, 2)) + 0.02 * Math.exp(-Math.pow((s + t * 0.6 - 0.5) / 0.08, 2)) * (Math.abs(s) < w / 2 ? 1 : 0);
-      y = Math.max(y, 0.12 + 0.02 * Math.sin(s * 30 + t * 30));
+    // couette épaisse : dessus bombé matelassé, arrondi sur l'arête du matelas, chute avec plis verticaux,
+    // coins en cône (plus bas), ourlet roulé ; envers décalé (épaisseur visible au bord)
+    const hang = 0.27, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
+    const duvet = (u, v) => {
+      u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v));
+      const s = (u - 0.5) * (2 * hw + 2 * hang), t = v * (len + hang);
+      const ex = Math.max(0, Math.abs(s) - hw), ez = Math.max(0, t - len), d = Math.hypot(ex, ez);
+      const [o1, oy] = fallOf(d, rr), k = d > 0 ? o1 / d : 0;
+      let x = Math.sign(s) * (Math.min(Math.abs(s), hw) + ex * k), z = zA + Math.min(t, len) + ez * k, y = top + 0.05 + oy;
+      const inTop = d === 0, hangK = Math.min(1, d / hang);
+      // dessus : gonflant, matelassage léger, plis doux (corps couché)
+      if (inTop) { const nx = s / hw, nz = t / len; y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) - 0.003 * Math.pow(Math.cos((t / 0.33) * Math.PI + 0.3 * Math.sin(s * 4)), 16) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5); }
+      // chute : plis verticaux qui s'ouvrent vers le bas, ondulation de l'ourlet
+      const pf = 0.022 * hangK * Math.sin((Math.abs(s) > hw ? t : s) * 11 + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0));
+      if (!inTop) { const nxv = ex > 0 ? Math.sign(s) : 0, nzv = ez > 0 ? 1 : 0, L2 = Math.hypot(nxv, nzv) || 1; x += nxv / L2 * pf; z += nzv / L2 * pf; if (ez > 0 && ex === 0) x += pf * 0.6; if (ex > 0 && ez === 0) z += pf * 0.6; }
+      y = Math.max(y, 0.1 + 0.015 * Math.sin(s * 20 + t * 13));
       return [x, y, z];
-    }, duvetC);
-    // revers de couette en tête
-    sq('cloth', w / 2 + 0.015, 0.035, 0.12, 0, top + 0.03, zA + 0.05, duvetC, { e1: 0.4, e2: 0.12, nu: 24, nv: 8, wob: 0.004 });
+    };
+    thickSheet('cloth', 42, 46, duvet, duvetC, 0.02, 'u0 u1 v1');
+    // revers de couette en tête : rouleau souple avec housse
+    sq('cloth', hw + 0.01, 0.04, 0.12, 0, top + 0.062, zA + 0.04, duvetC.map(v => v * 0.97), { e1: 0.45, e2: 0.1, puff: 0.1, crease: 0.08, nu: 30, nv: 10, wob: 0.004 });
     // oreillers : deux grands carrés contre la tête de lit, deux standard, un coussin
-    const np = w >= 1.5 ? 2 : 2;
-    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x, top + 0.3, z0 + 0.17, Math.min(0.62, w / np - 0.04), 0.17, sheetC, { rx: -Math.PI / 2 + 0.3, rz: jit(0.05) }); pillow(x + jit(0.03), top + 0.17, z0 + 0.4, Math.min(0.6, w / np - 0.06) * 0.92, 0.14, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.75, rz: jit(0.05) }); }
-    pillow(0, top + 0.14, z0 + 0.58, 0.44, 0.13, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
-    // plaid plié en travers au pied
-    sheet('cloth', 30, 8, (u, v) => { const s = (u - 0.5) * (w + 0.44), dx = Math.abs(s) - w / 2 - 0.015, [ox, oy] = fall(dx); return [Math.sign(s) * (Math.min(Math.abs(s), w / 2 + 0.015) + ox * 1.2), top + 0.05 + oy, z0 + L - 0.5 + v * 0.42 + 0.01 * Math.sin(u * 20)]; }, C(o.throw || PAL.ochre, 0.02));
+    const np = 2;
+    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x, top + 0.34, z0 + 0.17, Math.min(0.64, w / np - 0.03), 0.2, sheetC, { rx: -Math.PI / 2 + 0.3, rz: jit(0.05) }); pillow(x + jit(0.03), top + 0.2, z0 + 0.42, Math.min(0.6, w / np - 0.05) * 0.93, 0.17, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.75, rz: jit(0.05) }); }
+    pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
+    // plaid épais plié en travers au pied : épouse la couette (décalé selon sa normale), retombe moins bas qu'elle
+    const tW = 2 * hw + 2 * hang, tL = len + hang, tdrop = 0.19, tz0 = L - 0.52 + z0 - zA, tdz = 0.44;
+    const onDuvet = (s, t, e) => {
+      const u = s / tW + 0.5, v = t / tL, p = duvet(u, v), q = duvet(u + 2e-3, v), r = duvet(u, v + 2e-3);
+      const ax = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], bx = [r[0] - p[0], r[1] - p[1], r[2] - p[2]];
+      let n = [ax[2] * bx[1] - ax[1] * bx[2], ax[0] * bx[2] - ax[2] * bx[0], ax[1] * bx[0] - ax[0] * bx[1]]; const Ln = Math.hypot(...n) || 1; n = n.map(c => c / Ln); if (n[1] < 0) n = n.map(c => -c);
+      return [p[0] + n[0] * e, p[1] + n[1] * e, p[2] + n[2] * e];
+    };
+    thickSheet('cloth', 48, 10, (u, v) => {
+      const s = (u - 0.5) * 2 * (hw + tdrop), t = tz0 + v * tdz;
+      const hk = Math.min(1, Math.max(0, Math.abs(s) - hw) / tdrop), q = onDuvet(s, t, 0.018 + 0.016 * hk);
+      return [q[0] + 0.006 * hk * Math.sin(v * 9 + u * 5), q[1] + 0.003 * Math.sin(u * 17) * (1 - hk), q[2] + 0.012 * hk * Math.sin(u * 23 + 1)];
+    }, C(o.throw || PAL.ochre, 0.02), 0.011, 'u0 u1 v0 v1');
     contact(0, z0 + L / 2, w + 0.3, L + 0.3);
   }
 
@@ -811,8 +999,8 @@ export function createDecor(THREE, P, ctx = {}) {
       g.translate(cx, cy, fd - 0.0075); put('art', g, WHITE, true);
     });
   }
-  function roundMirror(cx, cy, r, frame = 'brass') { walk(() => { const g = new THREE.CircleGeometry(r, 48); g.translate(cx, cy, 0.012); put('mirror', g); torus(frame, r, 0.012, cx, cy, 0.012, WHITE, { rx: Math.PI / 2, seg: 48, rad: 8 }); }); }
-  function rectMirror(cx, cy, w, h, frame = 'oak') { walk(() => { const g = new THREE.PlaneGeometry(w - 0.04, h - 0.04); g.translate(cx, cy, 0.016); put('mirror', g); rbb(frame, cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, 0, 0.014, 0.01, C(0xf6eee4)); }); }
+  function roundMirror(cx, cy, r, frame = 'brass') { walk(() => { const g = new THREE.CircleGeometry(r, 48); g.translate(cx, cy, 0.012); put('mirror#' + (++mirrorN), g, WHITE, true); torus(frame, r, 0.012, cx, cy, 0.012, WHITE, { rx: Math.PI / 2, seg: 48, rad: 8 }); }); }
+  function rectMirror(cx, cy, w, h, frame = 'oak') { walk(() => { const g = new THREE.PlaneGeometry(w - 0.04, h - 0.04); g.translate(cx, cy, 0.016); put('mirror#' + (++mirrorN), g, WHITE, true); rbb(frame, cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, 0, 0.014, 0.01, C(0xf6eee4)); }); }
   function pegRail(w, y, n = 4, o = {}) {
     walk(() => {
       rbb('oak', -w / 2, w / 2, y - 0.04, y + 0.04, 0, 0.02, 0.006, C(0xf6eee4));
@@ -823,20 +1011,29 @@ export function createDecor(THREE, P, ctx = {}) {
     });
   }
   // rideaux voilage : plis ondulés, x de x0 à x1, plan z (local), rail au plafond
+  // rideau à plis : tête plissée (plis plus serrés en haut), tombé lesté par l'ourlet, galon de tête et ourlet roulé
+  function pleated(mk, x0, x1, z, col, o = {}) {
+    const top = H - 0.045, W0 = x1 - x0, nP = Math.max(3, Math.round(W0 / (o.lam || 0.11))), A = o.amp || 0.04, ph = R() * 6, n = nP * 10, ny = 18;
+    const prof = (u, v) => { // phase du pli : profil en « S » arrondi (pas une sinusoïde pure)
+      const x = x0 + W0 * u, f = u * nP * Math.PI * 2 + ph, s = Math.sin(f), shaped = Math.sign(s) * Math.pow(Math.abs(s), 0.6);
+      const amp = A * (0.7 + 0.3 * v) * (1 + 0.15 * Math.sin(u * 7 + ph)), hemSag = 0.004 * Math.sin(u * nP * 2 * Math.PI * 0.5 + ph);
+      const y = 0.012 + (top - 0.012) * v + (v < 0.03 ? hemSag : 0);
+      return [x + 0.006 * Math.cos(f) * (1 - v), y, z + amp * shaped];
+    };
+    sheet(mk, n, ny, (u, v) => prof(u, v), col);
+    const hemPts = []; for (let k = 0; k <= n; k++) hemPts.push(new V3(...prof(k / n, 0.004)));
+    put(mk, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hemPts), n * 2, 0.005, 4, false), col.map(v => v * 0.96));
+    const headPts = []; for (let k = 0; k <= n; k++) headPts.push(new V3(...prof(k / n, 0.985)));
+    put(mk, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(headPts), n * 2, 0.007, 4, false), col.map(v => v * 0.97));
+  }
   function sheers(x0, x1, z, o = {}) {
     walk(() => {
-      const top = H - 0.04, n = Math.max(8, Math.round((x1 - x0) / 0.01)), lam = o.lam || 0.11, A = o.amp || 0.035, ph = R() * 6;
-      sheet('sheer', n, 10, (u, v) => { const x = x0 + (x1 - x0) * u, y = 0.012 + (top - 0.012) * v; return [x, y, z + A * Math.sin((x - x0) / lam * Math.PI * 2 + ph) * (0.8 + 0.2 * v)]; }, C(0xffffff));
+      pleated('sheer', x0, x1, z, C(0xffffff), { lam: o.lam || 0.1, amp: o.amp || 0.035 });
       box('black', o.r0 ?? x0 - 0.05, o.r1 ?? x1 + 0.05, H - 0.03, H - 0.002, z - 0.012, z + 0.012, C(0xffffff));
     });
   }
-  // rideaux en lin épais (chambres) : même principe, opaque
-  function drapes(x0, x1, z, col) {
-    walk(() => {
-      const top = H - 0.04, n = Math.max(8, Math.round((x1 - x0) / 0.01)), lam = 0.13, A = 0.045, ph = R() * 6;
-      sheet('cloth', n, 12, (u, v) => { const x = x0 + (x1 - x0) * u, y = 0.006 + (top - 0.006) * v; return [x, y, z + A * Math.sin((x - x0) / lam * Math.PI * 2 + ph) * (1 - 0.15 * v) + 0.015 * (1 - v)]; }, col);
-    });
-  }
+  // rideaux en lin épais (chambres)
+  function drapes(x0, x1, z, col) { walk(() => pleated('cloth', x0, x1, z, col, { lam: 0.12, amp: 0.045 })); }
 
   // ------------------------------------------------------------ cuisine
   // linéaire bas : x local -L/2..L/2, dos z = -0.3, façade z = +0.3 ; modules [{w, t:'door'|'drawers'|'dw', sink, hob}]
@@ -1018,7 +1215,7 @@ export function createDecor(THREE, P, ctx = {}) {
   }
 
   return {
-    bathTub, consoleTable, dressing,
+    bathTub, consoleTable, dressing, strelitzia, herbs, leaf, stem, pleated, thickSheet,
     R, C, PAL, WHITE, box, rb, rbb, cyl, lathe, tube, torus, sq, sheet, slab, disc, contact, walk, at,
     book, bookStack, bookRow, vase, branches, bowl, candle, tray, fruitBowl, leafCard, pot, figTree, oliveTree, snakePlant,
     tableLamp, floorLamp, akari, dome, pillow, rugF, plaidOverArm, foldedThrow,
@@ -1070,7 +1267,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       D.dishes(0.05, -0.18, 1.65); D.vase(0.55, 1.65, -0.18, 1, 0xc4754e); D.bowl(0.3, 2.01, -0.18, 0.09, 0xe8e0d2); D.vase(0.6, 2.01, -0.18, 0, 0xd9cfbf); D.bookRow(-0.2, 0.15, 2.01, -0.18, 0);
     });
     D.rbb('oak', -0.1, 0.25, 0.9, 0.922, -0.25, -0.02, 0.01, C(0xe6d6c4), { ry: 0.08 });
-    for (let i = 0; i < 3; i++) { D.cyl('glassClear', 0.045, 0.045, 0.13 + i * 0.04, 0.28 + 0 * i, 0.9, -0.24 + i * 0.0, D.WHITE, { seg: 14 }); }
+    D.herbs(0.62, 0.9, -0.2, 0xb8684a); D.herbs(0.45, 0.9, -0.23, 0xe8e0d2);
   });
   at(-0.33, -7.26, 0, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'oven')); at(0.3, 0, 0, () => D.tallUnit(0.6, 'fridge')); });
   at(1.15, -4.9, 0, () => {
@@ -1137,7 +1334,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     D.baseRun(2.05, [{ w: 0.8, t: 'drawers', hob: true }, { w: 0.45, t: 'door' }, { w: 0.8, t: 'drawers2', sink: true, sinkW: 0.55 }], { front: 'oak', top: 'travertine', handleMk: 'black', tap: 'brass' });
     D.splash(2.05, 0.9, 1.45);
     D.wallUnits(2.05, 1.45, { hood: -0.625, frontC: 0xd8d0c4 });
-    D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05);
+    D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05); D.herbs(-0.85, 0.9, -0.2, 0xb8684a); D.herbs(-0.98, 0.9, -0.15, 0x3d3a36);
   });
   at(4.98, -9.825, PI, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'fridge', { frontC: 0xd8d0c4, handleMk: 'black' })); at(0.3, 0, 0, () => D.tallUnit(0.6, 'oven', { frontC: 0xd8d0c4, handleMk: 'black' })); });
   at(3.8, -11.4, PI, () => { D.island(1.8, 0.9, { front: 'oak', over: 0.2, top: 'travertine' }); const vh = D.vase(-0.4, 0.91, 0.1, 0, 0xb8684a); D.branches(-0.4, 0.91 + vh, 0.1, 0.5, 5); D.bookStack(0.3, 0.91, 0.12, 2, 0.2, true); });
@@ -1155,7 +1352,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
   D.floorLamp(1.75, -17.98);
   D.sideTable(1.66, -14.95, { lamp: true });
   D.oliveTree(5.15, -18.15, 1.85, 0xb9b2a6);
-  D.figTree(5.18, -14.95, 1.65, 0xb8684a);
+  D.strelitzia(5.15, -14.95, 1.75, 0xb8684a);
   at(5.355, -13.2, -PI / 2, () => D.sideboard(1.6, 0.44, 0.7));
   face(5.58, -13.2, -PI / 2, () => D.art(0, 1.55, 1.0, 0.72, ART.sea, { frame: 'black', mat: 0.08 }));
   face(1.38, -16.4, PI / 2, () => D.art(0, 1.55, 1.2, 0.8, ART.dune));
