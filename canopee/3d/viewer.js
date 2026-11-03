@@ -725,7 +725,7 @@ function buildPost() {
   gtaoPass.updateGtaoMaterial({ radius: 1.4, distanceExponent: 1.3, thickness: 2.0, scale: 2.0, samples: q.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
   gtaoPass.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: q.pdSamples });
   patchGtaoGBuffer(gtaoPass);
-  patchGtaoUpsample(gtaoPass);
+  patchGtaoDeferred(gtaoPass);
   gtaoPass.enabled = q.ao;
   composer.addPass(gtaoPass);
   meterPass = new MeterPass();
@@ -786,10 +786,10 @@ function makeToneFinishPass() {
     .replace('vec4 c = texture2D(tDiffuse, vUv);', 'vec4 c0 = texture2D(tDiffuse, vUv);')
     .replace('gl_FragColor = sRGBTransferOETF(vec4(mix(a, b, w), c.a));', 'vec4 c = sRGBTransferOETF(vec4(mix(a, b, w), c0.a));')
     .replace(/\bc\.rgb\b/g, 'c0.rgb');
-  const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom; uniform float uAgx, uBaseAgx, uBloom, uSharp;')
-    .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', CAS_GLSL + ' c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
+  const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom, tAO, tAODepthFull, tAODepthLow; uniform float uAgx, uBaseAgx, uBloom, uSharp, aoK; uniform vec2 aoSize, camNF;\n    float cnpLin( float d ) { return camNF.x * camNF.y / ( camNF.y - d * ( camNF.y - camNF.x ) ); }')
+    .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', CAS_GLSL + AO_GLSL + ' c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
   const mat = new THREE.ShaderMaterial({
-    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 }, uSharp: { value: sharpFor(QUALITY[state.quality]) } }),
+    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 }, uSharp: { value: sharpFor(QUALITY[state.quality]) }, tAO: { value: null }, tAODepthFull: { value: null }, tAODepthLow: { value: null }, aoK: { value: 0 }, aoSize: { value: new THREE.Vector2(1, 1) }, camNF: { value: new THREE.Vector2(0.2, 1600) } }),
     vertexShader: FinishShader.vertexShader, fragmentShader: frag,
   });
   mat.toneMapped = false; toneFinishMat = mat;
@@ -800,6 +800,9 @@ function makeToneFinishPass() {
     bloomPass.cnpDeferred = true;
     mat.uniforms.uBloom.value = on ? 1 : 0;
     mat.uniforms.tBloom.value = on ? bloomPass.renderTargetsHorizontal[0].texture : null;
+    const ap = AO_DEF.pass, aoOn = !!(ap && ap.enabled && AO_DEF.depth), u = mat.uniforms;
+    u.aoK.value = aoOn ? ap.blendIntensity : 0;
+    if (aoOn) { u.tAO.value = ap.pdRenderTarget.texture; u.tAODepthFull.value = AO_DEF.depth; u.tAODepthLow.value = ap.depthTexture; u.aoSize.value.set(ap.width, ap.height); u.camNF.value.set(camera.near, camera.far); }
     r0(renderer, writeBuffer, readBuffer, dt, mask);
   };
   return pass;
@@ -810,6 +813,38 @@ function makeToneFinishPass() {
 // mur ou une plinthe), un texel d'occlusion de l'arrière-plan — liseré crénelé. Chaque pixel pondère maintenant les
 // quatre texels voisins par l'écart (relatif) entre leur profondeur (G-buffer de la GTAO) et la sienne (profondeur
 // pleine définition de l'image) : l'occlusion s'arrête net aux arêtes. Dans la passe de mélange existante.
+// Occlusion différée : la GTAO ne recopie plus l'image ni ne la mélange (deux passes plein écran en moins, ~6 ms
+// en définition native) ; elle ne calcule que l'occlusion débruitée, appliquée dans la passe tonalité + finition
+// (agrandissement bilatéral sur la profondeur pleine définition, même pondération qu'avant)
+const AO_DEF = { pass: null, depth: null };
+function patchGtaoDeferred(pass) {
+  pass.needsSwap = false;
+  AO_DEF.pass = pass;
+  pass.render = function (renderer, writeBuffer, readBuffer) {
+    if (this._renderGBuffer) { this.overrideVisibility(); this.renderOverride(renderer, this.normalMaterial, this.normalRenderTarget, 0x7777ff, 1.0); this.restoreVisibility(); }
+    const u = this.gtaoMaterial.uniforms;
+    u.cameraNear.value = this.camera.near; u.cameraFar.value = this.camera.far;
+    u.cameraProjectionMatrix.value.copy(this.camera.projectionMatrix); u.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse); u.cameraWorldMatrix.value.copy(this.camera.matrixWorld);
+    this.renderPass(renderer, this.gtaoMaterial, this.gtaoRenderTarget, 0xffffff, 1.0);
+    this.pdMaterial.uniforms.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
+    this.renderPass(renderer, this.pdMaterial, this.pdRenderTarget, 0xffffff, 1.0);
+    AO_DEF.depth = readBuffer.depthTexture || null;
+  };
+}
+const AO_GLSL = `
+      if ( aoK > 0.001 ) {
+        vec2 ats = 1.0 / aoSize, apl = vUv * aoSize - 0.5, afr = fract( apl ), ab0 = ( floor( apl ) + 0.5 ) * ats;
+        float aZ = cnpLin( texture2D( tAODepthFull, vUv ).x );
+        float aacc = 0.0, aws = 0.0;
+        for ( int k = 0; k < 4; k ++ ) {
+          vec2 o = vec2( float( k & 1 ), float( k >> 1 ) ), q = ab0 + o * ats;
+          float bw = ( o.x > 0.5 ? afr.x : 1.0 - afr.x ) * ( o.y > 0.5 ? afr.y : 1.0 - afr.y );
+          float rel = abs( cnpLin( texture2D( tAODepthLow, q ).x ) - aZ ) / max( aZ, 0.05 );
+          float w = bw * ( exp( - rel * rel * 3000.0 ) + 1e-4 );
+          aacc += texture2D( tAO, q ).r * w; aws += w;
+        }
+        c0.rgb *= mix( 1.0, aacc / max( aws, 1e-6 ), aoK );
+      }`;
 function patchGtaoUpsample(pass) {
   const bm = pass.blendMaterial;
   Object.assign(bm.uniforms, { tDepthFull: { value: null }, tDepthLow: { value: pass.depthTexture }, lowSize: { value: new THREE.Vector2(1, 1) }, camNF: { value: new THREE.Vector2(0.2, 1600) } });
@@ -1559,9 +1594,13 @@ function trackWalkPacing(now) {
   const dt = now - MOTION.last;
   if (state.quality === 'native') {   // natif : > 10 % d'images au-delà de la cible → cible plus lente (24 i/s)
     const ms = MOTION.walkMs || NATIVE_MS;
-    if (!(dt < 2.5 * ms)) return;
-    MOTION.wN = (MOTION.wN || 0) + 1; if (dt > ms + 0.6 * Math.max(4, MOTION.vsync)) MOTION.wLate = (MOTION.wLate || 0) + 1;
-    if (MOTION.wN >= 40) { if (MOTION.wLate > 4 && ms < 41) MOTION.walkMs = 1000 / 24; MOTION.wN = 0; MOTION.wLate = 0; }
+    // seules comptent les images où l'on marche (caméra en mouvement) : les à-coups du repos (chargement des
+    // modèles, captures des sondes, textures) ne doivent pas faire tomber la cadence
+    const moved = !_walkCam.equals(camera.matrixWorld); _walkCam.copy(camera.matrixWorld);
+    if (!moved || !(dt < 2.5 * ms)) return;
+    // retard franc seulement (au moins un créneau d'affichage manqué : > cible + 1,5 période), sur 60 images
+    MOTION.wN = (MOTION.wN || 0) + 1; if (dt > ms + 1.5 * Math.max(4, MOTION.vsync)) MOTION.wLate = (MOTION.wLate || 0) + 1;
+    if (MOTION.wN >= 60) { if (MOTION.wLate > 6 && ms < 41 && !MOTION.noFallback) MOTION.walkMs = 1000 / 24; MOTION.wN = 0; MOTION.wLate = 0; }
     return;
   }
   if (!(dt < 3.5 * MOTION.vsync)) return;   // reprise après un arrêt : pas un retard
@@ -1576,6 +1615,7 @@ function trackWalkPacing(now) {
 // définition native : cadence réglée sur le temps (30 i/s visés, 24 si ça ne tient pas), indépendante de l'estimation
 // de la fréquence d'affichage — une image n'est rendue qu'une fois l'intervalle cible écoulé
 const NATIVE_MS = 1000 / 30;
+const _walkCam = new THREE.Matrix4();
 function nativePaced(now, key) {
   const vs = Math.max(4, MOTION.vsync), ms = MOTION[key] || NATIVE_MS;
   return now - MOTION.last < ms - 0.5 * vs;
