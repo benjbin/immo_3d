@@ -13,6 +13,7 @@
  * teinte par objet en couleurs de sommet (variantes d'un même matériau dans un seul appel de dessin),
  * occlusion bakée multipliée par lots.js. Tout ce qui dépasse le plan de coupe (1,2 m) est « visite » seulement.
  */
+import { createFurniture } from './furniture.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ------------------------------------------------------------------ aléatoire & bruit périodique
@@ -99,6 +100,8 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   const fab = (name, p, extra = {}) => { const m = new THREE.MeshPhysicalMaterial({ name, color: 0xffffff, roughness: 1, metalness: 0, sheen: 1, sheenRoughness: 0.7, sheenColor: new THREE.Color(0x6e6a64), specularIntensity: 0.18, envMapIntensity: 0.7, ...p, ...extra }); list.push(m); return m; };
   D.textile = fab('decoTextile', linenSet);
   D.cloth = fab('decoCloth', linenSet, { side: THREE.DoubleSide });
+  // velours mat (canapés, coussins) : même forme de programme que le lin, sheen fort et resserré, relief faible
+  D.velvet = fab('decoVelvet', linenSet, { normalScale: new THREE.Vector2(0.12, 0.12), sheenRoughness: 0.45, sheenColor: new THREE.Color(0x8c877e), specularIntensity: 0.04, envMapIntensity: 0.45 });
   // --- bouclé écru : boucles serrées, 0,12 m
   const R = rng(41), loops = new Float32Array(256 * 256);
   for (let k = 0; k < 2600; k++) {
@@ -221,6 +224,8 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   for (const [k, mk] of Object.entries(share)) if (M && M[mk]) D[k] = M[mk];
   for (const k of Object.keys(D)) D[k].userData.decor = true;
   D.shade.userData.lamp = true; D.bulb.userData.lamp = true;
+  // abat-jour et ampoules hors du G-buffer de la GTAO : plus de halo sombre au plafond autour des suspensions
+  D.shade.userData.noAO = true; D.bulb.userData.noAO = true;
   return D;
 }
 
@@ -497,6 +502,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // version « plan » d'un volume haut : boîte coupée à 1,2 m + tranche sombre
   const tallPlan = (mk, x0, x1, z0, z1, c) => P.planOnly(() => { box(mk, x0, x1, 0, CUT - 0.01, z0, z1, c); const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0); g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, CUT + 0.003, (z0 + z1) / 2); put('cut', g); });
   const walk = (fn) => P.walkOnly(fn);
+  let kitchenTap = null, fxCushion = null;   // furniture.js
   const at = (x, z, ry, fn, y) => P.at(x, z, ry, fn, y);
   const pick = (a) => a[Math.floor(R() * a.length) % a.length];
   const jit = (s) => (R() - 0.5) * s;
@@ -985,7 +991,9 @@ export function createDecor(THREE, P, ctx = {}) {
     // base (sommier gainé) sur socle en retrait
     box('oak', -w / 2 + 0.08, w / 2 - 0.08, 0, 0.08, z0 + 0.1, z0 + L - 0.1, C(0x5a4636));
     rbb('textile', -w / 2 - 0.02, w / 2 + 0.02, 0.07, 0.33, z0, z0 + L + 0.02, 0.03, hb);
-    sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
+    // matelas 22 cm : boîte arrondie maillée finement, passepoils (furniture.js) ; repli superquadrique sinon
+    if (fxCushion) fxCushion('textile', w, 0.22, L, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { r: 0.05, puff: 0.08, sag: 0, step: 0.05 });
+    else sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
     // couette épaisse : dessus bombé matelassé, arrondi sur l'arête du matelas, chute avec plis verticaux,
     // coins en cône (plus bas), ourlet roulé ; envers décalé (épaisseur visible au bord)
     const hang = 0.27, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
@@ -1000,7 +1008,7 @@ export function createDecor(THREE, P, ctx = {}) {
       if (inTop) { const nx = s / hw, nz = t / len; y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) - 0.003 * Math.pow(Math.cos((t / 0.33) * Math.PI + 0.3 * Math.sin(s * 4)), 16) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5);
         // passe 2 : froissé fin du lin lavé (rides croisées de 4–8 cm, plus marquées vers le pied et les bords)
         const fr = 0.35 + 0.65 * Math.min(1, nz * 1.3 + Math.abs(nx) * 0.6);
-        y += fr * (0.0055 * Math.sin(s * 23 + ph * 2 + 2.2 * Math.sin(t * 5.1)) * Math.sin(t * 17 + s * 3.3) + 0.0035 * Math.sin(s * 41 - t * 29 + ph) * Math.sin(t * 37 + 1.7 * Math.sin(s * 9))); }
+        y += fr * (0.0045 * Math.sin(s * 19 + ph * 2 + 2.6 * Math.sin(t * 4.3 + s * 2)) * Math.sin(t * 13 + s * 5.1 + Math.sin(s * 3)) + 0.002 * Math.sin(s * 9 - t * 27 + ph) * Math.sin(t * 21 + 2.3 * Math.sin(s * 7))); }
       // chute : plis verticaux qui s'ouvrent vers le bas, ondulation de l'ourlet
       const ang = (Math.abs(s) > hw ? t : s), pf = 0.022 * hangK * Math.sin(ang * 11 + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0)) + 0.007 * hangK * Math.sin(ang * 31 + 2 * ph);
       if (!inTop) { const nxv = ex > 0 ? Math.sign(s) : 0, nzv = ez > 0 ? 1 : 0, L2 = Math.hypot(nxv, nzv) || 1; x += nxv / L2 * pf; z += nzv / L2 * pf; if (ez > 0 && ex === 0) x += pf * 0.6; if (ex > 0 && ez === 0) z += pf * 0.6; }
@@ -1124,9 +1132,8 @@ export function createDecor(THREE, P, ctx = {}) {
       box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0 - 0.19, -0.19, 0.21, C(0x9da1a4)); for (const s of [-1, 1]) { box('steel', s > 0 ? sx + sw / 2 - 0.012 : sx - sw / 2 + 0.002, s > 0 ? sx + sw / 2 - 0.002 : sx - sw / 2 + 0.012, ty0 - 0.2, ty0, -0.19, 0.21, C(0x9da1a4)); box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0, s > 0 ? 0.2 : -0.2, s > 0 ? 0.21 : -0.19, C(0x9da1a4)); }
       cyl('steel', 0.03, 0.03, 0.003, sx, ty0 - 0.19, 0.01, C(0x55585a));
       const tm = o.tap || 'black';
-      cyl(tm, 0.022, 0.022, 0.06, sx, ty1, -0.25, WHITE, { seg: 14 });
-      tube(tm, [[sx, ty1 + 0.05, -0.25], [sx, ty1 + 0.3, -0.25], [sx, ty1 + 0.36, -0.17], [sx, ty1 + 0.3, -0.1], [sx, ty1 + 0.25, -0.1]], 0.011, WHITE, { seg: 24, rad: 8 });
-      tube(tm, [[sx + 0.05, ty1 + 0.02, -0.25], [sx + 0.09, ty1 + 0.03, -0.25]], 0.006, WHITE, { seg: 3 });
+      if (kitchenTap) kitchenTap(sx, ty1, -0.25, tm);
+      else { cyl(tm, 0.022, 0.022, 0.06, sx, ty1, -0.25, WHITE, { seg: 14 }); tube(tm, [[sx, ty1 + 0.05, -0.25], [sx, ty1 + 0.3, -0.25], [sx, ty1 + 0.36, -0.17], [sx, ty1 + 0.3, -0.1], [sx, ty1 + 0.25, -0.1]], 0.011, WHITE, { seg: 24, rad: 8 }); }
       cx = sx + sw / 2;
     }
     box(top, cx, L / 2, ty0, ty1, zb, zf, topC);
@@ -1508,7 +1515,7 @@ export function createDecor(THREE, P, ctx = {}) {
     const [fx, fz] = T(-0.18, 0.0); box('steel', fx - 0.006, fx + 0.006, y + 0.012, y + 0.016, fz - 0.09, fz + 0.09, C(0x8e9295), { ry });
   }
 
-  return {
+  const D0 = {
     garment, pouf, ovalTable, loungeChair, bistroChair, bistroTable, lantern, sconce,
     runner, placeSetting, bookcase, romanBlind, linenPanels, pendant, pothos, basket, hookTowel, rollHolder, shoes,
     bathTub, consoleTable, dressing, strelitzia, herbs, leaf, stem, pleated, thickSheet,
@@ -1520,7 +1527,14 @@ export function createDecor(THREE, P, ctx = {}) {
     baseRun, tallUnit, wallUnits, splash, island, counterDecor, dishes,
     vanity, wc, towelRail, glassPanel, showerHead, tileWall, tallPlan,
     model: (id, o, proxy) => P.model(id, o, proxy),
+    put, seamLoop, fallOf,
   };
+  // mobilier « catalogue » de furniture.js : canapé, chaise wishbone, table chêne, robinet
+  if (typeof location !== 'undefined' && /[?&]fx=0/.test(location.search)) return D0;   // diagnostic : mobilier d'origine
+  const FX = createFurniture(THREE, D0);
+  Object.assign(D0, { sofa: FX.sofa, chair: FX.chair, rectTable: FX.rectTable, cushion: FX.cushion, strut: FX.strut, ribbon: FX.ribbon });
+  kitchenTap = FX.kitchenTap; fxCushion = FX.cushion;
+  return D0;
 }
 
 // ================================================================== aménagement des deux lots d'un étage courant
@@ -1546,7 +1560,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
   // ======================= LOT A (côté rue) =======================
   const VA = {
     1: { // 101 — sauge, bleu encre, jute ; table en travertin
-      sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenOat, PAL.ink], plaid: PAL.linenOat }, arm: { pillow: PAL.ink },
+      sofa: { col: PAL.sage, base: 'legs', pillows: [PAL.ink, PAL.ochre, PAL.linenOat], plaid: PAL.linenOat }, arm: { pillow: PAL.ink },
       rug: ['jute', C(0xf2ead8), false], artSofa: () => { D.art(-0.36, 1.58, 0.62, 0.84, ART.sketch, { frame: 'black' }); D.art(0.36, 1.58, 0.62, 0.84, ART.line, { frame: 'black' }); },
       table: 'trav', chairSeat: PAL.linenOat, plantDining: 'snake', plantBay: 'pp01', artWest: [ART.enso, ART.dune],
       ch1: { head: PAL.terracotta, throw: PAL.ink, accent: PAL.ochre, pend: [0, 0.24, 0xe4dac8], art: ART.sea }, ch2: { head: PAL.sage, accent: PAL.mustard, throw: PAL.linenStone, pend: [2, 0.17, 0xa9b39b] },
@@ -1560,7 +1574,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       ch3: { head: PAL.linenOat, accent: PAL.sage, throw: PAL.terracotta, pend: [0, 0.19, 0xeee5d5] }, domes: 'black',
     },
     3: { // 302 — attique : bouclé rouille, laiton, grande table ovale, olivier côté baie
-      sofa: { col: PAL.linenOat, pillows: [PAL.rust, PAL.ochre, PAL.linenSand, PAL.clay], plaid: PAL.charcoal }, arm: { pillow: PAL.rust },
+      sofa: { col: PAL.linenGreige, mk: 'velvet', pillows: [PAL.rust, PAL.ochre, PAL.linenSand], plaid: PAL.charcoal }, arm: { pillow: PAL.rust },
       rug: ['wool', C(0xe8e1d4), false], artSofa: () => D.art(0, 1.6, 1.4, 1.0, ART.sea, { frame: 'oak', mat: 0.08 }),
       table: 'oval', chairSeat: PAL.linenGreige, plantDining: 'olive', plantBay: 'pp02', artWest: [ART.arcs, ART.sketch],
       ch1: { head: PAL.rust, headMk: 'boucle', throw: PAL.linenSand, accent: PAL.ochre, pend: [3, 0.3, 0xf1e9dc], art: ART.leaf }, ch2: { head: PAL.linenSand, accent: PAL.rust, throw: PAL.clay, pend: [0, 0.19, 0xe6ddcd] },
@@ -1754,14 +1768,14 @@ export function furnishUpper(THREE, P, D, o = {}) {
       cushion: PAL.sage,
     },
     2: { // 202 — encre et sauge, table ronde
-      sofa: { col: PAL.ink, pillows: [PAL.linenWhite, PAL.sage, PAL.ochre, PAL.linenOat], plaid: PAL.linenOat }, arm: { mk: 'boucle', col: PAL.boucle },
+      sofa: { col: PAL.ink, mk: 'velvet', pillows: [PAL.linenWhite, PAL.sage, PAL.ochre], pillowMk: 'textile', plaid: PAL.linenOat }, arm: { mk: 'boucle', col: PAL.boucle },
       rug: ['wool', C(0xbfc5ae), false], artSofa: [ART.blocks, { frame: 'oak' }], artEast: [ART.line, { frame: 'black', mat: 0.08 }],
       table: 'round', seat: PAL.linenGreige, plants: ['fig', 'pp02'], domes: 'black',
       ch1: { head: PAL.linenSand, accent: PAL.sage, throw: PAL.ink, pend: 'akari', art: ART.enso }, ch2: { head: PAL.sage, accent: PAL.ink, throw: PAL.clay, art: ART.dune },
       cushion: PAL.ink,
     },
     3: { // 301 — encre et ocre, canapé sauge, cannage, laiton
-      sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenWhite, PAL.mustard], plaid: PAL.ochre }, arm: { mk: 'textile', col: PAL.ochre },
+      sofa: { col: PAL.sage, base: 'legs', pillows: [PAL.ink, PAL.ochre, PAL.linenWhite], plaid: PAL.ochre }, arm: { mk: 'textile', col: PAL.ochre },
       rug: ['jute', C(0xf0e6d2), false], artSofa: [ART.enso, { frame: 'black', pair: ART.sketch }], artEast: [ART.sea, { frame: 'black', mat: 0.08 }],
       table: 'rect', seat: PAL.straw, plants: ['olive', 'pp01'], domes: 'brass',
       ch1: { headMk: 'cane', head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, pend: [0, 0.2, 0xe9dcc4], art: ART.arcs }, ch2: { head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, art: ART.sketch },
