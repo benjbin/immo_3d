@@ -124,12 +124,12 @@ export function createFurniture(THREE, K) {
     const n = w > 2.0 ? 3 : 2, inner = w - 2 * armW, cw = inner / n, sTop = y0 + deckT;
     for (let i = 0; i < n; i++) {
       const x = -inner / 2 + cw * (i + 0.5) + jit(0.006);
-      cushion(mk, cw - 0.008, seatT, d - 0.25, x, sTop + seatT / 2 - 0.006, 0.085 + jit(0.008), C(o.col || PAL.linenSand, 0.025), { puff: 0.32, sag: 0.12, crease: 0.08, rz: jit(0.012), e: 0.17 });
+      cushion(mk, cw - 0.008, seatT, d - 0.25, x, sTop + seatT / 2 - 0.006, 0.085 + jit(0.008), C(o.col || PAL.linenSand, 0.055), { puff: 0.32, sag: 0.12, crease: 0.08, rz: jit(0.012), e: 0.17 });
     }
     // coussins de dossier libres, inclinés de 12°, bombés vers l'avant
     for (let i = 0; i < n; i++) {
       const x = -inner / 2 + cw * (i + 0.5) + jit(0.008), hgt = 0.5;
-      cushion(mk, cw - 0.012, 0.19, hgt, x, sTop + seatT + hgt / 2 - 0.03, -d / 2 + 0.255, C(o.col || PAL.linenSand, 0.025), { rx: -Math.PI / 2 + 0.21 + jit(0.03), rz: jit(0.02), puff: 0.42, sag: 0.04, crease: 0.12, e: 0.2, e1: 0.3 });
+      cushion(mk, cw - 0.012, 0.19, hgt, x, sTop + seatT + hgt / 2 - 0.03, -d / 2 + 0.255, C(o.col || PAL.linenSand, 0.055), { rx: -Math.PI / 2 + 0.21 + jit(0.03), rz: jit(0.02), puff: 0.42, sag: 0.04, crease: 0.12, e: 0.2, e1: 0.3 });
     }
     // coussins décoratifs (coins pincés, plis), plaid jeté sur un accoudoir
     const pc = o.pillows || [PAL.terracotta, PAL.linenOat, PAL.ochre];
@@ -186,5 +186,82 @@ export function createFurniture(THREE, K) {
     tube(mk, [[x + 0.035, y + 0.05, z], [x + 0.05, y + 0.08, z - 0.01], [x + 0.055, y + 0.13, z - 0.02]], 0.0045, WHITE, { seg: 10, rad: 8 });
   }
 
-  return { sofa, chair, rectTable, cushion, strut, ribbon, kitchenTap };
+  // ------------------------------------------------------------------ salle de bains
+  // poignée barre fine sur deux plots (cuisine, placards, meuble vasque) : façade au plan z, longueur L
+  function barHandle(mk, x, y, z, L, o = {}) {
+    const vert = !!o.vertical, r = o.r || 0.006, off = o.off || 0.028;
+    const a = vert ? [x, y - L / 2, z + off] : [x - L / 2, y, z + off], b = vert ? [x, y + L / 2, z + off] : [x + L / 2, y, z + off];
+    K.cyl(mk, r, r, L, vert ? x : x - L / 2, vert ? y - L / 2 : y, z + off, WHITE, vert ? { seg: 10 } : { rz: -Math.PI / 2, seg: 10 });
+    for (const p of [a, b]) { const px = vert ? p[0] : p[0] + (p === a ? 0.012 : -0.012), py = vert ? p[1] + (p === a ? 0.012 : -0.012) : p[1]; K.cyl(mk, r * 0.8, r * 0.8, off, px, py, z, WHITE, { rx: Math.PI / 2, seg: 8 }); }
+  }
+  // meuble vasque suspendu en chêne : deux tiroirs (joints de 3 mm, prise de main en creux), plan en pierre,
+  // vasque semi-encastrée tournée (paroi fine, lèvre arrondie), mitigeur sur plan
+  function vanity(w, o = {}) {
+    const oak = C(o.wood || 0xf1e2cc, 0.03), d = 0.47, y0 = 0.36, y1 = 0.82, tt = 0.02, g = 0.0015;
+    rbb('oak', -w / 2, w / 2, y0, y1 - tt, 0, d - 0.02, 0.004, oak.map((v) => v * 0.8));          // caisson (visible dans les joints)
+    const ym = y0 + (y1 - tt - y0) * 0.5;
+    for (const [a, b] of [[y0, ym], [ym, y1 - tt]]) {
+      rbb('oak', -w / 2 + g, w / 2 - g, a + g, b - g - 0.018, d - 0.02, d, 0.003, oak, { seg: 2 });
+      K.box('black', -w / 2 + 0.02, w / 2 - 0.02, b - g - 0.018, b - g, d - 0.03, d - 0.018, C(0x2a2622));   // creux de prise de main
+    }
+    slab('travertine', w + 0.01, d + 0.01, tt, 0.006, 0, y1 - tt, d / 2, C(0xffffff), { bevel: 0.004 });
+    const bx = o.basinX || 0, br = Math.min(0.2, w * 0.28), bz = d / 2 + 0.01, by = y1;
+    // vasque : profil extérieur puis intérieur (épaisseur 8 mm), bonde inox
+    // vasque à poser : galbe extérieur, lèvre arrondie, paroi de 8 mm, fond creusé vers la bonde
+    K.lathe('ceramic', [[0, 0.002], [br * 0.5, 0.002], [br * 0.82, 0.02], [br * 0.97, 0.07], [br, 0.125], [br - 0.004, 0.133], [br - 0.009, 0.128], [br - 0.012, 0.08], [br * 0.8, 0.035], [br * 0.45, 0.018], [0.025, 0.012], [0, 0.011]], bx, by, bz, C(0xf7f5f0), { seg: 64 });
+    K.cyl('steel', 0.02, 0.02, 0.003, bx, by + 0.011, bz, C(0x9a9da0), { seg: 20 });
+    // mitigeur : corps fuselé, bec, levier
+    const mx = bx, mz = bz - br - 0.045, mk = o.tap || 'black', th = 0.3;   // mitigeur haut (vasque à poser)
+    K.lathe(mk, [[0, 0], [0.024, 0], [0.024, 0.004], [0.017, 0.012], [0.016, th], [0, th]], mx, by, mz, WHITE, { seg: 24 });
+    tube(mk, [[mx, by + th - 0.02, mz], [mx, by + th - 0.005, mz + 0.06], [mx, by + th - 0.03, mz + 0.15]], 0.009, WHITE, { seg: 16, rad: 10 });
+    tube(mk, [[mx, by + th - 0.01, mz], [mx, by + th + 0.02, mz - 0.03], [mx, by + th + 0.025, mz - 0.075]], 0.0045, WHITE, { seg: 10, rad: 8 });
+    // flacons, serviette roulée
+    K.cyl('stoneware', 0.03, 0.028, 0.14, w / 2 - 0.09, y1, 0.12, C(0x8e6a4a)); K.cyl('black', 0.009, 0.009, 0.035, w / 2 - 0.09, y1 + 0.14, 0.12);
+    if (w > 0.7) for (let i = 0; i < 2; i++) K.cyl('textile', 0.048, 0.048, 0.22, -w / 2 + 0.16, y1 + 0.048, 0.1 + i * 0.1, C(o.towel || PAL.linenOat, 0.03), { rz: Math.PI / 2, seg: 18 });
+    contact(0, d / 2, w + 0.1, d + 0.1);
+  }
+  // serviette suspendue sur une barre (rayon de la barre rb) : retombée avant et arrière, plis verticaux
+  function hangingTowel(x, y, z, w, drop, col, o = {}) {
+    const rr = (o.rb || 0.01) + 0.006, dropB = drop * (o.back ?? 0.85), ph = R() * 6;
+    const prof = (v) => { // v ∈ [0, 1] : bas avant → dessus de la barre → bas arrière
+      const L = drop + Math.PI * rr + dropB, s = v * L;
+      if (s < drop) return [y - drop + s, rr];
+      if (s < drop + Math.PI * rr) { const a = (s - drop) / rr; return [y + Math.sin(a) * rr, Math.cos(a) * rr]; }
+      return [y - (s - drop - Math.PI * rr), -rr];
+    };
+    K.thickSheet('textile', 14, 40, (u, v) => {
+      const [py, pz] = prof(v), hang = Math.min(1, Math.max(0, (y - py) / drop)), xx = (u - 0.5) * w;
+      const fold = 0.006 * hang * Math.sin(u * 11 + ph) + 0.003 * Math.sin(u * 23 + v * 4);
+      return [x + xx * (1 + 0.02 * hang), py, z + pz + Math.sign(pz) * fold];
+    }, col, 0.006, 'u0 u1 v0 v1');
+  }
+  // sèche-serviettes échelle noir mat sur mur z = 0, deux serviettes de bain pliées en deux
+  function towelRail(w = 0.5, h = 1.2, y0 = 0.25, col = PAL.linenOat) {
+    K.walk(() => {
+      for (const s of [-1, 1]) { K.cyl('black', 0.013, 0.013, h, s * w / 2, y0, 0.06, WHITE, { seg: 12 }); for (const yy of [y0 + 0.1, y0 + h - 0.1]) K.cyl('black', 0.008, 0.008, 0.06, s * w / 2, yy, 0, WHITE, { rx: Math.PI / 2, seg: 8 }); }
+      for (let y = y0 + 0.08; y < y0 + h - 0.02; y += 0.11) K.cyl('black', 0.009, 0.009, w, -w / 2, y, 0.06, WHITE, { rz: -Math.PI / 2, seg: 10 });
+      const c = C(col, 0.03);
+      hangingTowel(0, y0 + h - 0.13, 0.06, w - 0.07, 0.42, c, { rb: 0.009 });
+      hangingTowel(0.01, y0 + h - 0.46, 0.06, w - 0.09, 0.3, c.map((v) => v * 0.94), { rb: 0.009, back: 0.7 });
+    });
+  }
+  // colonne de douche : pommeau de tête carré-arrondi sur bras mural, barre thermostatique, douchette
+  function showerSet(x, z, y = 2.15) {
+    K.walk(() => {
+      tube('black', [[x, y + 0.2, z - 0.35], [x, y + 0.2, z - 0.05]], 0.01, WHITE, { seg: 2, rad: 10 });
+      K.cyl('black', 0.13, 0.13, 0.01, x, y + 0.185, z, WHITE, { seg: 48 });
+      K.cyl('steel', 0.118, 0.118, 0.002, x, y + 0.183, z, C(0x3a3b3d), { seg: 48 });              // plaque de buses
+      // barre thermostatique 30 cm : deux poignées moletées
+      const by = 1.05, bz = z - 0.35 + 0.045;
+      K.cyl('black', 0.024, 0.024, 0.3, x - 0.15, by, bz, WHITE, { rz: -Math.PI / 2, seg: 18 });
+      for (const s of [-1, 1]) K.cyl('black', 0.03, 0.03, 0.05, x + s * 0.17 - 0.025, by, bz, WHITE, { rz: -Math.PI / 2, seg: 18 });
+      for (const s of [-1, 1]) K.cyl('black', 0.012, 0.012, 0.045, x + s * 0.12, by, bz - 0.045, WHITE, { rx: Math.PI / 2, seg: 10 });
+      // colonne montante vers le bras, douchette sur support
+      K.cyl('black', 0.011, 0.011, y + 0.2 - by - 0.02, x, by + 0.02, bz - 0.02, WHITE, { seg: 10 });
+      tube('black', [[x + 0.15, by + 0.35, bz], [x + 0.15, by + 0.55, bz + 0.01]], 0.013, WHITE, { seg: 4, rad: 10 });
+      K.cyl('black', 0.035, 0.03, 0.03, x + 0.15, by + 0.55, bz + 0.01, WHITE, { seg: 20 });
+    });
+  }
+
+  return { sofa, chair, rectTable, cushion, strut, ribbon, kitchenTap, vanity, towelRail, showerSet, hangingTowel, barHandle, puffBox };
 }

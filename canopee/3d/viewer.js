@@ -2057,13 +2057,13 @@ function interiorTarget() {
 /* ------------------------------------------------------------------ */
 const MirrorShader = {
   name: 'CanopeeMirror',
-  uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, uSize: { value: new THREE.Vector2(1, 1) }, uRound: { value: 0 } },
+  uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, uSize: { value: new THREE.Vector2(1, 1) }, uRound: { value: 0 }, uRR: { value: 0 } },
   vertexShader: /* glsl */`
     uniform mat4 textureMatrix; varying vec4 vUvP; varying vec2 vUv0;
     #include <common>
     void main() { vUv0 = uv; vUvP = textureMatrix * vec4( position, 1.0 ); gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
   fragmentShader: /* glsl */`
-    uniform vec3 color; uniform sampler2D tDiffuse; uniform vec2 uSize; uniform float uRound; varying vec4 vUvP; varying vec2 vUv0;
+    uniform vec3 color; uniform sampler2D tDiffuse; uniform vec2 uSize; uniform float uRound, uRR; varying vec4 vUvP; varying vec2 vUv0;
     float hsh( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
     float vn( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
       return mix( mix( hsh( i ), hsh( i + vec2( 1, 0 ) ), f.x ), mix( hsh( i + vec2( 0, 1 ) ), hsh( i + vec2( 1, 1 ) ), f.x ), f.y ); }
@@ -2071,6 +2071,7 @@ const MirrorShader = {
       vec2 m = vUv0 * uSize;                                   // position sur le miroir (m)
       // distance au bord (m) : rectangle ou disque
       float d = uRound > 0.5 ? ( 0.5 * uSize.x - length( m - 0.5 * uSize ) ) : min( min( m.x, uSize.x - m.x ), min( m.y, uSize.y - m.y ) );
+      if ( uRound < 0.5 && uRR > 0.0 ) { vec2 q = abs( m - 0.5 * uSize ) - ( 0.5 * uSize - vec2( uRR ) ); d = -( length( max( q, 0.0 ) ) + min( max( q.x, q.y ), 0.0 ) - uRR ); }
       // planéité imparfaite (ondulation de la glace) et biseau qui dévie le reflet
       vec2 w = vec2( vn( m * 3.1 ), vn( m * 3.1 + 7.3 ) ) - 0.5;
       float bev = 1.0 - smoothstep( 0.0, 0.012, d );
@@ -2125,21 +2126,27 @@ function mirrorsOfFloor(k) {
       const W = u1 - u0, H = v1 - v0;
       if (W < 0.15 || H < 0.15) continue;
       const ctr = u.clone().multiplyScalar((u0 + u1) / 2).add(v.clone().multiplyScalar((v0 + v1) / 2)).add(nn.clone().multiplyScalar(g.d));
-      out.push({ n: nn, u, v, W, H, round: g.tri > 8, c: ctr, refl: null });
+      out.push({ n: nn, u, v, W, H, round: g.tri > 8 && Math.abs(W - H) < 0.03 * Math.max(W, H), rr: g.tri > 8 ? Math.min(W, H) * 0.25 : 0, c: ctr, refl: null });   // rr : miroir rectangulaire à angles arrondis (decor.js rectMirror)
     }
   } catch (e) { /* pas de miroir */ }
   MIR.list.set(k, out);
   return out;
 }
 function makeReflector(mr) {
-  const geo = mr.round ? new THREE.CircleGeometry(mr.W / 2, 48) : new THREE.PlaneGeometry(mr.W, mr.H);
+  let geo = mr.round ? new THREE.CircleGeometry(mr.W / 2, 48) : new THREE.PlaneGeometry(mr.W, mr.H);
+  if (!mr.round && mr.rr) {   // angles arrondis : forme du miroir, UV ramenées à [0,1]²
+    const s = new THREE.Shape(), hw = mr.W / 2, hh = mr.H / 2, r = mr.rr;
+    s.moveTo(-hw + r, -hh); s.lineTo(hw - r, -hh); s.quadraticCurveTo(hw, -hh, hw, -hh + r); s.lineTo(hw, hh - r); s.quadraticCurveTo(hw, hh, hw - r, hh); s.lineTo(-hw + r, hh); s.quadraticCurveTo(-hw, hh, -hw, hh - r); s.lineTo(-hw, -hh + r); s.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+    geo = new THREE.ShapeGeometry(s, 12); const p = geo.attributes.position, uv = geo.attributes.uv;
+    for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) + hw) / mr.W, (p.getY(i) + hh) / mr.H);
+  }
   // UV du disque : CircleGeometry les donne déjà en [0,1]² sur le carré englobant
   // reflet net comme la pièce : ~1 texel par pixel d'écran pour un miroir vu à 1–2 m, MSAA en qualité haute
   const hi = state.quality === 'high' && !MIR_TOUCH, res = hi ? 512 : MIR_TOUCH ? 320 : 448, tw = Math.round(mr.W >= mr.H ? res : res * mr.W / mr.H), th = Math.round(mr.W >= mr.H ? res * mr.H / mr.W : res);
   const R = new Reflector(geo, { textureWidth: Math.max(64, tw), textureHeight: Math.max(64, th), clipBias: 0.003, multisample: hi ? 4 : 0, color: new THREE.Color(0.86, 0.9, 0.89), shader: MirrorShader });
   R.material.uniforms.color.value.setRGB(0.86, 0.9, 0.89);
   R.material.uniforms.uSize.value.set(mr.W, mr.H);
-  R.material.uniforms.uRound.value = mr.round ? 1 : 0;
+  R.material.uniforms.uRound.value = mr.round ? 1 : 0; R.material.uniforms.uRR.value = mr.rr || 0;
   R.position.copy(mr.c).addScaledVector(mr.n, 0.0025);
   R.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(mr.u, mr.v, mr.n));
   R.name = 'miroir:reflet'; R.userData.noAO = true; R.renderOrder = 1;

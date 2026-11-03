@@ -157,9 +157,9 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     const n = fbmP(u, v, 3, 3, 5, 61), m = fbmP(u, v, 5, 5, 4, 62);
     const vein = Math.exp(-Math.abs(Math.sin((u * 2 + v * 1.2 + n * 1.8) * Math.PI * 2)) * 18) * 0.5 + Math.exp(-Math.abs(Math.sin((u * 3.1 - v * 2 + m * 2.2) * Math.PI * 2)) * 30) * 0.25;
     const l = 0.94 + 0.03 * n - 0.22 * vein;
-    o[0] = 240 * l; o[1] = 236 * l; o[2] = 228 * l; o[3] = 0; o[4] = 0.22 + 0.08 * n;
+    o[0] = 240 * l; o[1] = 236 * l; o[2] = 228 * l; o[3] = -0.6 * vein; o[4] = 0.22 + 0.08 * n + 0.2 * vein;
   });
-  D.stone = std('decoStone', 0xffffff, set(qz, 1.6, 1.6, 0, { roughness: 1 }));
+  D.stone = std('decoStone', 0xffffff, set(qz, 1.6, 1.6, 0.6, { roughness: 1, normalScale: new THREE.Vector2(0.15, 0.15) }));   // poli : relief à peine perceptible
   // --- zellige blanc crème (crédence, douche) : carreaux 10 × 10 cm, émail ondulé, tons variés, 0,4 m
   const zel = paint(512, 512, (u, v, o) => {
     const N = 4, i = Math.floor(u * N), j = Math.floor(v * N), fu = u * N - i, fv = v * N - j;
@@ -170,7 +170,7 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     o[0] = (grout ? 210 : 246) * l; o[1] = (grout ? 204 : 238) * l; o[2] = (grout ? 194 : 224) * l;
     o[3] = grout ? -0.6 : 0.4 * edge + 0.25 * wav; o[4] = grout ? 0.9 : 0.08 + 0.12 * wav;
   });
-  D.zellige = std('decoZellige', 0xffffff, set(zel, 0.4, 0.4, 3, { roughness: 1, normalScale: new THREE.Vector2(0.7, 0.7) }));
+  D.zellige = std('decoZellige', 0xffffff, set(zel, 0.4, 0.4, 3, { roughness: 1, normalScale: new THREE.Vector2(1.25, 1.25) }));   // joints creusés, émail ondulé
   // --- céramiques
   D.ceramic = std('decoCeramic', 0xffffff, { roughness: 0.12, metalness: 0 });            // sanitaires émaillés, vaisselle
   const grain = paint(256, 256, (u, v, o) => { const t = fbmP(u, v, 32, 32, 3, 91), s = hash2((u * 256) | 0, (v * 256) | 0, 3); const l = 0.9 + 0.06 * t + (s > 0.97 ? -0.15 : 0); o[0] = o[1] = o[2] = 240 * l; o[3] = t; o[4] = 0.75 + 0.15 * t; });
@@ -502,7 +502,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // version « plan » d'un volume haut : boîte coupée à 1,2 m + tranche sombre
   const tallPlan = (mk, x0, x1, z0, z1, c) => P.planOnly(() => { box(mk, x0, x1, 0, CUT - 0.01, z0, z1, c); const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0); g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, CUT + 0.003, (z0 + z1) / 2); put('cut', g); });
   const walk = (fn) => P.walkOnly(fn);
-  let kitchenTap = null, fxCushion = null;   // furniture.js
+  let kitchenTap = null, fxCushion = null, barHandleFn = null, puffBoxFn = null;   // furniture.js
   const at = (x, z, ry, fn, y) => P.at(x, z, ry, fn, y);
   const pick = (a) => a[Math.floor(R() * a.length) % a.length];
   const jit = (s) => (R() - 0.5) * s;
@@ -711,14 +711,17 @@ export function createDecor(THREE, P, ctx = {}) {
     if (kind === 0) lathe('stoneware', [[0, 0], [0.07, 0], [0.11, 0.08], [0.1, 0.17], [0.05, 0.24], [0.02, 0.27], [0, 0.27]], x, y0, z, C(baseC, 0.05), { seg: 28 });
     else { cyl('brass', 0.07, 0.07, 0.012, x, y0, z, WHITE, { seg: 24 }); cyl('brass', 0.006, 0.006, 0.26, x, y0, z, WHITE, { seg: 8 }); }
     const yb = y0 + 0.25;
-    lathe('shade', [[0.17, 0], [0.13, 0.22]], x, yb, z, C(0xf4ecdf), { seg: 32 });
+    lathe('shade', [[0.17, 0], [0.13, 0.22]], x, yb, z, C(0xf4ecdf), { seg: 40 });
+    torus('shade', 0.17, 0.004, x, yb, z, C(0xf4ecdf), { seg: 48, rad: 5 }); torus('shade', 0.13, 0.004, x, yb + 0.22, z, C(0xf4ecdf), { seg: 48, rad: 5 });   // ourlets roulés
     sq('bulb', 0.025, 0.03, 0.025, x, yb + 0.06, z, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
   }
   function floorLamp(x, z, H0 = 1.55) {
     walk(() => {
       for (let i = 0; i < 3; i++) { const a = i * 2.094 + 0.3; tube('black', [[x + Math.cos(a) * 0.26, 0, z + Math.sin(a) * 0.26], [x + Math.cos(a) * 0.02, H0 - 0.3, z + Math.sin(a) * 0.02]], 0.008, WHITE, { seg: 4, rad: 5 }); }
       cyl('black', 0.008, 0.008, 0.3, x, H0 - 0.32, z, WHITE, { seg: 6 });
-      lathe('shade', [[0.23, 0], [0.22, 0.3]], x, H0 - 0.12, z, C(0xf0e6d6), { seg: 36 });
+      lathe('shade', [[0.23, 0], [0.22, 0.3]], x, H0 - 0.12, z, C(0xf0e6d6), { seg: 48 });
+      torus('shade', 0.23, 0.004, x, H0 - 0.12, z, C(0xf0e6d6), { seg: 56, rad: 5 }); torus('shade', 0.22, 0.004, x, H0 + 0.18, z, C(0xf0e6d6), { seg: 56, rad: 5 });
+      lathe('black', [[0, 0], [0.025, 0], [0.012, 0.03], [0, 0.03]], x, H0 - 0.33, z, WHITE, { seg: 16 });
       sq('bulb', 0.03, 0.035, 0.03, x, H0, z, WHITE, { e1: 1, e2: 1, nu: 8, nv: 6 });
       contact(x, z, 0.7, 0.7);
     });
@@ -895,7 +898,7 @@ export function createDecor(THREE, P, ctx = {}) {
     rbb('oak', -w / 2, w / 2, 0.1, h, -d / 2, d / 2 - 0.02, 0.006, oak);
     for (let i = 0; i < n; i++) {
       const x0 = -w / 2 + 0.004 + i * w / n, x1 = x0 + w / n - 0.006;
-      for (let x = x0 + 0.012; x < x1 - 0.008; x += 0.024) { box('oak', x - 0.0095, x + 0.0095, 0.11, h - 0.01, d / 2 - 0.02, d / 2 - 0.006, C(0xf6eee4, 0.04)); box('oak', x - 0.006, x + 0.006, 0.11, h - 0.01, d / 2 - 0.006, d / 2 - 0.003, C(0xf6eee4, 0.04)); }
+      for (let x = x0 + 0.012; x < x1 - 0.008; x += 0.024) { const sc = C(0xcfae88, 0.05); box('lacquer', x - 0.0095, x + 0.0095, 0.11, h - 0.01, d / 2 - 0.02, d / 2 - 0.006, sc); box('lacquer', x - 0.006, x + 0.006, 0.11, h - 0.01, d / 2 - 0.006, d / 2 - 0.003, sc); }   // tasseaux teintés unis : le fil photographique, perpendiculaire aux tasseaux, faisait du moiré
     }
     contact(0, 0, w + 0.2, d + 0.25);
     }
@@ -915,7 +918,7 @@ export function createDecor(THREE, P, ctx = {}) {
       for (let i = 0; i < n; i++) {
         const x0 = -w / 2 + i * w / n + 0.0015, x1 = x0 + w / n - 0.003;
         rbb('lacquer', x0, x1, 0.085, hT - 0.003, d / 2 - 0.02, d / 2, 0.002, col, { seg: 1 });
-        const hx = i % 2 ? x0 + 0.04 : x1 - 0.04; rbb('oak', hx - 0.012, hx + 0.012, 0.9, 1.3, d / 2, d / 2 + 0.02, 0.008, C(0xf6eee4));
+        const hx = i % 2 ? x0 + 0.045 : x1 - 0.045; if (barHandleFn) barHandleFn('brass', hx, 1.1, d / 2, 0.5, { vertical: true, r: 0.006, off: 0.028 }); else rbb('oak', hx - 0.012, hx + 0.012, 0.9, 1.3, d / 2, d / 2 + 0.02, 0.008, C(0xf6eee4));
       }
     });
     tallPlan('lacquer', -w / 2, w / 2, -d / 2, d / 2, col);
@@ -986,7 +989,12 @@ export function createDecor(THREE, P, ctx = {}) {
     } else {
       rbb(hm, -hbW / 2, hbW / 2, 0.08, hbH, 0, 0.06, 0.02, hb.map(v => v * 0.92));
       const nr = Math.round(hbW / 0.2), rw = hbW / nr;
-      for (let i = 0; i < nr; i++) sq(hm, rw / 2 - 0.004, (hbH - 0.14) / 2, 0.035, -hbW / 2 + rw * (i + 0.5), 0.12 + (hbH - 0.14) / 2, 0.07, hb, { e1: 0.18, e2: 0.6, pinch: 0.05, nu: 12, nv: 10 });
+      // côtes capitonnées verticales : boudins rembourrés (boîte arrondie bombée), coutures en creux entre eux
+      for (let i = 0; i < nr; i++) {
+        const cx = -hbW / 2 + rw * (i + 0.5), ch = hbH - 0.14;
+        if (puffBoxFn) { const g = puffBoxFn(rw - 0.006, 0.07, ch, 0.03, { puff: 0.35, side: 0.25, wob: 0.0008, step: 0.03 }); g.rotateX(-Math.PI / 2); g.translate(cx, 0.12 + ch / 2, 0.075); put(hm, g, hb); }
+        else sq(hm, rw / 2 - 0.004, ch / 2, 0.035, cx, 0.12 + ch / 2, 0.07, hb, { e1: 0.18, e2: 0.6, pinch: 0.05, nu: 12, nv: 10 });
+      }
     }
     // base (sommier gainé) sur socle en retrait
     box('oak', -w / 2 + 0.08, w / 2 - 0.08, 0, 0.08, z0 + 0.1, z0 + L - 0.1, C(0x5a4636));
@@ -1058,7 +1066,19 @@ export function createDecor(THREE, P, ctx = {}) {
     });
   }
   function roundMirror(cx, cy, r, frame = 'brass') { walk(() => { const g = new THREE.CircleGeometry(r, 48); g.translate(cx, cy, 0.012); put('mirror#' + (++mirrorN), g, WHITE, true); torus(frame, r, 0.012, cx, cy, 0.012, WHITE, { rx: Math.PI / 2, seg: 48, rad: 8 }); }); }
-  function rectMirror(cx, cy, w, h, frame = 'oak') { walk(() => { const g = new THREE.PlaneGeometry(w - 0.04, h - 0.04); g.translate(cx, cy, 0.016); put('mirror#' + (++mirrorN), g, WHITE, true); rbb(frame, cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, 0, 0.014, 0.01, C(0xf6eee4)); }); }
+  // miroir à angles très arrondis (rayon w/4), cadre fin en tube, entretoise murale ; maillage plan 'mirror#N'
+  // pour les reflets de viewer.js (angles arrondis gérés par makeReflector)
+  function rectMirror(cx, cy, w, h, frame = 'black') {
+    walk(() => {
+      const r = Math.min(w, h) * 0.25, sh = new THREE.Shape(), hw = w / 2 - 0.01, hh = h / 2 - 0.01;
+      sh.moveTo(-hw + r, -hh); sh.lineTo(hw - r, -hh); sh.quadraticCurveTo(hw, -hh, hw, -hh + r); sh.lineTo(hw, hh - r); sh.quadraticCurveTo(hw, hh, hw - r, hh); sh.lineTo(-hw + r, hh); sh.quadraticCurveTo(-hw, hh, -hw, hh - r); sh.lineTo(-hw, -hh + r); sh.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+      const g = new THREE.ShapeGeometry(sh, 12); g.translate(cx, cy, 0.03); put('mirror#' + (++mirrorN), g, WHITE, true);
+      const pts = sh.getSpacedPoints(96).map((p) => new V3(cx + p.x, cy + p.y, 0.03));
+      put(frame === 'oak' ? 'brass' : 'black', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 192, 0.006, 6, true), WHITE);
+      // (pas de halo lumineux : un matériau « lampe » ajoute une source ponctuelle contre le mur, qui accuse le relief de la peinture)
+      box('black', cx - w / 2 + 0.06, cx + w / 2 - 0.06, cy - h / 2 + 0.06, cy + h / 2 - 0.06, 0, 0.026, C(0x333333));        // entretoise murale
+    });
+  }
   function pegRail(w, y, n = 4, o = {}) {
     walk(() => {
       rbb('oak', -w / 2, w / 2, y - 0.04, y + 0.04, 0, 0.02, 0.006, C(0xf6eee4));
@@ -1086,7 +1106,7 @@ export function createDecor(THREE, P, ctx = {}) {
     const top = H - 0.045, W0 = x1 - x0, nP = Math.max(3, Math.round(W0 / (o.lam || 0.11))), A = o.amp || 0.04, ph = R() * 6, n = nP * 10, ny = 18;
     const prof = (u, v) => { // phase du pli : profil en « S » arrondi (pas une sinusoïde pure)
       const x = x0 + W0 * u, f = u * nP * Math.PI * 2 + ph, s = Math.sin(f), shaped = Math.sign(s) * Math.pow(Math.abs(s), 0.6);
-      const amp = A * (0.7 + 0.3 * v) * (1 + 0.15 * Math.sin(u * 7 + ph)), hemSag = 0.004 * Math.sin(u * nP * 2 * Math.PI * 0.5 + ph);
+      const amp = A * (1.3 - 0.5 * v) * (1 + 0.15 * Math.sin(u * 7 + ph)), hemSag = 0.004 * Math.sin(u * nP * 2 * Math.PI * 0.5 + ph);
       const y = 0.012 + (top - 0.012) * v + (v < 0.03 ? hemSag : 0);
       return [x + 0.006 * Math.cos(f) * (1 - v), y, z + amp * shaped];
     };
@@ -1109,15 +1129,20 @@ export function createDecor(THREE, P, ctx = {}) {
   // linéaire bas : x local -L/2..L/2, dos z = -0.3, façade z = +0.3 ; modules [{w, t:'door'|'drawers'|'dw', sink, hob}]
   function baseRun(L, mods, o = {}) {
     const fr = o.front || 'oak', fc = C(o.frontC || 0xffffff, 0.01), top = o.top || 'stone', topC = C(o.topC || 0xffffff), hY = 0.87, tT = 0.03;
-    box('lacquer', -L / 2, L / 2, 0.1, hY, -0.3, 0.28, C(0xe9e5dd));
-    box('lacquer', -L / 2, L / 2, 0, 0.1, -0.3, 0.22, C(0x4a4744));                      // plinthe en retrait
+    // caisson sombre (les joints de 3 mm se lisent en ombre), abaissé sous les cuves : on voit l'évier sous le plan
+    { let px = -L / 2 + 0.018; let xx = -L / 2; const cut = [];
+      for (const m of mods) { if (m.sink) { const sw = m.sinkW || 0.5, cx0 = xx + m.w / 2; cut.push([cx0 - sw / 2, cx0 + sw / 2]); } xx += m.w; }
+      for (const [a0, a1] of cut) { box('lacquer', px, a0, 0.1, hY, -0.3, 0.28, C(0x4e4a46)); box('lacquer', a0, a1, 0.1, hY - 0.21, -0.3, 0.28, C(0x4e4a46)); px = a1; }
+      box('lacquer', px, L / 2 - 0.018, 0.1, hY, -0.3, 0.28, C(0x4e4a46)); }
+    for (const s of [-1, 1]) box(fr, s > 0 ? L / 2 - 0.018 : -L / 2, s > 0 ? L / 2 : -L / 2 + 0.018, 0, hY, -0.3, 0.3, fc);   // joues en façade
+    box('lacquer', -L / 2 + 0.018, L / 2 - 0.018, 0, 0.1, -0.3, 0.22, C(0x3e3b38));      // plinthe en retrait
     let x = -L / 2; const sinks = [], hobs = [];
     for (const m of mods) {
       const x0 = x + 0.0015, x1 = x + m.w - 0.0015;
       const fronts = m.t === 'drawers' ? [[0.1, 0.36], [0.36, 0.62], [0.62, hY - 0.003]] : m.t === 'drawers2' ? [[0.1, 0.5], [0.5, hY - 0.003]] : [[0.1, hY - 0.003]];
       for (const [y0, y1] of fronts) {
         rbb(fr, x0, x1, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 });
-        if (o.handle !== 'none') { const hy = y1 - 0.035; rbb(o.handleMk || 'brass', (x0 + x1) / 2 - Math.min(0.12, (x1 - x0) * 0.3), (x0 + x1) / 2 + Math.min(0.12, (x1 - x0) * 0.3), hy - 0.006, hy + 0.006, 0.299, 0.318, 0.004, WHITE); }
+        if (o.handle !== 'none') { const hy = y1 - 0.04, hl = Math.min(0.26, (x1 - x0) * 0.55); if (barHandleFn) barHandleFn(o.handleMk || 'brass', (x0 + x1) / 2, hy, 0.299, hl, { r: 0.0055, off: 0.026 }); else rbb(o.handleMk || 'brass', (x0 + x1) / 2 - hl / 2, (x0 + x1) / 2 + hl / 2, hy - 0.006, hy + 0.006, 0.299, 0.318, 0.004, WHITE); }
       }
       if (m.sink) sinks.push([(x0 + x1) / 2, m.sinkW || 0.5]);
       if (m.hob) hobs.push((x0 + x1) / 2);
@@ -1150,7 +1175,7 @@ export function createDecor(THREE, P, ctx = {}) {
     walk(() => {
       box('lacquer', -w / 2, w / 2, 0, hT, -0.3, 0.28, C(0xe9e5dd));
       box('lacquer', -w / 2 + 0.005, w / 2 - 0.005, 0, 0.1, 0.18, 0.28, C(0x4a4744));
-      const F = (y0, y1, handle = true) => { rbb(fr, -w / 2 + 0.0015, w / 2 - 0.0015, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 }); if (handle) rbb(o.handleMk || 'brass', w / 2 - 0.05, w / 2 - 0.038, y0 + 0.05, Math.min(y1 - 0.05, y0 + 0.5), 0.299, 0.318, 0.004, WHITE); };
+      const F = (y0, y1, handle = true) => { rbb(fr, -w / 2 + 0.0015, w / 2 - 0.0015, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 }); if (handle) { const hl = Math.min(0.42, y1 - y0 - 0.12), hy = y1 - y0 > 1 ? (y0 < 0.6 ? y1 - 0.1 - hl / 2 : y0 + 0.1 + hl / 2) : (y0 + y1) / 2; if (barHandleFn) barHandleFn(o.handleMk || 'brass', w / 2 - 0.045, hy, 0.299, hl, { vertical: true, r: 0.0055, off: 0.026 }); else rbb(o.handleMk || 'brass', w / 2 - 0.05, w / 2 - 0.038, hy - hl / 2, hy + hl / 2, 0.299, 0.318, 0.004, WHITE); } };
       if (kind === 'oven') {
         F(0.1, 0.5); F(0.5, 0.8);
         box('glassBlack', -w / 2 + 0.003, w / 2 - 0.003, 0.8, 1.38, 0.27, 0.3); box('steel', -w / 2 + 0.02, w / 2 - 0.02, 1.31, 1.37, 0.3, 0.302, C(0x2a2b2d));
@@ -1213,7 +1238,7 @@ export function createDecor(THREE, P, ctx = {}) {
     sq('ceramic', 0.18, 0.16, 0.27, 0, 0.4 - 0.02, 0.29, C(0xf6f4ef), { e1: 0.45, e2: 0.55, nu: 24, nv: 12 });
     sq('ceramic', 0.185, 0.015, 0.27, 0, 0.555, 0.29, C(0xf6f4ef), { e1: 0.3, e2: 0.55, nu: 24, nv: 6 });
     rbb('ceramic', -0.15, 0.15, 0.3, 0.5, 0, 0.06, 0.02, C(0xf6f4ef));
-    walk(() => { rbb('ceramic', -0.11, 0.11, 0.97, 1.12, 0, 0.007, 0.004, C(0xf4f2ee)); cyl('brass', 0.03, 0.03, 0.006, -0.045, 1.045, 0.007, WHITE, { rx: Math.PI / 2, seg: 20 }); cyl('brass', 0.03, 0.03, 0.006, 0.045, 1.045, 0.007, WHITE, { rx: Math.PI / 2, seg: 20 }); });
+    walk(() => { rbb('black', -0.125, 0.125, 0.96, 1.125, 0, 0.008, 0.005, WHITE); rbb('black', -0.105, -0.004, 0.98, 1.105, 0.006, 0.011, 0.004, C(0x55575a)); rbb('black', 0.004, 0.105, 0.98, 1.105, 0.006, 0.011, 0.004, C(0x55575a)); });   // plaque de commande noire mate, double touche
     contact(0, 0.28, 0.5, 0.65);
   }
   // sèche-serviettes échelle noir mat (sur mur z = 0 local), avec serviettes
@@ -1228,7 +1253,9 @@ export function createDecor(THREE, P, ctx = {}) {
   function glassPanel(x0, x1, z, y0 = 0.02, h = 2.0) {
     walk(() => {
       box('glassClear', x0, x1, y0, y0 + h, z - 0.004, z + 0.004);
-      box('black', x0, x1, y0 + h - 0.02, y0 + h, z - 0.012, z + 0.012); box('black', x0, x0 + 0.02, y0, y0 + h, z - 0.012, z + 0.012);
+      // profilés noirs : U mural, traverse haute, seuil bas, barre de stabilisation vers le mur
+      rbb('black', x0, x1, y0 + h - 0.022, y0 + h, z - 0.011, z + 0.011, 0.003); rbb('black', x0 - 0.002, x0 + 0.022, y0, y0 + h, z - 0.013, z + 0.013, 0.003);
+      rbb('black', x0, x1, y0, y0 + 0.012, z - 0.009, z + 0.009, 0.002);
     });
     P.planOnly(() => box('black', x0, x1, 0, CUT - 0.02, z - 0.006, z + 0.006));
   }
@@ -1532,7 +1559,9 @@ export function createDecor(THREE, P, ctx = {}) {
   // mobilier « catalogue » de furniture.js : canapé, chaise wishbone, table chêne, robinet
   if (typeof location !== 'undefined' && /[?&]fx=0/.test(location.search)) return D0;   // diagnostic : mobilier d'origine
   const FX = createFurniture(THREE, D0);
-  Object.assign(D0, { sofa: FX.sofa, chair: FX.chair, rectTable: FX.rectTable, cushion: FX.cushion, strut: FX.strut, ribbon: FX.ribbon });
+  Object.assign(D0, { sofa: FX.sofa, chair: FX.chair, rectTable: FX.rectTable, cushion: FX.cushion, strut: FX.strut, ribbon: FX.ribbon,
+    vanity: FX.vanity, towelRail: FX.towelRail, showerHead: FX.showerSet, barHandle: FX.barHandle });
+  barHandleFn = FX.barHandle; puffBoxFn = FX.puffBox;
   kitchenTap = FX.kitchenTap; fxCushion = FX.cushion;
   return D0;
 }
