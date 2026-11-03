@@ -997,14 +997,17 @@ export function createDecor(THREE, P, ctx = {}) {
       let x = Math.sign(s) * (Math.min(Math.abs(s), hw) + ex * k), z = zA + Math.min(t, len) + ez * k, y = top + 0.05 + oy;
       const inTop = d === 0, hangK = Math.min(1, d / hang);
       // dessus : gonflant, matelassage léger, plis doux (corps couché)
-      if (inTop) { const nx = s / hw, nz = t / len; y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) - 0.003 * Math.pow(Math.cos((t / 0.33) * Math.PI + 0.3 * Math.sin(s * 4)), 16) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5); }
+      if (inTop) { const nx = s / hw, nz = t / len; y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) - 0.003 * Math.pow(Math.cos((t / 0.33) * Math.PI + 0.3 * Math.sin(s * 4)), 16) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5);
+        // passe 2 : froissé fin du lin lavé (rides croisées de 4–8 cm, plus marquées vers le pied et les bords)
+        const fr = 0.35 + 0.65 * Math.min(1, nz * 1.3 + Math.abs(nx) * 0.6);
+        y += fr * (0.0055 * Math.sin(s * 23 + ph * 2 + 2.2 * Math.sin(t * 5.1)) * Math.sin(t * 17 + s * 3.3) + 0.0035 * Math.sin(s * 41 - t * 29 + ph) * Math.sin(t * 37 + 1.7 * Math.sin(s * 9))); }
       // chute : plis verticaux qui s'ouvrent vers le bas, ondulation de l'ourlet
-      const pf = 0.022 * hangK * Math.sin((Math.abs(s) > hw ? t : s) * 11 + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0));
+      const ang = (Math.abs(s) > hw ? t : s), pf = 0.022 * hangK * Math.sin(ang * 11 + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0)) + 0.007 * hangK * Math.sin(ang * 31 + 2 * ph);
       if (!inTop) { const nxv = ex > 0 ? Math.sign(s) : 0, nzv = ez > 0 ? 1 : 0, L2 = Math.hypot(nxv, nzv) || 1; x += nxv / L2 * pf; z += nzv / L2 * pf; if (ez > 0 && ex === 0) x += pf * 0.6; if (ex > 0 && ez === 0) z += pf * 0.6; }
       y = Math.max(y, 0.1 + 0.015 * Math.sin(s * 20 + t * 13));
       return [x, y, z];
     };
-    thickSheet('cloth', 42, 46, duvet, duvetC, 0.02, 'u0 u1 v1');
+    thickSheet('cloth', 64, 70, duvet, duvetC, 0.02, 'u0 u1 v1');   // maillage fin : rides de quelques centimètres
     // revers de couette en tête : rouleau souple avec housse
     sq('cloth', hw + 0.01, 0.04, 0.12, 0, top + 0.062, zA + 0.04, duvetC.map(v => v * 0.97), { e1: 0.45, e2: 0.1, puff: 0.1, crease: 0.08, nu: 30, nv: 10, wob: 0.004 });
     // oreillers : deux grands carrés contre la tête de lit, deux standard, un coussin

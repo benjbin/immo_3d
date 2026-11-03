@@ -912,6 +912,15 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     if (p) plans.set(l.key, p);
   }
 
+  // textures photographiques (Poly Haven CC0) chargées avec le mobilier : parquet point de Hongrie en chêne
+  // clair, chêne fil droit, lin lavé (tissus, rideaux) ; tile = taille réelle d'une répétition (m)
+  for (const [k, key, o] of [
+    ['parquet', 'parquet', { tile: [4.4], ns: 0.8, detail: 0 }],
+    ['oak', 'oak', { tile: [0.6], rot: Math.PI / 2, ns: 0.6 }],
+    ['textile', 'linen', { tile: [0.24], ns: 0.9 }],
+    // tapis (laine, jute) : textures procédurales d'origine — la laine photo, trop fine, lisait comme un aplat gris
+  ]) { if (MAT[k]) MODELS.upgrade(MAT[k], key, o); if (WALK[k] && WALK[k] !== MAT[k]) MODELS.upgrade(WALK[k], key, o); }
+
   // ---------------------------------------------------------------- lots : couleurs, contours, volumes
   const lotState = new Map();
   const availGroup = new THREE.Group(); availGroup.name = 'lots:volumes'; availGroup.visible = false; group.add(availGroup);

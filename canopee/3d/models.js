@@ -36,6 +36,7 @@ export const CATALOG = {
   wicker_basket_02:         { size: [0.375, 0.218, 0.271], rot: 0, kind: 'objet' },
 };
 const BASE = new URL('./assets/models/', import.meta.url).href;
+const TEX = new URL('./assets/textures/', import.meta.url).href;
 
 // fit : { w, h, d } (mètres, une ou plusieurs cotes) ou { s } (échelle uniforme). Cotes absentes : échelle
 // moyenne des cotes données (proportions du modèle conservées).
@@ -58,6 +59,8 @@ export function createModels(THREE) {
   const queue = [];                  // étages demandés, dans l'ordre
   let work = null;                   // étage en cours de préparation
   const camPrev = new THREE.Matrix4(); let stillSince = 0;
+  let stillWait = [];
+  const whenStill = () => new Promise((r) => stillWait.push(r));   // résolu par tick() au repos
 
   // cartes neutres : une seule forme de programme pour tous les matériaux
   const px = (r, g, b, a = 255) => { const t = new THREE.DataTexture(new Uint8Array([r, g, b, a]), 1, 1); t.needsUpdate = true; return t; };
@@ -142,6 +145,7 @@ export function createModels(THREE) {
     const ids = [...new Set(f.list.map((p) => p.id))];
     const res = new Map();
     await Promise.all(ids.map((id) => load(id).then((r) => res.set(id, r)).catch((e) => { console.warn('[models]', id, e && e.message); })));
+    await whenStill();
     // fusion par (matériau, tag, ombre) pour tout l'étage
     const buckets = new Map();
     const m4 = new THREE.Matrix4(), sc = new THREE.Matrix4();
@@ -180,6 +184,38 @@ export function createModels(THREE) {
     f.group = { common, walk };
     f.state = 'ready';
   }
+  // ----- textures photographiques (Poly Haven CC0, assets/textures) des matériaux procéduraux existants :
+  // l'image des textures déjà en place (couleur, normales, rugosité) est remplacée au repos — mêmes objets
+  // Texture, donc aucun programme à recompiler ; la répétition (m) et la rotation sont des uniformes.
+  const upgrades = [];
+  let upState = 'idle', upQueue = [];
+  function upgrade(mat, key, o = {}) { if (mat && mat.map) upgrades.push({ mat, key, ...o }); }
+  async function loadUpgrades() {
+    upState = 'loading';
+    const img = (url) => { const im = new Image(); im.decoding = 'async'; im.src = url; return im.decode().then(() => im); };
+    const byTex = new Map();
+    await Promise.all(upgrades.map(async (u) => {
+      const [d, n, r] = await Promise.all(['diff', 'nor', 'rough'].map((k) => img(TEX + u.key + '_' + k + '.jpg').catch(() => null)));
+      for (const [t, im] of [[u.mat.map, d], [u.mat.normalMap, n], [u.mat.roughnessMap, r]]) if (t && im && !byTex.has(t)) byTex.set(t, { t, im, u });
+    }));
+    upQueue = [...byTex.values()];
+    upState = 'ready';
+  }
+  function applyUpgrade({ t, im, u }) {
+    // nouvelle source + clé de cache différente (unpackAlignment) : three crée une nouvelle texture GL à la
+    // taille de l'image (le stockage immuable de l'ancienne ne peut pas changer de dimensions)
+    t.source = new THREE.Source(im); t.unpackAlignment = t.unpackAlignment === 1 ? 2 : 1; t.repeat.set(1 / u.tile[0], 1 / (u.tile[1] || u.tile[0])); t.rotation = u.rot || 0;
+    t.anisotropy = hooks.anisotropy; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.needsUpdate = true;
+    if (hooks.renderer) hooks.renderer.initTexture(t);
+    const m = u.mat;
+    if (!m.userData.cnpUpg) {
+      m.userData.cnpUpg = true;
+      if (u.ns && m.normalScale) m.normalScale.set(u.ns, u.ns);
+      if (u.rough != null) m.roughness = u.rough;
+      if (m.userData.detail && u.detail != null) m.userData.detail.uDetailK.value = m.userData.detail.uDetailK.value.map((v) => v * u.detail);
+    }
+  }
   function swap(key) {
     const f = floors.get(key);
     const { common, walk } = f.group;
@@ -196,7 +232,13 @@ export function createModels(THREE) {
       if (!camPrev.equals(camera.matrixWorld)) { camPrev.copy(camera.matrixWorld); stillSince = now; }
     }
     const still = now - stillSince > 250 && !(hooks.busy && hooks.busy());
+    // tout le travail du processeur (décodage lancé, fusion des géométries) démarre au repos : jamais pendant
+    // une animation d'étage ou un déplacement (images en retard, baisse de qualité automatique)
+    if (!still) return;
+    if (stillWait.length) { const w = stillWait; stillWait = []; for (const r of w) r(); }
+    if (upState === 'idle' && upgrades.length && (work != null || queue.length)) loadUpgrades().catch((e) => { console.warn('[textures]', e); upState = 'done'; });
     if (!work && queue.length) { const key = queue.shift(); work = key; prepare(key).catch((e) => { console.warn('[models]', e); floors.get(key).state = 'idle'; work = null; }); }
+    if (upState === 'ready' && still) { if (upQueue.length) { applyUpgrade(upQueue.shift()); if (hooks.onSwap) hooks.onSwap(null); } else upState = 'done'; return; }
     if (work == null) return;
     const f = floors.get(work);
     if (f.state !== 'ready') return;
@@ -205,10 +247,11 @@ export function createModels(THREE) {
     if (still) { swap(work); work = null; }
   }
   return {
-    CATALOG, bind, request, tick, hooks,
+    CATALOG, bind, request, tick, hooks, upgrade,
+    get texState() { return upState; },
     arm() { armed = true; },
     get armed() { return armed; },
-    idle: () => !work && !queue.length,
+    idle: () => !work && !queue.length && (upState === 'done' || !upgrades.length),
     state: (k) => (floors.get(k) || {}).state,
     floors,
   };

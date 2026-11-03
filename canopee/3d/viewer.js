@@ -1668,14 +1668,14 @@ const IN = {
 const IN_LOOK = {
   exposure: 2.5,        // × exposition extérieure (l'appareil s'expose pour la pièce)
   sky: 3.4,             // luminance du ciel vue par les baies
-  sun: 1.0,             // soleil direct (identique : la tache au sol doit « brûler » légèrement)
-  hemi: 0.12,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
-  env: 0.85,            // gain de l'environnement « pièce »
-  lift: 0.1, contrast: 0.22, sat: 1.12, warm: 0.3, vignette: 0.2,
-  lamp: 3.5, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
-  ao: 0.85, aoRadius: 0.55,
+  sun: 1.3,             // soleil direct (identique : la tache au sol doit « brûler » légèrement)
+  hemi: 0.08,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
+  env: 0.78,            // gain de l'environnement « pièce »
+  lift: 0.1, contrast: 0.27, sat: 1.12, warm: 0.38, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
+  lamp: 5.0, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
+  ao: 0.95, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
-  sunBounce: 0.9,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
+  sunBounce: 1.05,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
   skySoft: 0.45,        // taille de source des ombres de ciel (× petite dimension de la baie) ; 0 = PCF
   meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
