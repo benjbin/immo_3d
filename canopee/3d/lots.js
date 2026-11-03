@@ -96,6 +96,71 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const disposables = [];
   // mobilier photogrammétrique (models.js) : chargé à la demande, étage par étage
   const MODELS = createModels(THREE);
+  // ombres de contact à la forme exacte : empreinte de chaque meuble rastérisée vue de dessus (triangles proches
+  // du sol, plus sombres en bas), floutée, rangée dans un atlas commun 2048² (cellules 64 px) ; décalque unique
+  // par meuble, même matériau 'contact' (l'atlas devient sa carte alpha, canal vert) — aucun coût par image
+  const CA = { cv: document.createElement('canvas'), N: 64, per: 32, next: 1 };
+  CA.cv.width = CA.cv.height = CA.N * CA.per; CA.g = CA.cv.getContext('2d'); CA.g.fillStyle = '#000'; CA.g.fillRect(0, 0, CA.cv.width, CA.cv.height);
+  { // cellule 0 : empreinte générique (rectangle arrondi flou) pour les décalques sans géométrie (modèles chargés plus tard)
+    const g = CA.g; g.save(); g.filter = 'blur(6px)'; g.fillStyle = 'rgb(150,150,150)'; g.beginPath(); g.roundRect(12, 12, 40, 40, 12); g.fill();
+    g.filter = 'blur(3px)'; g.fillStyle = 'rgb(210,210,210)'; g.beginPath(); g.roundRect(17, 17, 30, 30, 8); g.fill(); g.restore(); }
+  const cellUV = (i) => { const n = CA.N, S = CA.cv.width, cx = (i % CA.per) * n, cy = Math.floor(i / CA.per) * n; return [(cx + 1) / S, 1 - (cy + n - 1) / S, (n - 2) / S, (n - 2) / S]; };
+  function bakeFootprint(list, fy) {
+    const N = CA.N, band = 0.9, m = 0.22;
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+    const tris = [];
+    for (const g of list) {
+      const p = g.attributes.position.array, nt = p.length / 9, st = 9 * Math.max(1, Math.ceil(nt / 1500));   // maillages denses (couettes, coussins) : un triangle sur k suffit, le flou comble
+      if (g.boundingBox && g.boundingBox.min.y - fy > band) continue;
+      for (let i = 0; i + 8 < p.length; i += st) {
+        const ymin = Math.min(p[i + 1], p[i + 4], p[i + 7]) - fy, ymax = Math.max(p[i + 1], p[i + 4], p[i + 7]) - fy; if (ymin > band || ymin < -0.05) continue;
+        if (ymax < 0.03) continue;                                   // nappes posées au sol (tapis, dessous de socle) : pas d'ombre
+        const yy = Math.max(0, ymin), w = yy < 0.3 ? 1 - yy / 0.6 : 0.5 * (1 - yy / band);   // pieds et socles sombres, plateaux hauts en pénombre légère
+        tris.push(p[i], p[i + 2], p[i + 3], p[i + 5], p[i + 6], p[i + 8], w);
+        x0 = Math.min(x0, p[i], p[i + 3], p[i + 6]); x1 = Math.max(x1, p[i], p[i + 3], p[i + 6]); z0 = Math.min(z0, p[i + 2], p[i + 5], p[i + 8]); z1 = Math.max(z1, p[i + 2], p[i + 5], p[i + 8]);
+      }
+    }
+    if (!tris.length) return null;
+    x0 -= m; x1 += m; z0 -= m; z1 += m;
+    // même meuble au même endroit sur un autre étage (plans identiques) : empreinte réutilisée
+    let h = tris.length; for (let t = 0; t < tris.length; t += 37) h = (h * 31 + Math.round((tris[t] - x0) * 997 + (tris[t + 1] - z0) * 577)) | 0;
+    const sig = [h, x0.toFixed(3), z0.toFixed(3), x1.toFixed(3), z1.toFixed(3)].join('|');
+    let cell = CA.cache && CA.cache.get(sig);
+    const W = x1 - x0, D = z1 - z0;
+    if (cell == null) {
+    if (CA.next >= CA.per * CA.per) return null;
+    const grid = new Float32Array(N * N), sx = N / W, sz = N / D;
+    for (let t = 0; t < tris.length; t += 7) {
+      const ax = (tris[t] - x0) * sx, az = (tris[t + 1] - z0) * sz, bx = (tris[t + 2] - x0) * sx, bz = (tris[t + 3] - z0) * sz, cx = (tris[t + 4] - x0) * sx, cz = (tris[t + 5] - z0) * sz, w = tris[t + 6];
+      const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+      const i0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), i1 = Math.min(N - 1, Math.ceil(Math.max(ax, bx, cx))), j0 = Math.max(0, Math.floor(Math.min(az, bz, cz))), j1 = Math.min(N - 1, Math.ceil(Math.max(az, bz, cz)));
+      if (Math.abs(den) < 1e-9) { for (const [px, pz] of [[ax, az], [bx, bz], [cx, cz]]) { const i = Math.min(N - 1, Math.max(0, px | 0)), j = Math.min(N - 1, Math.max(0, pz | 0)); grid[j * N + i] = Math.max(grid[j * N + i], w); } continue; }
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = i + 0.5, pz = j + 0.5, l1 = ((bz - cz) * (px - cx) + (cx - bx) * (pz - cz)) / den, l2 = ((cz - az) * (px - cx) + (ax - cx) * (pz - cz)) / den;
+        if (l1 >= -0.02 && l2 >= -0.02 && l1 + l2 <= 1.02) grid[j * N + i] = Math.max(grid[j * N + i], w);
+      }
+    }
+    // flou : deux passes de boîte séparables (rayon 3 px) — pénombre d'environ 10 cm
+    const tmp = new Float32Array(N * N), r = 4;
+    const k2 = 1 / (2 * r + 1), cl = (v) => (v < 0 ? 0 : v > N - 1 ? N - 1 : v);
+    for (let pass = 0; pass < 2; pass++) {   // moyennes glissantes (coût indépendant du rayon)
+      for (let j = 0; j < N; j++) { const row = j * N; let a = 0; for (let k = -r; k <= r; k++) a += grid[row + cl(k)]; for (let i = 0; i < N; i++) { tmp[row + i] = a * k2; a += grid[row + cl(i + r + 1)] - grid[row + cl(i - r)]; } }
+      for (let i = 0; i < N; i++) { let a = 0; for (let k = -r; k <= r; k++) a += tmp[cl(k) * N + i]; for (let j = 0; j < N; j++) { grid[j * N + i] = a * k2; a += tmp[cl(j + r + 1) * N + i] - tmp[cl(j - r) * N + i]; } }
+    }
+    cell = CA.next++; const img = CA.g.createImageData(N, N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const v = Math.min(255, Math.round(255 * Math.pow(grid[j * N + i], 0.65))), o = ((N - 1 - j) * N + i) * 4; img.data[o] = img.data[o + 1] = img.data[o + 2] = v; img.data[o + 3] = 255; }
+    CA.g.putImageData(img, (cell % CA.per) * N, Math.floor(cell / CA.per) * N);
+    (CA.cache || (CA.cache = new Map())).set(sig, cell);
+    }
+    // décalque horizontal (axes du monde) ; UV : cellule de l'atlas (z croissant vers le bas de la cellule)
+    const [u0, v0, du, dv] = cellUV(cell), y = fy + 0.0185;   // au-dessus des tapis (1,6 cm)
+    const pos = [x0, y, z0, x1, y, z1, x1, y, z0, x0, y, z0, x0, y, z1, x1, y, z1];   // faces tournées vers +y
+    const uvf = (x, z) => [u0 + (x - x0) / W * du, v0 + dv - (z - z0) / D * dv];
+    const uv = [...uvf(x0, z0), ...uvf(x1, z1), ...uvf(x1, z0), ...uvf(x0, z0), ...uvf(x0, z1), ...uvf(x1, z1)];
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    g.userData.atlasUV = true; g.userData.keepUV = true;
+    return g;
+  }
 
   // ---------------------------------------------------------------- textures & matériaux
   const tex = (cv, rep) => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; disposables.push(t); return t; };
@@ -171,7 +236,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       }
       spots.length = 0;
     };
-    let xf = null, tag = 'common', track = null, noTrack = false;
+    let xf = null, tag = 'common', track = null, noTrack = false, piece = null;
     // objets plaqués aux murs (prises, plaques) : hors de l'emprise de collision du meuble qui les pose
     const untracked = (fn) => { const p = noTrack; noTrack = true; fn(); noTrack = p; };
     const FIN = key >= 1 && key <= 3;                 // finitions (plinthes, chambranles, poignées) dans les logements
@@ -180,13 +245,21 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // keepUV : conserve les UV propres de la géométrie (atlas, textures orientées) au lieu des UV « boîte » en mètres
     let tint = [1, 1, 1];
     const push = (mk, g, o = {}) => {
+      // ombre de contact : remplacée par l'empreinte cuite du meuble qui la demande (at() englobant) ; décalques
+      // génériques (modèles, hors meuble) : cellule 0 de l'atlas
+      if (mk === 'contact' && !(g.userData && (g.userData.atlasUV || g.userData.contactGeneric))) {
+        if (tag === 'px') return;
+        if (piece) { piece.want = true; return; }
+      }
       const keepUV = o.keepUV || (g.userData && g.userData.keepUV);
       const tn = o.tint || g.userData.tint || tint;
       if (g.index) g = g.toNonIndexed();
       if (xf) g.applyMatrix4(xf);
       for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n);
       if (!g.attributes.normal) g.computeVertexNormals();
+      if (piece && mk !== 'contact' && tag !== 'px' && tag !== 'plan') piece.list.push(g);   // après transformation (coordonnées monde, non indexées)
       if (!keepUV || !g.attributes.uv) boxUV(g);
+      if (mk === 'contact' && !(g.userData && g.userData.atlasUV)) { const [u0, v0, du, dv] = cellUV(0), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * du, v0 + uv.getY(i) * dv); }
       const n = g.attributes.position.count, tc = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { tc[i * 3] = tn[0]; tc[i * 3 + 1] = tn[1]; tc[i * 3 + 2] = tn[2]; }
       g.setAttribute('tint', new THREE.BufferAttribute(tc, 3));
@@ -249,12 +322,14 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // chaque at() est un meuble : sa propre emprise de collision (les meubles imbriqués — chaises autour
     // d'une table, tabourets d'un îlot — ont la leur, au lieu d'un grand rectangle qui bouche la pièce)
     const at = (x, z, ry, fn, y = 0) => {   // y : surélévation (dallage de la loggia C)
-      const prev = xf, parent = track;
+      const prev = xf, parent = track, pp = piece;
       const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z); xf = prev ? prev.clone().multiply(m) : m;
-      track = new THREE.Box3();
+      track = new THREE.Box3(); piece = { list: [], want: false };
       fn();
       xf = prev;
       const b = track; track = parent;
+      const pc = piece; piece = pp;
+      if (pc.want) { const xs = xf; xf = null; const g = bakeFootprint(pc.list, fy); if (g) { const pt = tag; tag = tag === 'plan' ? 'plan' : 'common'; push('contact', g, { keepUV: true }); tag = pt; } xf = xs; }
       // posé au sol, qu'on heurte en marchant (îlot, table, chaise, lit, canapé, meuble bas…)
       if (!b.isEmpty() && b.min.y - fy < 0.6 && b.max.y - b.min.y > 0.15 && (b.max.x - b.min.x) * (b.max.z - b.min.z) > 0.02)
         furniture.push({ kind: 'meuble', min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
@@ -425,6 +500,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       const uniq = (a) => [...new Set(a.map(v => Math.round(v * 1e4) / 1e4))].sort((p, q) => p - q);
       const ss = uniq([s0, s1, ...Hs.flatMap(h => [h[0], h[1]])]), ys = uniq([0, H, ...Hs.flatMap(h => [h[2], h[3]])]);
       walkOnly(() => {
+        // appuis de fenêtre intérieurs : pierre claire de 2,5 cm, débord de 3 cm et arêtes adoucies, jusqu'au dormant
+        if (FIN) for (const h of Hs) if (h[2] > 0.3 && h[2] < 1.2) {
+          const f = cIn + dir * 0.012, cA = Math.min(cIn - dir * 0.15, f + dir * 0.03), cB = Math.max(cIn - dir * 0.15, f + dir * 0.03), sa = h[0] - 0.025, sb = h[1] + 0.025, ya = h[2] - 0.025, yb = h[2] + 0.002;
+          const g = new RoundedBoxGeometry(axis === 'x' ? sb - sa : cB - cA, yb - ya, axis === 'x' ? cB - cA : sb - sa, 3, 0.008);
+          g.translate(axis === 'x' ? (sa + sb) / 2 : (cA + cB) / 2, fy + (ya + yb) / 2, axis === 'x' ? (cA + cB) / 2 : (sa + sb) / 2); push('stone', g, { tint: [1.0, 0.985, 0.96] });   // pierre claire fine (le travertin, piqué, faisait sale)
+        }
         for (let j = 0; j < ys.length - 1; j++) for (let i = 0; i < ss.length - 1; i++) {
           const cs = (ss[i] + ss[i + 1]) / 2, cyy = (ys[j] + ys[j + 1]) / 2;
           if (Hs.some(h => cs > h[0] && cs < h[1] && cyy > h[2] && cyy < h[3])) continue;
@@ -914,6 +995,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     else if (l.key === 4) p = planRoof();
     if (p) plans.set(l.key, p);
   }
+
+  if (MAT.contact) { const t = new THREE.CanvasTexture(CA.cv); t.colorSpace = THREE.NoColorSpace; t.anisotropy = 4; disposables.push(t); MAT.contact.alphaMap = t; MAT.contact.opacity = 0.72; MAT.contact.needsUpdate = true; }
 
   // textures photographiques (Poly Haven CC0) chargées avec le mobilier : parquet point de Hongrie en chêne
   // clair, chêne fil droit, lin lavé (tissus, rideaux) ; tile = taille réelle d'une répétition (m)

@@ -1668,7 +1668,7 @@ const IN = {
 };
 const IN_LOOK = {
   exposure: 2.5,        // × exposition extérieure (l'appareil s'expose pour la pièce)
-  sky: 3.4,             // luminance du ciel vue par les baies
+  sky: 4.0,             // luminance du ciel vue par les baies (passe 7 : murs plus clairs près des baies)
   sun: 1.45,            // soleil direct (identique : la tache au sol doit « brûler » légèrement)
   hemi: 0.05,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
   env: 0.6,             // gain (passe 6 : la sonde par pièce apporte le rebond coloré) de l'environnement « pièce »
@@ -1678,7 +1678,9 @@ const IN_LOOK = {
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
   sunBounce: 1.05,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
   skySoft: 0.45,        // taille de source des ombres de ciel (× petite dimension de la baie) ; 0 = PCF
-  probe: 0.75,          // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
+  probe: 0.75,
+  dusk: 0.45,           // heure bleue vue de l'intérieur à 19 h 30 (tons sombres refroidis, lampes chaudes)
+          // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
   meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
   key: 0.3,             // clé de la cellule (luminance moyenne visée après exposition)
@@ -2387,6 +2389,11 @@ function applyInterior(exposureOnly = false) {
     fu.lift.value = lerp(LOOK.lift, IN_LOOK.lift, sm); fu.contrast.value = lerp(LOOK.contrast, IN_LOOK.contrast, sm);
     fu.saturation.value = lerp(LOOK.sat, IN_LOOK.sat, sm); fu.warm.value = lerp(LOOK.warm, IN_LOOK.warm, sm);
     fu.greens.value = lerp(LOOK.greens, 0.4, sm); fu.vignette.value = lerp(0.16, IN_LOOK.vignette, sm);
+    // heure bleue (vue de l'intérieur) : les tons moyens et sombres — ciel, arbres et façades par les baies, recoins
+    // éclairés par le ciel — basculent vers le bleu ; les hautes lumières (flaques des lampes, abat-jour) restent chaudes
+    const eveB = THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75) * sm * IN_LOOK.dusk;
+    fu.shadeWB.value.set(lerp(LOOK.shadeWB[0], 0.86, eveB), lerp(LOOK.shadeWB[1], 0.95, eveB), lerp(LOOK.shadeWB[2], 1.16, eveB));
+    fu.skyPop.value = lerp(LOOK.skyPop, Math.max(LOOK.skyPop, 2.2), Math.min(1, eveB / Math.max(0.01, IN_LOOK.dusk)));   // ciel des baies : bleu franc
   }
   invalidate(60);
 }
