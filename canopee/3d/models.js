@@ -81,7 +81,7 @@ export function createModels(THREE) {
       roughness: src.roughness, metalness: src.metalness,
       normalScale: src.normalScale ? src.normalScale.clone() : new THREE.Vector2(1, 1),
       side: foliage ? THREE.DoubleSide : THREE.FrontSide,
-      alphaTest: foliage ? 0.5 : 0, transparent: false,
+      alphaTest: foliage ? 0.5 : 0, transparent: false, alphaToCoverage: !!foliage,   // bords de feuilles lissés par le MSAA
       envMapIntensity: 1,
     });
     for (const k of ['map', 'normalMap', 'roughnessMap']) { const t = m[k]; if (t && t.isTexture && !t.isDataTexture) { t.anisotropy = hooks.anisotropy; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; } }

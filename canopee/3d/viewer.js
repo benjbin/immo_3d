@@ -758,7 +758,7 @@ function buildPost() {
 // Accentuation adaptative au contraste (CAS, AMD FidelityFX) dans la passe finale : poids négatif des 4 voisins
 // réglé sur le contraste local (pas de halo sur les arêtes fortes, pas d'amplification du bruit en aplat).
 // Même passe en mouvement et au repos : aucune différence de netteté entre les deux.
-const PARAMS_SHARP = (() => { const v = parseFloat(new URLSearchParams(location.search).get('sharp')); return Number.isFinite(v) ? v : 0.5; })();
+const PARAMS_SHARP = (() => { const v = parseFloat(new URLSearchParams(location.search).get('sharp')); return Number.isFinite(v) ? v : 0.3; })();
 const CAS_GLSL = `vec2 casT = 1.0 / vec2(textureSize(tDiffuse, 0));
       vec4 c0 = texture2D(tDiffuse, vUv);
       if (uSharp > 0.001) {
@@ -878,6 +878,9 @@ function patchGtaoGBuffer(pass) {
       const m = o.material;
       // qualité basse : le feuillage instancié est exclu du G-buffer (moitié moins de sommets à traiter)
       if (QUALITY[state.quality].aoFoliage === false && o.isInstancedMesh && m && m.alphaTest > 0) { hidden.push(o); return; }
+      // logements visités : le feuillage des plantes d'intérieur (feuilles découpées ou modélisées) n'occulte pas — il
+      // laissait sur le mur derrière un halo gris bruité (l'ombre portée des feuilles, elle, reste)
+      if (IN.k > 0.5 && m && !Array.isArray(m) && (m.alphaTest > 0 || /Leaf|leaves/i.test(m.name || ''))) { hidden.push(o); return; }
       if (Array.isArray(m)) {
         if (m.every(skip)) { hidden.push(o); return; }
         swapped.push(o, m); o.material = m.map((x) => normalFor(x));
@@ -1713,7 +1716,7 @@ const IN_LOOK = {
   env: 0.6,             // gain (passe 6 : la sonde par pièce apporte le rebond coloré) de l'environnement « pièce »
   lift: 0.1, contrast: 0.27, sat: 1.12, warm: 0.38, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
   lamp: 5.0, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
-  ao: 0.95, aoRadius: 0.55,
+  ao: 0.8, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
   sunBounce: 1.05,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
   skySoft: 0.45,        // taille de source des ombres de ciel (× petite dimension de la baie) ; 0 = PCF

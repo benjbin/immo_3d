@@ -133,7 +133,7 @@ export function decorMaterials(THREE, M, std, opt = {}) {
     const l = 0.7 + 0.22 * strand + 0.1 * (fib - 0.5) + 0.05 * Math.sin(along * Math.PI) + 0.04 * (fbmP(u, v, 3, 3, 2, 5) - 0.5);
     o[0] = 196 * l; o[1] = 168 * l; o[2] = 124 * l; o[3] = strand * 0.8 + fib * 0.2; o[4] = 0.95;
   });
-  D.jute = fab('decoJute', set(jute, 0.16, 0.16, 5, { roughness: 1, normalScale: new THREE.Vector2(1.2, 1.2) }), { sheenRoughness: 0.95, sheenColor: new THREE.Color(0x7a6a50) });
+  D.jute = fab('decoJute', set(jute, 0.16, 0.16, 5, { roughness: 1, normalScale: new THREE.Vector2(0.65, 0.65) }), { sheenRoughness: 0.95, sheenColor: new THREE.Color(0x7a6a50) });
   // cannage (tête de lit, chaises) : brins de rotin horizontaux, verticaux et diagonaux, jours octogonaux sombres ; 4 cm
   const cane = paint(256, 256, (u, v, o) => {
     const f = (t) => Math.abs(((t % 1) + 1) % 1 - 0.5);
@@ -175,7 +175,7 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   // --- céramiques
   D.ceramic = std('decoCeramic', 0xffffff, { roughness: 0.12, metalness: 0 });            // sanitaires émaillés, vaisselle
   const grain = paint(256, 256, (u, v, o) => { const t = fbmP(u, v, 32, 32, 3, 91), s = hash2((u * 256) | 0, (v * 256) | 0, 3); const l = 0.9 + 0.06 * t + (s > 0.97 ? -0.15 : 0); o[0] = o[1] = o[2] = 240 * l; o[3] = t; o[4] = 0.75 + 0.15 * t; });
-  D.stoneware = std('decoStoneware', 0xffffff, set(grain, 0.15, 0.15, 2, { roughness: 1 }));  // grès mat (vases, pieds de lampe, pots)
+  D.stoneware = std('decoStoneware', 0xffffff, set(grain, 0.15, 0.15, 2, { roughness: 1, normalScale: new THREE.Vector2(0.3, 0.3) }));   // grain fin : relief discret (plus de piqué « bruit blanc »)  // grès mat (vases, pieds de lampe, pots)
   D.lacquer = std('decoLacquer', 0xffffff, { roughness: 0.42, metalness: 0 });            // façades laquées mates
   D.skirt = std('decoSkirt', 0xf3f1ec, { roughness: 0.5 });                               // plinthes, chambranles
   // --- métaux
@@ -901,10 +901,10 @@ export function createDecor(THREE, P, ctx = {}) {
     const oak = C(0xf6eee4, 0.03), n = Math.max(2, Math.round(w / 0.42));
     if (o.body !== false) {
     box('oak', -w / 2 + 0.06, w / 2 - 0.06, 0, 0.1, -d / 2 + 0.03, d / 2 - 0.06, C(0x8a6a4c));
-    rbb('oak', -w / 2, w / 2, 0.1, h, -d / 2, d / 2 - 0.02, 0.006, oak);
+    rbb('oak', -w / 2, w / 2, 0.1, h, -d / 2, d / 2 - 0.009, 0.006, oak);
     for (let i = 0; i < n; i++) {
       const x0 = -w / 2 + 0.004 + i * w / n, x1 = x0 + w / n - 0.006;
-      for (let x = x0 + 0.012; x < x1 - 0.008; x += 0.024) { const sc = C(0xcfae88, 0.05); box('lacquer', x - 0.0095, x + 0.0095, 0.11, h - 0.01, d / 2 - 0.02, d / 2 - 0.006, sc); box('lacquer', x - 0.006, x + 0.006, 0.11, h - 0.01, d / 2 - 0.006, d / 2 - 0.003, sc); }   // tasseaux teintés unis : le fil photographique, perpendiculaire aux tasseaux, faisait du moiré
+      for (let x = x0 + 0.016; x < x1 - 0.01; x += 0.032) { const sc = C(0xcfae88, 0.03); rbb('lacquer', x - 0.0135, x + 0.0135, 0.11, h - 0.01, d / 2 - 0.01, d / 2 - 0.003, 0.003, sc); }   // tasseaux de 27 mm au pas de 32 mm, relief de 7 mm arrondi : plus de rainures profondes (moiré, occlusion bruitée)   // tasseaux teintés unis : le fil photographique, perpendiculaire aux tasseaux, faisait du moiré
     }
     contact(0, 0, w + 0.2, d + 0.25);
     }
