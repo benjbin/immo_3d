@@ -704,6 +704,9 @@ function buildPost() {
   const q = QUALITY[state.quality];
   const w = innerWidth, h = innerHeight, pr = q.pr;
   const rt = new THREE.WebGLRenderTarget(Math.round(w * pr), Math.round(h * pr), { type: THREE.HalfFloatType, samples: q.msaa });
+  // profondeur pleine définition de l'image (résolue depuis le MSAA, déjà recopiée par three à chaque image) :
+  // sert à l'agrandissement bilatéral de l'occlusion ambiante calculée à définition réduite
+  rt.depthTexture = new THREE.DepthTexture(rt.width, rt.height); rt.depthTexture.type = THREE.UnsignedIntType;
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(pr);
   renderPass = new RenderPass(scene, camera);
@@ -716,6 +719,7 @@ function buildPost() {
   gtaoPass.updateGtaoMaterial({ radius: 1.4, distanceExponent: 1.3, thickness: 2.0, scale: 2.0, samples: q.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
   gtaoPass.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: q.pdSamples });
   patchGtaoGBuffer(gtaoPass);
+  patchGtaoUpsample(gtaoPass);
   gtaoPass.enabled = q.ao;
   composer.addPass(gtaoPass);
   meterPass = new MeterPass();
@@ -793,6 +797,36 @@ function makeToneFinishPass() {
   return pass;
 }
 
+// Agrandissement bilatéral de l'occlusion : la GTAO est calculée à 0,5–0,75 × la définition de l'image ; un
+// agrandissement bilinéaire faisait déborder, le long des arêtes de premier plan (banc, lit, chambranles devant un
+// mur ou une plinthe), un texel d'occlusion de l'arrière-plan — liseré crénelé. Chaque pixel pondère maintenant les
+// quatre texels voisins par l'écart (relatif) entre leur profondeur (G-buffer de la GTAO) et la sienne (profondeur
+// pleine définition de l'image) : l'occlusion s'arrête net aux arêtes. Dans la passe de mélange existante.
+function patchGtaoUpsample(pass) {
+  const bm = pass.blendMaterial;
+  Object.assign(bm.uniforms, { tDepthFull: { value: null }, tDepthLow: { value: pass.depthTexture }, lowSize: { value: new THREE.Vector2(1, 1) }, camNF: { value: new THREE.Vector2(0.2, 1600) } });
+  bm.fragmentShader = bm.fragmentShader
+    .replace('uniform sampler2D tDiffuse;', 'uniform sampler2D tDiffuse, tDepthFull, tDepthLow; uniform vec2 lowSize, camNF;\n\t\tfloat cnpLin( float d ) { return camNF.x * camNF.y / ( camNF.y - d * ( camNF.y - camNF.x ) ); }')
+    .replace('vec4 texel = texture2D( tDiffuse, vUv );', `vec2 ts = 1.0 / lowSize, pl = vUv * lowSize - 0.5, fr = fract( pl ), b0 = ( floor( pl ) + 0.5 ) * ts;
+			float Z = cnpLin( texture2D( tDepthFull, vUv ).x );
+			vec4 acc = vec4( 0.0 ); float ws = 0.0;
+			for ( int k = 0; k < 4; k ++ ) {
+				vec2 o = vec2( float( k & 1 ), float( k >> 1 ) ), q = b0 + o * ts;
+				float bw = ( o.x > 0.5 ? fr.x : 1.0 - fr.x ) * ( o.y > 0.5 ? fr.y : 1.0 - fr.y );
+				float rel = abs( cnpLin( texture2D( tDepthLow, q ).x ) - Z ) / max( Z, 0.05 );
+				float w = bw * ( exp( - rel * rel * 3000.0 ) + 1e-4 );
+				acc += texture2D( tDiffuse, q ) * w; ws += w;
+			}
+			vec4 texel = acc / max( ws, 1e-6 );`);
+  bm.needsUpdate = true;
+  const r0 = pass.render.bind(pass);
+  pass.render = function (renderer, writeBuffer, readBuffer, dt, mask) {
+    const u = bm.uniforms;
+    u.tDepthFull.value = readBuffer.depthTexture || null; u.tDepthLow.value = this.depthTexture;
+    u.lowSize.value.set(this.width, this.height); u.camNF.value.set(camera.near, camera.far);
+    return r0(renderer, writeBuffer, readBuffer, dt, mask);
+  };
+}
 // Le G-buffer de la GTAO ignore par défaut l'alphaTest (feuillages) et les verres :
 // on substitue un matériau de normales par objet, avec découpe alpha, et on masque les transparents.
 function patchGtaoGBuffer(pass) {
@@ -1634,6 +1668,7 @@ function updateNearPlane() {
 // mais en gros plan sur une fenêtre il produit des taches granuleuses dans les pièces.
 let aoRadius = 1.4;
 let aoBlend = 1;
+let aoThick = 2.0;
 function updateAoRadius() {
   if (!gtaoPass || !controls) return;
   // hors orbite (balade, drone, regard), la cible des OrbitControls n'a plus de sens : on se règle sur le mode
@@ -1644,6 +1679,10 @@ function updateAoRadius() {
   else if (mode === 'drone') r = 0.9;
   else r = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.06, 0.25, 1.4);
   if (Math.abs(r - aoRadius) > 0.02) { aoRadius = r; gtaoPass.updateGtaoMaterial({ radius: r }); }
+  // épaisseur supposée des occultants : 2 m dehors (balcons, façades) ; 0,5 m dans les logements — avec 2 m, l'arête
+  // d'un banc ou d'un lit devant le mur « occultait » la plinthe un pixel sur deux (liseré crénelé)
+  const th = mode === 'walk' || mode === 'look' ? +THREE.MathUtils.lerp(2.0, 0.5, IN.k).toFixed(2) : 2.0;
+  if (th !== aoThick) { aoThick = th; gtaoPass.updateGtaoMaterial({ thickness: th }); }
   // en intérieur (éclairage réel) : occlusion de contact plus courte, un peu atténuée
   const blend = indoor ? +THREE.MathUtils.lerp(1, IN_LOOK.ao, IN.k).toFixed(3) : 1;
   if (blend !== aoBlend) { aoBlend = blend; gtaoPass.blendIntensity = blend; }
