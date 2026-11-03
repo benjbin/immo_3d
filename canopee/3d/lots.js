@@ -424,6 +424,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           flat('cut', R2(a - 0.0, a + 0.03, c0, c1), cy + 0.003); flat('cut', R2(b - 0.03, b, c0, c1), cy + 0.003);
         });
         if (o.type === 'win') colliders.push(...(axis === 'x' ? rectSegs(a, b, c0, c1) : rectSegs(c0, c1, a, b)));
+        // passage ouvert dans un mur intérieur : sol continu dans l'épaisseur du mur (plus de fente sur le vide / l'herbe)
+        if (o.type === 'void' && faces) gridPoly(key === 0 || key === 4 ? 'tile' : 'tile', R2(a, b, c0, c1), fy + 0.004);
         if (o.type === 'gdoor') { // porte sectionnelle fermée : tablier sombre + rails en pointillé
           planOnly(() => flat('cut', R2(a, b, mid - 0.035, mid + 0.035), cy + 0.003));
           colliders.push(...rectSegs(...(axis === 'x' ? [a, b, mid - 0.035, mid + 0.035] : [mid - 0.035, mid + 0.035, a, b])));
@@ -617,40 +619,122 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const core = () => {
       const zN = -7.6, zS = -11.4, xW = -IN, xE = -1.4;
       const nN = zN - WALL_T / 2, nS = zS + WALL_T / 2, nE = xE - WALL_T / 2;
-      room('Escalier', rect(xW, -3.3, nS, nN), 'concrete', null, [-4.45, -9.5]);
-      const fw = 1.05, x1a = xW + 0.02, x1b = x1a + fw, x2b = -3.32, x2a = x2b - fw, tread = 0.28, rise = 0.17;
-      // plan : marches jusqu'au plan de coupe, ligne de coupe ; visite : volées complètes
+      // escalier à deux volées droites (dog-leg) : palier d'étage au sud (on y entre depuis le palier commun), volée 1
+      // côté est qui monte vers le nord jusqu'au palier de demi-niveau, volée 2 côté ouest qui revient vers le sud
+      // jusqu'au palier de l'étage supérieur ; la volée descendante (volée 2 de l'étage inférieur) se voit par la trémie,
+      // derrière un garde-corps. Volées pleines (paillasse), marches en pierre à nez arrondi, mur d'échiffre central
+      const ff = key === 0 ? FL[0] + SLAB : 3.0;                 // hauteur d'étage à étage
+      const S1a = xW + 0.02, S1b = S1a + 1.05, S2b = -3.32, S2a = S2b - 1.05;      // volée 2 (ouest), volée 1 (est)
+      const zl = nS + 0.95, zn = nN - 0.9, nR = 9, runL = zn - zl, tr = runL / (nR - 1);
+      const plan = rect(xW, -3.3, nS, nN);
+      // pièce (étiquette, lumière) ; sol et plafond seulement sur le palier d'étage (le reste est la trémie)
+      rooms.push({ name: 'Escalier', surface: +Math.abs(area(plan)).toFixed(1), poly: plan.map(q => [+q[0].toFixed(3), +q[1].toFixed(3)]), lot: null, level: key, label: [-4.45, -9.5] });
+      labels.push({ name: 'Escalier', surface: Math.abs(area(plan)), x: -4.45, z: -9.5, y: cy + 0.12 });
+      gridPoly('tile', key === 0 ? plan : rect(xW, -3.3, nS, zl), fy + 0.004);
+      // volée : profil (z, y) extrudé sur la largeur ; marches en pierre (giron + nez de 2 cm)
+      const flight = (xa, xb, z0, dirZ, y0, rise) => {
+        const sh = new THREE.Shape(), th = 0.17, slope = Math.hypot(tr, rise) / tr;
+        sh.moveTo(0, 0);
+        for (let i = 0; i < nR; i++) { sh.lineTo(i * tr, (i + 1) * rise); sh.lineTo((i + 1) * tr, (i + 1) * rise); }
+        sh.lineTo((nR - 1) * tr, nR * rise - th * slope); sh.lineTo(0, -th * slope); sh.lineTo(0, 0);
+        const g = new THREE.ExtrudeGeometry(sh, { depth: xb - xa, bevelEnabled: false });
+        // repère de la forme : x = avancée, y = hauteur, z = largeur → monde
+        const m = new THREE.Matrix4().set(0, 0, 1, xa, 0, 1, 0, fy + y0, dirZ, 0, 0, z0, 0, 0, 0, 1);
+        let gg = g.index ? g.toNonIndexed() : g; gg.applyMatrix4(m);
+        if (m.determinant() < 0) { const pa = gg.attributes.position; for (let t = 0; t < pa.count; t += 3) for (const ax of ['X', 'Y', 'Z']) { const v = pa['get' + ax](t + 1); pa['set' + ax](t + 1, pa['get' + ax](t + 2)); pa['set' + ax](t + 2, v); } }
+        gg.deleteAttribute('normal'); gg.computeVertexNormals(); push('wall', gg);
+        for (let i = 0; i < nR - 1; i++) {
+          const za = z0 + dirZ * (i * tr - 0.02), zb = z0 + dirZ * ((i + 1) * tr);
+          const yt = y0 + (i + 1) * rise;
+          const st = new RoundedBoxGeometry(xb - xa - 0.01, 0.03, Math.abs(zb - za), 2, 0.008);
+          st.translate((xa + xb) / 2, fy + yt + 0.005, (za + zb) / 2); push('tile', st);
+        }
+      };
+      const landing = (z0, z1, y, xa = S1a, xb = S2b) => { B('wall', xa, xb, y - 0.2, y - 0.02, z0, z1); const g = new RoundedBoxGeometry(xb - xa, 0.03, z1 - z0, 2, 0.008); g.translate((xa + xb) / 2, fy + y - 0.005, (z0 + z1) / 2); push('tile', g); };
+      const rise = ff / (2 * nR);
       planOnly(() => {
-        let z = nN - 0.05, h = 0;
-        while (h + rise <= CUT - 0.02 && z - tread > nS + 1.1) { h += rise; B('concrete', x1a, x1b, 0, h, z - tread, z); z -= tread; }
-        flat('cut', rect(x1a, x1b, z, z + tread), cy + 0.004);
-        for (let k = 0; k < 9; k++) { const zz = nN - 0.4 - k * tread; B('dark', x2a, x2b, 0, 0.012, zz - 0.012, zz); }
+        let z = zl, h = 0;
+        while (h + rise <= CUT - 0.02 && z + tr < zn) { h += rise; B('concrete', S2a, S2b, 0, h, z, z + tr); z += tr; }
+        flat('cut', rect(S2a, S2b, z - tr, z), cy + 0.004);
+        for (let k2 = 0; k2 < 8; k2++) { const zz = zl + 0.1 + k2 * tr; B('dark', S1a, S1b, 0, 0.012, zz, zz + 0.012); }
       });
       if (H > 0) walkOnly(() => {
-        let z = nN - 0.05, h = 0;
-        for (let k = 0; k < 8; k++) { h += rise; B('concrete', x1a, x1b, 0, h, z - tread, z); z -= tread; }
-        B('concrete', xW + 0.02, x2b, h - 0.12, h, nS + 0.02, z);                 // palier de demi-niveau
-        let z2 = z, h2 = h;
-        for (let k = 0; k < 6 && h2 + rise < H - 0.4; k++) { h2 += rise; B('concrete', x2a, x2b, h2 - rise, h2, z2, z2 + tread); z2 += tread; }
-        B('dark', x2a - 0.02, x2a, 0, h2 + 0.9, nS + 0.1, z2);                    // garde-corps de la trémie
+        flight(S2a, S2b, zl, 1, 0, rise);                              // volée 1 : vers le palier de demi-niveau
+        landing(zn, nN - 0.01, ff / 2);                                // palier de demi-niveau
+        flight(S1a, S1b, zn, -1, ff / 2, rise);                        // volée 2 : vers l'étage supérieur (traverse le plafond)
+        if (key > 0) {                                                 // volée descendante et palier inférieur (trémie)
+          flight(S1a, S1b, zn, -1, -ff / 2, ff / (2 * nR));
+          landing(zn, nN - 0.01, -ff / 2 + 0.0);
+          B('wall', S1a, S1b, -ff / 2 - 0.2, -0.02, zl - 0.01, zl);    // nez de dalle sous le palier
+        }
+        // mur d'échiffre entre les volées, sur toute la hauteur visible
+        B('wall', S1b + 0.005, S2a - 0.005, key > 0 ? -ff / 2 - 0.25 : 0, ff + 0.05, zl + 0.25, nN);
+        // au-dessus : la cage reste ouverte jusqu'à l'étage suivant — volées et palier de l'étage supérieur (sous-faces
+        // visibles), plafond seulement sous le palier d'étage du dessus, parois de la cage sur deux niveaux (fenêtre
+        // de l'étage supérieur laissée ouverte), fond de cage au-dessus
+        gridPoly('ceil', rect(xW, -3.3, nS, zl), fy + H, true, 0.5);
+        B('wall', S1a, S2b, H, ff, zl - 0.005, zl + 0.005);              // nez de la dalle du palier supérieur
+        flight(S2a, S2b, zl, 1, ff, rise); landing(zn, nN - 0.01, ff * 1.5); flight(S1a, S1b, zn, -1, ff * 1.5, rise);
+        const top = 2 * ff + 0.05, [wz0, wz1] = LY.stairWin;
+        B('wall', xW - 0.03, xW + 0.012, H, ff, nS, nN);                 // ouest (façade), bandeau de dalle
+        B('wall', xW - 0.03, xW + 0.012, ff, top, nS, wz0); B('wall', xW - 0.03, xW + 0.012, ff, top, wz1, nN);
+        B('wall', xW - 0.03, xW + 0.012, ff + 2.5, top, wz0, wz1);
+        B('wall', xW, -3.3, H, top, nN - 0.012, nN + 0.03);               // nord
+        B('wall', -3.312, -3.27, H, top, nS, nN);                         // est
+        B('wall', xW, -3.3, ff + H, top, nS - 0.03, nS + 0.012);         // sud (au-dessus du palier supérieur)
+        B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, nN); // échiffre, niveau supérieur
+        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, 0.5);    // fond de cage
+        // garde-corps du palier d'étage le long de la trémie : main courante chêne sur barreaudage noir
+        if (key > 0) {
+          for (let x = S1a + 0.06; x < S1b - 0.02; x += 0.11) B('black', x - 0.006, x + 0.006, 0.02, 0.98, zl + 0.015, zl + 0.027);
+          B('black', S1a, S1b, 0.02, 0.04, zl + 0.01, zl + 0.035);
+          const hr = new RoundedBoxGeometry(S1b - S1a, 0.04, 0.06, 2, 0.015); hr.translate((S1a + S1b) / 2, fy + 1.0, zl + 0.021); push('oak', hr);
+        }
+        // mains courantes murales (chêne sur consoles noires), parallèles aux volées
+        const rail = (x, z0, z1, y0, y1) => {
+          const pts = [new THREE.Vector3(x, fy + y0, z0), new THREE.Vector3(x, fy + y1, z1)];
+          push('oak', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 4, 0.021, 10, false));
+          for (const t of [0.15, 0.85]) { const z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t; B('black', x - 0.03 * Math.sign(x - (S1a + S2b) / 2), x, y - 0.03, y - 0.015, z - 0.008, z + 0.008); }
+        };
+        rail(S2b - 0.05, zl, zn, 0.9 + rise, 0.9 + ff / 2);
+        rail(S1a + 0.05, zn, zl, 0.9 + ff / 2, 0.9 + ff);
+        // bloc autonome de sortie au-dessus de l'accès de la cage, extincteur en niche
+        B('ceramic', -3.29, -3.27, 2.12, 2.24, -10.95, -10.6); B('lightF', -3.27, -3.265, 2.15, 2.21, -10.92, -10.63);
+        { const g = new THREE.CylinderGeometry(0.075, 0.075, 0.46, 20); g.translate(-1.61, fy + 0.4, -10.93); push('lacquer', g, { tint: [0.62, 0.05, 0.04] });       // extincteur sur console
+          const t = new THREE.CylinderGeometry(0.03, 0.04, 0.06, 12); t.translate(-1.61, fy + 0.66, -10.93); push('black', t); B('black', -1.54, -1.525, 0.3, 0.7, -10.97, -10.89); }
       });
-      planOnly(() => B('concrete', xW + 0.02, x2b, 0, 0.012, nS + 0.02, nS + 1.05));
-      wallRect(x1b + 0.02, x2a - 0.02, nN - 0.4, nS + 1.1);             // mur d'échiffre
+      // collisions : on ne monte pas les volées (balade à niveau), garde-corps sur la trémie
+      colliders.push({ a: [S1a, zl], b: [S2b, zl] });
+      wallRect(S1b + 0.005, S2a - 0.005, zl + 0.25, nN, false);       // tranche du mur d'échiffre en plan + collision
       // cage d'ascenseur
-      const lx0 = -3.1, lx1 = nE, lz0 = -9.3;
-      run('x', lz0 - 0.1, lz0, lx0, lx1, [{ a: -2.75, b: -1.95, type: 'void' }]);
+      const lx0 = -3.1, lx1 = nE, lz0 = -9.3, d0 = -2.75, d1 = -1.95, dc = (d0 + d1) / 2;
+      run('x', lz0 - 0.1, lz0, lx0, lx1, [{ a: d0, b: d1, type: 'void' }]);
       run('z', lx0 - 0.2, lx0, lz0 - 0.1, nN, []);
       planOnly(() => {
         B('dark', lx0 + 0.08, lx1 - 0.08, 0, 0.01, lz0 + 0.08, nN - 0.08);
         for (const sgn of [-1, 1]) { const g = new THREE.BoxGeometry(Math.hypot(lx1 - lx0, nN - lz0) - 0.2, 0.012, 0.03); g.rotateY(sgn * Math.atan2(nN - lz0, lx1 - lx0)); g.translate((lx0 + lx1) / 2, fy + 0.016, (lz0 + nN) / 2); push('furn', g); }
       });
-      if (H > 0) walkOnly(() => { B('dark', -2.75, -1.95, 0, DOOR_H, lz0 - 0.06, lz0 - 0.04); B('ceramic', -2.36, -2.34, 0.04, DOOR_H - 0.04, lz0 - 0.065, lz0 - 0.06); B('ceramic', -1.85, -1.78, 1.0, 1.25, lz0 - 0.11, lz0 - 0.1); });
+      if (H > 0) walkOnly(() => {
+        // portes palières inox brossé à ouverture centrale, chambranle fin, seuil encastré, boîte à boutons, indicateur
+        const zf = lz0 - 0.1, st = [0.78, 0.79, 0.8];
+        B('black', d0, d1, 0, DOOR_H, zf + 0.03, zf + 0.04);                                            // fond de gaine
+        for (const [a, b] of [[d0 + 0.005, dc - 0.003], [dc + 0.003, d1 - 0.005]]) { const g = new RoundedBoxGeometry(b - a, DOOR_H - 0.01, 0.025, 1, 0.003); g.translate((a + b) / 2, fy + DOOR_H / 2 + 0.005, zf + 0.015); push('steel', g, { tint: st }); }
+        for (const [a, b] of [[d0 - 0.06, d0], [d1, d1 + 0.06]]) B('steel', a, b, 0, DOOR_H + 0.06, zf - 0.012, zf + 0.04, '', 0);
+        B('steel', d0 - 0.06, d1 + 0.06, DOOR_H, DOOR_H + 0.06, zf - 0.012, zf + 0.04);
+        B('steel', d0, d1, 0, 0.006, zf - 0.08, zf + 0.04);                                             // seuil
+        B('black', dc - 0.12, dc + 0.12, DOOR_H + 0.11, DOOR_H + 0.19, zf - 0.008, zf);                  // indicateur d'étage
+        B('lightF', dc - 0.02, dc + 0.02, DOOR_H + 0.13, DOOR_H + 0.17, zf - 0.0095, zf - 0.008);
+        B('steel', d1 + 0.15, d1 + 0.25, 1.0, 1.24, zf - 0.008, zf, '', 0);                              // boîte à boutons
+        for (const y of [1.08, 1.16]) { const g = new THREE.CylinderGeometry(0.014, 0.014, 0.006, 16); g.rotateX(Math.PI / 2); g.translate(d1 + 0.2, fy + y, zf - 0.01); push('black', g); }
+      });
       room('Ascenseur', rect(lx0, lx1, lz0, nN), 'concrete', null, null, false);
-      room('Palier', rect(-3.3, nE, nS, lz0 - 0.1), 'concrete', null, null, false);
+      room('Palier', rect(-3.3, nE, nS, lz0 - 0.1), 'tile', null, null, false);
+      fill(-3.3, -3.1, nS + 0.1, zl - 0.02, 'tile');                   // seuil de la cage (épaisseur de mur ouverte)
       run('x', zN - WALL_T / 2, zN + WALL_T / 2, xW, xE + WALL_T / 2, []);
       run('x', zS - WALL_T / 2, zS + WALL_T / 2, xW, xE + WALL_T / 2, []);
       run('z', xE - WALL_T / 2, xE + WALL_T / 2, zS, zN, [{ a: -11.15, b: -9.55, type: 'void' }]);
-      run('z', -3.3, -3.1, nS, nN, [{ a: nS + 0.1, b: -9.45, type: 'void' }]);
+      fill(xE - WALL_T / 2, xE + WALL_T / 2, -11.15, -9.55, 'tile');   // passage entre les deux paliers : sol continu (plus de fente sur le vide)
+      run('z', -3.3, -3.1, nS, nN, [{ a: nS + 0.1, b: zl - 0.02, type: 'void' }]);
     };
 
     const setTint = (c) => { const p = tint; tint = c ? (Array.isArray(c) ? c : [c.r, c.g, c.b]) : [1, 1, 1]; return p; };
@@ -731,12 +815,19 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const idA = lotA && lotA.id, idB = lotB && lotB.id, suite = lotA && lotA.attique;
     facadesUpper(P);
     P.core();
-    P.room('Palier', rect(-1.4 + WALL_T / 2, 2.2 - WALL_T / 2, -11.4 + WALL_T / 2, -9.4 - WALL_T / 2), 'concrete', null, [0.4, -10.4]);
+    P.room('Palier', rect(-1.4 + WALL_T / 2, 2.2 - WALL_T / 2, -11.4 + WALL_T / 2, -9.4 - WALL_T / 2), 'tile', null, [0.4, -10.4]);
     P.run('x', -9.4 - WALL_T / 2, -9.4 + WALL_T / 2, -1.4, IN, [{ a: 0.75, b: 1.65, type: 'void' }]);
     P.door('x', -9.4 + WALL_T / 2, { a: 0.75, b: 1.65, hinge: 'b', side: 1 }); P.frame('x', -9.4, WALL_T, { a: 0.75, b: 1.65, hinge: 'b', side: 1 });
     P.run('x', -11.4 - WALL_T / 2, -11.4 + WALL_T / 2, -1.4, 2.2 + WALL_T / 2, [{ a: -0.3, b: 0.6, type: 'void' }]);
     P.door('x', -11.4 - WALL_T / 2, { a: -0.3, b: 0.6, hinge: 'a', side: -1 }); P.frame('x', -11.4, WALL_T, { a: -0.3, b: 0.6, hinge: 'a', side: -1 });
     P.run('z', 2.2 - WALL_T / 2, 2.2 + WALL_T / 2, -11.4, -9.4, []);
+    // portes palières : plaque de numéro laiton près de la serrure, bouton de sonnette
+    P.walkOnly(() => {
+      for (const [x, z, dz] of [[1.78, -9.525, -1], [-0.43, -11.275, 1]]) {
+        P.B('brass', x - 0.06, x + 0.06, 1.48, 1.56, Math.min(z, z + dz * 0.006), Math.max(z, z + dz * 0.006));
+        P.B('black', x - 0.012, x + 0.012, 1.3, 1.33, Math.min(z, z + dz * 0.008), Math.max(z, z + dz * 0.008));
+      }
+    });
 
     // ===== lot A =====
     const zA = LY.loggias.A, zB = LY.loggias.B, rx = LY.loggias.depthX - T;
@@ -1197,6 +1288,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     if (k >= 1 && k <= 3 && x > LY.loggias.depthX - T + 0.1 && x < HW + 0.1 && z > LY.loggias.C[0] && z < LY.loggias.C[1]) return y + 0.15;
     return y;
   }
+  function commonRooms(key) { const p = plans.get(+key); return p ? p.rooms.filter(r => !r.lot && H_OK(r)).map(r => ({ name: r.name, poly: r.poly.map(q => q.slice()) })) : []; }
+  const H_OK = (r) => /Palier|Escalier|Ascenseur|Hall/.test(r.name);
   function colliders(key) { const p = plans.get(key == null ? floorKey : +key); return p ? p.colliders.map(s => ({ a: s.a.slice(), b: s.b.slice() })) : []; }
   // ancres des étiquettes de pièces (rendu HTML côté viewer)
   function roomLabels(key) {
@@ -1277,7 +1370,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
-    models: MODELS,
+    models: MODELS, commonRooms,
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },
     get floor() { return floorKey; }, get mode() { return mode; }, get viewMode() { return viewMode; },

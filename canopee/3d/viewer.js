@@ -1943,6 +1943,8 @@ function roomsOfFloor(k) {
     if (!L || L.level !== k) continue;
     for (const r of L.rooms || []) if (Array.isArray(r.poly)) out.push({ lot: String(L.id), name: r.name, poly: r.poly });
   }
+  // parties communes (paliers, cage d'escalier) : éclairage intérieur comme un logement
+  if (lots && lots.commonRooms) for (const r of lots.commonRooms(k)) out.push({ lot: 'commun:' + k, name: r.name, poly: r.poly });
   return out;
 }
 // lot (et pièce) contenant la caméra, sur l'étage visité
