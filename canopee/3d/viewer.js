@@ -83,7 +83,7 @@ const URLP = new URLSearchParams(location.search);
 const PARAMS = {
   view: clampInt(URLP.get('view'), 1, 8, 1) - 1,
   hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, 8, 20) : 18,
-  quality: ['auto', 'high', 'medium', 'low'].includes(URLP.get('q')) ? URLP.get('q') : 'auto',
+  quality: ['auto', 'native', 'high', 'medium', 'low'].includes(URLP.get('q')) ? URLP.get('q') : 'auto',
   ui: URLP.get('ui') !== '0',
   intro: URLP.get('intro') !== '0',
   fallback: URLP.get('fallback') === '1',
@@ -140,11 +140,17 @@ const VIEWS = [
 /* Réglages par niveau de qualité */
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const QUALITY = {
+  // écrans Retina (DPR ≥ 2) : définition native (2), image identique en mouvement et au repos ; la marche et les
+  // changements d'étage passent à une cadence régulière plus basse (30 i/s) plutôt qu'à une définition réduite.
+  // MSAA 2× (la définition native suffit à lisser) : ~0,55 Go de cibles en 3456 × 2234 (2 × [couleur MSAA + profondeur
+  // MSAA + couleur résolue + profondeur résolue]) contre ~1 Go en 4×
+  native: { label: 'Native', pr: Math.min(DPR, 2),   shadow: 4096, ao: true, aoScale: 0.4, aoSamples: 10, pdSamples: 10, msaa: 2, bloom: true,  cheapGlass: false, sharp: 0.18 },
   high:   { label: 'Haute',   pr: Math.min(DPR, 1.5),  shadow: 4096, ao: true, aoScale: 0.75, aoSamples: 16, pdSamples: 16, msaa: 4, bloom: true,  cheapGlass: false },
   medium: { label: 'Moyenne', pr: Math.min(DPR, 1.25), shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 12, pdSamples: 12, msaa: 4, bloom: true,  cheapGlass: true },
   low:    { label: 'Basse',   pr: 1,                   shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 8,  pdSamples: 8,  msaa: 2, bloom: false, cheapGlass: true, aoFoliage: false },
 };
-const QUALITY_ORDER = ['high', 'medium', 'low'];
+const QUALITY_ORDER = ['native', 'high', 'medium', 'low'];
+const AUTO_TOP = DPR >= 2 ? 'native' : 'high';   // plus haut niveau de la qualité automatique
 
 /* Clés de matériaux du contrat (pour compléter un M partiel) */
 const MATERIAL_KEYS = ['renderWhite', 'cladding', 'slabWhite', 'glass', 'glassRail', 'frameDark', 'interiorWarm', 'woodSoffit', 'deck',
@@ -490,7 +496,7 @@ let levelUniform, highlight = null;
 const state = {
   // auto : la qualité haute (définition ×1,5) dépasse 4 Mpx sur un Retina plein écran et ne tient pas 60 i/s en
   // mouvement ; on part alors de la moyenne (vérifié ensuite par la mesure au chargement)
-  quality: PARAMS.quality === 'auto' ? (innerWidth * innerHeight * Math.min(DPR, 1.5) ** 2 > 3.6e6 ? 'medium' : 'high') : PARAMS.quality,
+  quality: PARAMS.quality === 'auto' ? (DPR >= 2 ? 'native' : innerWidth * innerHeight * Math.min(DPR, 1.5) ** 2 > 3.6e6 ? 'medium' : 'high') : PARAMS.quality,
   auto: PARAMS.quality === 'auto',
   hour: PARAMS.hour,
   season: PARAMS.season,
@@ -758,7 +764,9 @@ function buildPost() {
 // Accentuation adaptative au contraste (CAS, AMD FidelityFX) dans la passe finale : poids négatif des 4 voisins
 // réglé sur le contraste local (pas de halo sur les arêtes fortes, pas d'amplification du bruit en aplat).
 // Même passe en mouvement et au repos : aucune différence de netteté entre les deux.
-const PARAMS_SHARP = (() => { const v = parseFloat(new URLSearchParams(location.search).get('sharp')); return Number.isFinite(v) ? v : 0.3; })();
+const PARAMS_SHARP = (() => { const v = parseFloat(new URLSearchParams(location.search).get('sharp')); return Number.isFinite(v) ? v : null; })();
+const sharpFor = (q) => PARAMS_SHARP != null ? PARAMS_SHARP : (q && q.sharp != null ? q.sharp : 0.3);   // accentuation : moindre en définition native
+let toneFinishMat = null;
 const CAS_GLSL = `vec2 casT = 1.0 / vec2(textureSize(tDiffuse, 0));
       vec4 c0 = texture2D(tDiffuse, vUv);
       if (uSharp > 0.001) {
@@ -781,10 +789,10 @@ function makeToneFinishPass() {
   const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom; uniform float uAgx, uBaseAgx, uBloom, uSharp;')
     .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', CAS_GLSL + ' c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
   const mat = new THREE.ShaderMaterial({
-    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 }, uSharp: { value: PARAMS_SHARP } }),
+    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 }, uSharp: { value: sharpFor(QUALITY[state.quality]) } }),
     vertexShader: FinishShader.vertexShader, fragmentShader: frag,
   });
-  mat.toneMapped = false;
+  mat.toneMapped = false; toneFinishMat = mat;
   const pass = new ShaderPass(mat), r0 = pass.render.bind(pass);
   pass.isToneFinish = true;
   pass.render = (renderer, writeBuffer, readBuffer, dt, mask) => {
@@ -1464,7 +1472,8 @@ function planMotion() {
   const q = QUALITY[state.quality], vs = Math.max(4, MOTION.vsync);
   MOTION.restPr = q.pr;
   let div = 1;
-  if (MOTION.cost && !REDUCED_MOTION) div = Math.max(1, Math.min(4, Math.ceil(costAt(q.pr) / (MOTION_BUDGET * vs))));
+  if (MOTION.cost && !REDUCED_MOTION) div = Math.max(1, Math.min(state.quality === 'native' ? 5 : 4, Math.ceil(costAt(q.pr) / (MOTION_BUDGET * vs))));
+  if (state.quality === 'native' && !REDUCED_MOTION) div = Math.max(div, Math.round(33.4 / vs));   // natif : changements d'étage à 30 i/s réguliers
   MOTION.div = div;
 }
 // Fondu enchaîné dans la chaîne de rendu (franchissement de dalle, sortie vers l'extérieur) : l'image affichée est
@@ -1533,24 +1542,50 @@ function motionPre(now) {
 // balade / drone / regard : même cadence entière quand on rend en continu (marche, rotation). Le diviseur part
 // de la période d'affichage (120 Hz → 1 image sur 2) et monte d'un cran si le GPU manque des images ; jamais de
 // changement de réglage de rendu (image identique en mouvement et à l'arrêt).
-const walkPacing = (now) => !!(nav && nav.mode !== 'orbit') && MOTION.phase === 'idle' && now - MOTION.last < 3.5 * MOTION.vsync;
+const walkPacing = (now) => !!(nav && nav.mode !== 'orbit') && MOTION.phase === 'idle' && now - MOTION.last < (state.quality === 'native' ? 2.5 * (MOTION.walkMs || 1000 / 30) : 3.5 * MOTION.vsync);
 function walkDivFor() {
-  if (!MOTION.walkDiv) MOTION.walkDiv = MOTION.vsync < 11 ? 2 : 1;
+  if (!MOTION.walkDiv) {
+    // cadence de marche : la plus rapide qui tient le coût mesuré d'une image (40 i/s à 120 Hz en définition 1,25 ;
+    // 30 i/s en définition native, une image sur quatre à 120 Hz, une sur deux à 60 Hz)
+    const vs = Math.max(4, MOTION.vsync), base = MOTION.vsync < 11 ? 2 : 1;
+    const need = MOTION.cost ? Math.ceil(costAt(QUALITY[state.quality].pr) / (MOTION_BUDGET * vs)) : base;
+    const nat = state.quality === 'native' ? Math.round(33.4 / vs) : 1;   // natif : 30 i/s réguliers d'emblée (le coût des intérieurs dépasse celui mesuré au chargement)
+    MOTION.walkDiv = Math.max(base, nat, Math.min(4, need));
+  }
   return MOTION.walkDiv;
 }
 function trackWalkPacing(now) {
   if (!(nav && nav.mode !== 'orbit')) { MOTION.wLate = 0; MOTION.wN = 0; return; }
   const dt = now - MOTION.last;
+  if (state.quality === 'native') {   // natif : > 10 % d'images au-delà de la cible → cible plus lente (24 i/s)
+    const ms = MOTION.walkMs || NATIVE_MS;
+    if (!(dt < 2.5 * ms)) return;
+    MOTION.wN = (MOTION.wN || 0) + 1; if (dt > ms + 0.6 * Math.max(4, MOTION.vsync)) MOTION.wLate = (MOTION.wLate || 0) + 1;
+    if (MOTION.wN >= 40) { if (MOTION.wLate > 4 && ms < 41) MOTION.walkMs = 1000 / 24; MOTION.wN = 0; MOTION.wLate = 0; }
+    return;
+  }
   if (!(dt < 3.5 * MOTION.vsync)) return;   // reprise après un arrêt : pas un retard
   const div = walkDivFor();
   MOTION.wN = (MOTION.wN || 0) + 1;
   if (dt > (div + 0.5) * MOTION.vsync) MOTION.wLate = (MOTION.wLate || 0) + 1;
   if (MOTION.wN >= 40) {
-    if (MOTION.wLate > 4 && div < 4) MOTION.walkDiv = div + 1;   // > 10 % d'images en retard : cadence plus lente mais régulière
+    if (MOTION.wLate > 4 && div < (state.quality === 'native' ? 5 : 4)) MOTION.walkDiv = div + 1;   // natif : jusqu'à 24 i/s réguliers à 120 Hz   // > 10 % d'images en retard : cadence plus lente mais régulière
     MOTION.wN = 0; MOTION.wLate = 0;
   }
 }
+// définition native : cadence réglée sur le temps (30 i/s visés, 24 si ça ne tient pas), indépendante de l'estimation
+// de la fréquence d'affichage — une image n'est rendue qu'une fois l'intervalle cible écoulé
+const NATIVE_MS = 1000 / 30;
+function nativePaced(now, key) {
+  const vs = Math.max(4, MOTION.vsync), ms = MOTION[key] || NATIVE_MS;
+  return now - MOTION.last < ms - 0.5 * vs;
+}
 function motionSkip(now) {
+  if (state.quality === 'native' && !REDUCED_MOTION) {
+    if (walkPacing(now)) return nativePaced(now, 'walkMs');
+    if (MOTION.phase === 'run' || now < MOTION.tailUntil) return nativePaced(now, 'animMs');
+    return false;
+  }
   if (walkPacing(now)) {
     const div = walkDivFor();
     if (div < 2) return false;
@@ -1590,7 +1625,7 @@ function motionPost(now) {
 // à appeler avant tout changement de taille ou de qualité
 function motionAbort() {
   stopXFade();
-  MOTION.walkDiv = 0; MOTION.wN = 0; MOTION.wLate = 0;   // la cadence de balade se réévalue (taille, qualité)
+  MOTION.walkDiv = 0; MOTION.walkMs = 0; MOTION.wN = 0; MOTION.wLate = 0;   // la cadence de balade se réévalue (taille, qualité)
   MOTION.arm = false; MOTION.phase = 'idle'; MOTION.tailUntil = 0;
 }
 
@@ -2459,7 +2494,7 @@ function render() {
 function measure(now) {
   // images cadencées volontairement (changement d'étage, arrivée) : hors mesure, sinon la qualité auto
   // lirait 40 ou 60 i/s « choisis » comme un manque de fluidité
-  if (MOTION.phase !== 'idle' || now < MOTION.tailUntil || (MOTION.walkDiv > 1 && nav && nav.mode !== 'orbit')) { state.lastFrame = 0; return; }
+  if (MOTION.phase !== 'idle' || now < MOTION.tailUntil || ((MOTION.walkDiv > 1 || state.quality === 'native') && nav && nav.mode !== 'orbit')) { state.lastFrame = 0; return; }
   if (state.lastFrame) {
     const dt = now - state.lastFrame;
     if (dt < 250) { state.fpsAcc += dt; state.fpsFrames++; }
@@ -2470,7 +2505,8 @@ function measure(now) {
     state.fpsAcc = 0; state.fpsFrames = 0;
     ui.fps.textContent = `${Math.round(state.fps)} i/s`;
     if (state.auto && now - state.qualityChangedAt > 3000 && !motionActive()) {
-      if (state.fps < 40) {
+      // définition native : on accepte 30 i/s réguliers ; on ne descend que si même 30 ne tient pas
+      if (state.fps < (state.quality === 'native' ? 27 : 40)) {
         state.lowFpsStreak++;
         const idx = QUALITY_ORDER.indexOf(state.quality);
         if (state.lowFpsStreak >= 1 && idx < QUALITY_ORDER.length - 1) {
@@ -2502,6 +2538,7 @@ function setQuality(name, fromAuto = false) {
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
   }
   setCheapGlass(q.cheapGlass);
+  if (toneFinishMat) toneFinishMat.uniforms.uSharp.value = sharpFor(q);
   renderer.shadowMap.needsUpdate = true;
   if (IN.ready && IN.k > 0) applyInterior();
   onResize();
@@ -2592,7 +2629,7 @@ function buildUI() {
   ui.qPanel.addEventListener('click', (e) => e.stopPropagation());
   ui.qPanel.querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
     const q = b.dataset.q;
-    if (q === 'auto') { state.auto = true; setQuality('high'); }
+    if (q === 'auto') { state.auto = true; setQuality(AUTO_TOP); }
     else { state.auto = false; setQuality(q); }
   }));
   document.addEventListener('click', () => toggleQPanel(false));
@@ -4075,7 +4112,7 @@ function api() {
     THREE, scene, camera, controls, renderer, composer, M, building, landscape,
     goToView: (i, instant = false) => goToView(i, instant ? { duration: 0 } : {}),
     setHour: (h) => { ui.hour.value = String(h); ui.hour.dispatchEvent(new Event('input')); updateEnvironment(); },
-    setLevel, setQuality: (q) => { state.auto = q === 'auto'; setQuality(q === 'auto' ? 'high' : q); },
+    setLevel, setQuality: (q) => { state.auto = q === 'auto'; setQuality(q === 'auto' ? AUTO_TOP : q); },
     render: () => { renderer.shadowMap.needsUpdate = true; render(); },
     get state() { return { ...state, sun: undefined }; },
     stats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, programs: renderer.info.programs.length, fps: state.fps, quality: state.quality }),
