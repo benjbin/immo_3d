@@ -20,6 +20,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { drawParquet, mulberry32 } from './interiors.js';
 import { createCar } from './cars.js';
 import { decorMaterials, createDecor, furnishUpper } from './decor.js';
+import { createModels, CATALOG as MODEL_CATALOG, fitSize } from './models.js';
 
 // Gabarit de repli (identique à building.js passe 5) si building.js ne l'exporte pas
 const DEF_LAYOUT = {
@@ -93,6 +94,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const group = new THREE.Group();
   group.name = 'lots';
   const disposables = [];
+  // mobilier photogrammétrique (models.js) : chargé à la demande, étage par étage
+  const MODELS = createModels(THREE);
 
   // ---------------------------------------------------------------- textures & matériaux
   const tex = (cv, rep) => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; disposables.push(t); return t; };
@@ -158,7 +161,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   function FloorBuilder(key) {
     const fy = floorY(key), cy = fy + CUT, H = ceilH(key), buckets = {}, rooms = [], labels = [], colliders = [], lights = [], furniture = [], skirts = [];
     // spots encastrés : émis à la fin (emitSpots) en évitant les suspensions posées par la déco (markPendant)
-    const spots = [], pendants = [];
+    const spots = [], pendants = [], modelList = [];
     const markPendant = (x, z, r = 0.3) => pendants.push({ x, z, r });
     const emitSpots = () => {
       for (const sp of spots) {
@@ -191,7 +194,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       // collisions de visite : seules les pièces qui occupent la tranche du corps (10 cm – 1 m au-dessus du sol)
       // comptent, rattachées au meuble le plus intérieur (une chaise, la table, le lit…) ; suspensions, tapis,
       // objets muraux hauts n'entrent pas dans l'emprise
-      if (track && tag !== 'plan') {
+      if (track && tag !== 'plan' && tag !== 'px') {
         g.computeBoundingBox(); const bb = g.boundingBox;
         if (bb.min.y < fy + 1.0 && bb.max.y > fy + 0.1) track.union(bb);
       }
@@ -255,6 +258,20 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         furniture.push({ kind: 'meuble', min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
     };
     const planOnly = (fn) => withTag('plan', fn), walkOnly = (fn) => withTag('walk', fn);
+    // modèle photogrammétrique (models.js) posé dans le repère courant de at() ; `proxy` : meuble procédural
+    // affiché tant que le modèle n'est pas chargé (pas de collision propre). Collision : emprise du modèle mis à
+    // l'échelle (connue sans le charger), dans la tranche 10 cm – 1 m comme les autres meubles
+    const model = (id, o = {}, proxy = null) => {
+      if (!MODEL_CATALOG[id]) { if (proxy) proxy(); return; }
+      if (proxy) withTag('px', proxy);
+      const m = new THREE.Matrix4().makeRotationY(o.ry || 0).setPosition(o.x || 0, fy + (o.y || 0), o.z || 0);
+      const world = xf ? xf.clone().multiply(m) : m;
+      modelList.push({ id, world, fit: o.fit || {}, tag: tag === 'walk' || o.walk ? 'walk' : 'common', cast: o.cast });
+      if (track && o.collide !== false) {
+        const [w, h, d] = fitSize(id, o.fit || {}), y0 = Math.max(0.1, 0), y1 = Math.min(h, 1.0);
+        if (y1 > y0) { const bb = new THREE.Box3(new THREE.Vector3(-w / 2, y0, -d / 2), new THREE.Vector3(w / 2, y1, d / 2)); bb.applyMatrix4(world); track.union(bb); }
+      }
+    };
 
     // ----- murs -----
     // mur intérieur : plan = 1,2 m + tranche ; visite = pleine hauteur ; façades (faces=false) : tranche seule
@@ -557,7 +574,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
     // bande de sol + plafond sans pièce (passage ouvert entre deux pièces : épaisseur d'une cloison absente)
     const fill = (x0, x1, z0, z1, mat = 'parquet') => { gridPoly(mat, rect(x0, x1, z0, z1), fy + 0.004); if (H > 0) walkOnly(() => gridPoly('ceil', rect(x0, x1, z0, z1), fy + H, true, 0.5)); };
-    return { markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
+    return { model, modelList, withTag, markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
   function rectSegs(x0, x1, z0, z1) { return [{ a: [x0, z0], b: [x1, z0] }, { a: [x1, z0], b: [x1, z1] }, { a: [x1, z1], b: [x0, z1] }, { a: [x0, z1], b: [x0, z0] }]; }
@@ -813,7 +830,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const root = new THREE.Group(); root.name = 'plan:' + P.key;
     const gPlan = new THREE.Group(); gPlan.name = 'plan:' + P.key + ':coupe';
     const gWalk = new THREE.Group(); gWalk.name = 'plan:' + P.key + ':visite'; gWalk.visible = false;
-    root.add(gPlan, gWalk);
+    const gProxy = new THREE.Group(); gProxy.name = 'plan:' + P.key + ':doublures';
+    root.add(gPlan, gWalk, gProxy);
     const common = [];
     for (const [k, list] of Object.entries(P.buckets)) {
       const [tag, mk] = k.split('|');
@@ -837,7 +855,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         mesh.userData.mirrorCenter = bb.getCenter(new THREE.Vector3()).toArray(); mesh.userData.mirrorNormal = [nrm.getX(0), nrm.getY(0), nrm.getZ(0)]; mesh.userData.mirrorSize = bb.getSize(new THREE.Vector3()).toArray();
       }
       if (['glass', 'arc', 'cut', 'sill', 'rail', 'screen', 'spot', 'contact', 'sheer', 'glassClear', 'mirror'].includes(base)) mesh.userData.noAO = true;
-      if (tag === 'plan') gPlan.add(mesh); else if (tag === 'walk') gWalk.add(mesh); else { root.add(mesh); common.push({ mesh, plan: mat, walk: walkM }); }
+      if (tag === 'plan') gPlan.add(mesh); else if (tag === 'walk') gWalk.add(mesh); else { (tag === 'px' ? gProxy : root).add(mesh); common.push({ mesh, plan: mat, walk: walkM }); }
     }
     const lg = new THREE.Group(); lg.name = 'labels:' + P.key;
     for (const L of P.labels) {
@@ -848,6 +866,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     }
     root.visible = false; lg.visible = false;
     group.add(root); labels.add(lg);
+    MODELS.bind(P.key, { list: P.modelList, root, walk: gWalk, proxy: gProxy });
     for (const r of P.rooms) if (r.lot) { if (!lotRooms.has(r.lot)) lotRooms.set(r.lot, []); lotRooms.get(r.lot).push({ name: r.name, surface: r.surface, poly: r.poly, level: r.level, label: r.label }); }
     return { group: root, plan: gPlan, walk: gWalk, labels: lg, common, rooms: P.rooms, colliders: P.colliders, labelList: P.labels, fy: P.fy, cy: P.cy, furniture: P.furniture };
   }
@@ -1014,6 +1033,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   function setFloor(key) {
     floorKey = key == null ? null : +key;
     applyVisibility();
+    if (floorKey != null) MODELS.request(floorKey);
     if (typeof bud.setInteriorBand === 'function') {
       if (floorKey == null) bud.setInteriorBand(null, null);
       else if (floorKey === 0) bud.setInteriorBand(-0.5, 2.95);
@@ -1162,6 +1182,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
+    models: MODELS,
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },
     get floor() { return floorKey; }, get mode() { return mode; }, get viewMode() { return viewMode; },

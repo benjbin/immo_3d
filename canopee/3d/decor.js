@@ -850,9 +850,12 @@ export function createDecor(THREE, P, ctx = {}) {
   // ------------------------------------------------------------ tables et rangements
   function coffeeTable(o = {}) {
     const w = o.w || 1.1, d = o.d || 0.6, h = o.h || 0.34;
-    slab('travertine', w, d, 0.04, d / 2, 0, h - 0.04, 0, C(0xffffff, 0.02), { curve: 14 });
-    for (const s of [-1, 1]) cyl('travertine', 0.12, 0.12, h - 0.04, s * w * 0.26, 0, 0, C(0xf4efe8), { seg: 28 });
-    contact(0, 0, w + 0.25, d + 0.25, 0.018);
+    if (o.table !== false) {
+      slab('travertine', w, d, 0.04, d / 2, 0, h - 0.04, 0, C(0xffffff, 0.02), { curve: 14 });
+      for (const s of [-1, 1]) cyl('travertine', 0.12, 0.12, h - 0.04, s * w * 0.26, 0, 0, C(0xf4efe8), { seg: 28 });
+      contact(0, 0, w + 0.25, d + 0.25, 0.018);
+    }
+    if (o.decor === false) return;
     // composition : livres, coupe, soliflore, bougie
     const y = h;
     bookStack(-w * 0.22, y, 0.02, 3, 0.1, true);
@@ -881,6 +884,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // buffet bas en chêne (façades à cannelures), sur plinthe en retrait
   function sideboard(w = 1.6, d = 0.44, h = 0.7, o = {}) {
     const oak = C(0xf6eee4, 0.03), n = Math.max(2, Math.round(w / 0.42));
+    if (o.body !== false) {
     box('oak', -w / 2 + 0.06, w / 2 - 0.06, 0, 0.1, -d / 2 + 0.03, d / 2 - 0.06, C(0x8a6a4c));
     rbb('oak', -w / 2, w / 2, 0.1, h, -d / 2, d / 2 - 0.02, 0.006, oak);
     for (let i = 0; i < n; i++) {
@@ -888,6 +892,7 @@ export function createDecor(THREE, P, ctx = {}) {
       for (let x = x0 + 0.012; x < x1 - 0.008; x += 0.024) { box('oak', x - 0.0095, x + 0.0095, 0.11, h - 0.01, d / 2 - 0.02, d / 2 - 0.006, C(0xf6eee4, 0.04)); box('oak', x - 0.006, x + 0.006, 0.11, h - 0.01, d / 2 - 0.006, d / 2 - 0.003, C(0xf6eee4, 0.04)); }
     }
     contact(0, 0, w + 0.2, d + 0.25);
+    }
     if (o.decor !== false) {
       tableLamp(-w / 2 + 0.28, h, -0.02, 0, 0xc9b9a2);
       bookStack(0.05, h, 0.02, 2, 0.15, true);
@@ -925,13 +930,16 @@ export function createDecor(THREE, P, ctx = {}) {
     if (o.throw) foldedThrow(w * 0.25, 0.44 + (o.cushion ? 0.06 : 0), 0, 0.45, d - 0.06, C(o.throw));
     contact(0, 0, w + 0.2, d + 0.2);
   }
-  function desk(w = 1.2, d = 0.55) {
+  function desk(w = 1.2, d = 0.55, o = {}) {
     const oak = C(0xf6eee4, 0.03);
-    slab('oak', w, d, 0.03, 0.01, 0, 0.72, 0, oak);
-    for (const s of [-1, 1]) { box('black', s * (w / 2 - 0.05) - 0.01, s * (w / 2 - 0.05) + 0.01, 0, 0.72, -d / 2 + 0.05, d / 2 - 0.05); box('black', s * (w / 2 - 0.05) - 0.01, s * (w / 2 - 0.05) + 0.01, 0, 0.02, -d / 2 + 0.03, d / 2 - 0.03); }
-    box('black', -w / 2 + 0.05, w / 2 - 0.05, 0.6, 0.62, -d / 2 + 0.06, -d / 2 + 0.08);
+    if (o.body !== false) {
+      slab('oak', w, d, 0.03, 0.01, 0, 0.72, 0, oak);
+      for (const s of [-1, 1]) { box('black', s * (w / 2 - 0.05) - 0.01, s * (w / 2 - 0.05) + 0.01, 0, 0.72, -d / 2 + 0.05, d / 2 - 0.05); box('black', s * (w / 2 - 0.05) - 0.01, s * (w / 2 - 0.05) + 0.01, 0, 0.02, -d / 2 + 0.03, d / 2 - 0.03); }
+      box('black', -w / 2 + 0.05, w / 2 - 0.05, 0.6, 0.62, -d / 2 + 0.06, -d / 2 + 0.08);
+    }
+    if (o.items === false) return;
     // lampe d'architecte, carnet, ordinateur fermé, pot à crayons
-    const y = 0.75;
+    const y = o.h || 0.75;
     cyl('black', 0.07, 0.07, 0.015, w / 2 - 0.15, y, -0.12, WHITE);
     tube('black', [[w / 2 - 0.15, y, -0.12], [w / 2 - 0.18, y + 0.32, -0.16], [w / 2 - 0.32, y + 0.42, -0.04]], 0.006, WHITE, { seg: 10, rad: 4 });
     lathe('black', [[0.06, 0], [0.04, 0.08], [0.015, 0.1], [0, 0.1]], w / 2 - 0.33, y + 0.3, -0.03, WHITE, { seg: 20 });
@@ -942,11 +950,13 @@ export function createDecor(THREE, P, ctx = {}) {
     contact(0, 0, w + 0.2, d + 0.2);
   }
   function nightstand(o = {}) {
-    const oak = C(0xf6eee4, 0.04), w = o.w || 0.45, d = 0.38, h = 0.5;
-    rbb('oak', -w / 2, w / 2, 0.08, h, -d / 2, d / 2, 0.006, oak);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) rbb('oak', sx * (w / 2 - 0.04) - 0.015, sx * (w / 2 - 0.04) + 0.015, 0, 0.09, sz * (d / 2 - 0.04) - 0.015, sz * (d / 2 - 0.04) + 0.015, 0.004, oak);
-    box('oak', -w / 2 + 0.02, w / 2 - 0.02, h - 0.16, h - 0.157, d / 2, d / 2 + 0.002, C(0x7a5a3c));
-    rbb('brass', -0.04, 0.04, h - 0.1, h - 0.088, d / 2, d / 2 + 0.018, 0.005);
+    const oak = C(0xf6eee4, 0.04), w = o.w || 0.45, d = 0.38, h = o.h || 0.5;
+    if (o.body !== false) {
+      rbb('oak', -w / 2, w / 2, 0.08, h, -d / 2, d / 2, 0.006, oak);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) rbb('oak', sx * (w / 2 - 0.04) - 0.015, sx * (w / 2 - 0.04) + 0.015, 0, 0.09, sz * (d / 2 - 0.04) - 0.015, sz * (d / 2 - 0.04) + 0.015, 0.004, oak);
+      box('oak', -w / 2 + 0.02, w / 2 - 0.02, h - 0.16, h - 0.157, d / 2, d / 2 + 0.002, C(0x7a5a3c));
+      rbb('brass', -0.04, 0.04, h - 0.1, h - 0.088, d / 2, d / 2 + 0.018, 0.005);
+    }
     if (o.lamp !== false) tableLamp(-0.03, h, -0.03, o.lampKind || 0, o.lampC || 0xd9cfbf);
     if (o.books !== false) bookStack(0.1, h, 0.08, 2, 0.4);
     if (o.cup) cyl('ceramic', 0.04, 0.035, 0.08, 0.13, h, -0.1, C(0xe9e2d6));
@@ -1506,6 +1516,7 @@ export function createDecor(THREE, P, ctx = {}) {
     art, roundMirror, rectMirror, pegRail, sheers, drapes,
     baseRun, tallUnit, wallUnits, splash, island, counterDecor, dishes,
     vanity, wc, towelRail, glassPanel, showerHead, tileWall, tallPlan,
+    model: (id, o, proxy) => P.model(id, o, proxy),
   };
 }
 
@@ -1523,6 +1534,10 @@ export function furnishUpper(THREE, P, D, o = {}) {
   // un seul volume de collision pour un ensemble (table + chaises, tabourets) : plus de fente où la caméra se coince
   const one = (fn) => { const n0 = FUR.length; fn(); const parts = FUR.splice(n0); if (!parts.length) return; const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9]; for (const b of parts) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], b.min[k]); mx[k] = Math.max(mx[k], b.max[k]); } FUR.push({ kind: 'meuble', min: mn, max: mx }); };
   // meubles hauts (armoires, colonnes, bibliothèques) : marge de 10 cm, la caméra ne voit plus au travers
+  // mobilier photogrammétrique (models.js) : le meuble procédural sert de doublure jusqu'au chargement
+  const M3 = (id, fit, proxy, o = {}) => D.model(id, { fit, ...o }, proxy);
+  const NS = (w = 0.46, d = 0.4) => (proxy) => M3('side_table_01', { w, h: 0.5, d }, proxy);   // chevet chêne à deux plateaux
+  const plantK = (k, h, proxy) => k === 'pp01' ? M3('potted_plant_01', { h: h || 1.55 }, proxy) : k === 'pp02' ? M3('potted_plant_02', { h: h || 0.95 }, proxy) : proxy();
   const tall = (x, z, ry, fn) => { const n0 = FUR.length; at(x, z, ry, fn); for (let i = n0; i < FUR.length; i++) { const b = FUR[i]; b.min[0] -= 0.1; b.min[2] -= 0.1; b.max[0] += 0.1; b.max[2] += 0.1; b.max[1] = Math.max(b.max[1], b.min[1] + 2.0); } };
 
   // ======================= LOT A (côté rue) =======================
@@ -1530,21 +1545,21 @@ export function furnishUpper(THREE, P, D, o = {}) {
     1: { // 101 — sauge, bleu encre, jute ; table en travertin
       sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenOat, PAL.ink], plaid: PAL.linenOat }, arm: { pillow: PAL.ink },
       rug: ['jute', C(0xf2ead8), false], artSofa: () => { D.art(-0.36, 1.58, 0.62, 0.84, ART.sketch, { frame: 'black' }); D.art(0.36, 1.58, 0.62, 0.84, ART.line, { frame: 'black' }); },
-      table: 'trav', chairSeat: PAL.linenOat, plantDining: 'snake', plantBay: 'olive', artWest: [ART.enso, ART.dune],
+      table: 'trav', chairSeat: PAL.linenOat, plantDining: 'snake', plantBay: 'pp01', artWest: [ART.enso, ART.dune],
       ch1: { head: PAL.terracotta, throw: PAL.ink, accent: PAL.ochre, pend: [0, 0.24, 0xe4dac8], art: ART.sea }, ch2: { head: PAL.sage, accent: PAL.mustard, throw: PAL.linenStone, pend: [2, 0.17, 0xa9b39b] },
       ch3: { head: PAL.linenGreige, accent: PAL.ink, throw: PAL.ochre, pend: 'akari' }, domes: 'black',
     },
     2: { // 201 — japandi sable (inchangé : lot de l'expérience d'accueil)
       sofa: { col: PAL.linenSand, pillows: [PAL.terracotta, PAL.linenOat, PAL.ochre, PAL.sage], plaid: PAL.rust }, arm: { pillow: PAL.ochre },
       rug: ['rug', undefined, true], artSofa: () => D.art(0, 1.55, 1.1, 0.8, ART.arcs),
-      table: 'oak', chairSeat: PAL.straw, plantDining: 'fig', plantBay: 'olive', artWest: [ART.leaf, ART.blocks],
+      table: 'oak', chairSeat: PAL.straw, plantDining: 'pp01', plantBay: 'olive', artWest: [ART.leaf, ART.blocks],
       ch1: { head: PAL.linenGreige, throw: PAL.ochre, accent: PAL.terracotta, pend: [0, 0.24, 0xeee5d5], art: ART.line }, ch2: { head: PAL.sage, accent: PAL.ochre, throw: PAL.linenStone, pend: [0, 0.19, 0xe6ddcd] },
       ch3: { head: PAL.linenOat, accent: PAL.sage, throw: PAL.terracotta, pend: [0, 0.19, 0xeee5d5] }, domes: 'black',
     },
     3: { // 302 — attique : bouclé rouille, laiton, grande table ovale, olivier côté baie
       sofa: { col: PAL.linenOat, pillows: [PAL.rust, PAL.ochre, PAL.linenSand, PAL.clay], plaid: PAL.charcoal }, arm: { pillow: PAL.rust },
       rug: ['wool', C(0xe8e1d4), false], artSofa: () => D.art(0, 1.6, 1.4, 1.0, ART.sea, { frame: 'oak', mat: 0.08 }),
-      table: 'oval', chairSeat: PAL.linenGreige, plantDining: 'olive', plantBay: 'fig', artWest: [ART.arcs, ART.sketch],
+      table: 'oval', chairSeat: PAL.linenGreige, plantDining: 'olive', plantBay: 'pp02', artWest: [ART.arcs, ART.sketch],
       ch1: { head: PAL.rust, headMk: 'boucle', throw: PAL.linenSand, accent: PAL.ochre, pend: [3, 0.3, 0xf1e9dc], art: ART.leaf }, ch2: { head: PAL.linenSand, accent: PAL.rust, throw: PAL.clay, pend: [0, 0.19, 0xe6ddcd] },
       ch3: { head: PAL.ink, accent: PAL.ochre, throw: PAL.linenOat, pend: 'akari' }, domes: 'brass',
     },
@@ -1555,10 +1570,16 @@ export function furnishUpper(THREE, P, D, o = {}) {
     // --- séjour : canapé 2,20 m recentré (passage îlot / canapé ≈ 70 cm), fauteuil tourné vers le canapé près de la baie
     at(3.6, -4.45, 0, () => D.rugF(2.0, 1.8, V.rug[0], V.rug[1], V.rug[2]));
     at(3.6, -5.38, 0, () => D.sofa(2.2, V.sofa));
-    at(3.6, -4.22, 0, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
-    at(4.05, -2.3, -2.88, () => D.armchair(V.arm));
+    // table basse : béton ciré et chêne (101, 201), marbre et métal noir (302) ; composition posée dessus
+    at(3.6, -4.22, 0, () => {
+      if (lv === 3) M3('coffee_table_round_01', { w: 0.9, d: 0.9, h: 0.36 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false }));
+      else M3('modern_coffee_table_01', { w: 1.1, h: 0.36, d: 0.56 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false }));
+      D.coffeeTable({ w: lv === 3 ? 0.9 : 1.0, d: 0.56, h: 0.36, table: false });
+    });
+    // fauteuil : chêne et cuir noir (101, 302), fauteuil pivotant en cuir cognac (201)
+    at(4.05, -2.3, -2.88, () => lv === 2 ? M3('mid_century_lounge_chair', { h: 0.95 }, () => D.armchair(V.arm)) : M3('modern_arm_chair_01', { h: 0.9 }, () => D.armchair(V.arm)));
     at(5.2, -5.57, 0, () => D.floorLamp(0, 0));
-    const plant = (k, x, z) => at(x, z, 0, () => k === 'olive' ? D.oliveTree(0, 0, 1.8, 0xcfc6b8) : k === 'fig' ? D.figTree(0, 0, 1.7, 0xd9cfbf) : D.snakePlant(0, 0, 0.95, 0xe7dfd1));
+    const plant = (k, x, z) => at(x, z, 0, () => plantK(k, 0, () => k === 'olive' ? D.oliveTree(0, 0, 1.8, 0xcfc6b8) : k === 'fig' || k === 'pp01' ? D.figTree(0, 0, 1.7, 0xd9cfbf) : D.snakePlant(0, 0, 0.95, 0xe7dfd1)));
     plant(V.plantBay, 5.12, -2.12);
     plant(V.plantDining, -0.6, -1.88);
     face(3.6, -5.86, 0, V.artSofa);
@@ -1580,7 +1601,9 @@ export function furnishUpper(THREE, P, D, o = {}) {
     }));
     if (V.table === 'oval') { D.pendant(TX, TZ - 0.42, 1.62, 3, 0.2, 0xf1e9dc); D.pendant(TX, TZ + 0.42, 1.62, 3, 0.2, 0xf1e9dc); }
     else D.akari(TX, TZ, 1.6, 0.27, 0.38);
-    at(-0.715, -3.05, PI / 2, () => D.sideboard(1.4, 0.42, 0.7));
+    // enfilade : noyer à lattes sur piètement acier (101, 302), chêne à lattes procédural (201)
+    if (lv === 2) at(-0.715, -3.05, PI / 2, () => D.sideboard(1.4, 0.42, 0.7));
+    else at(-0.715, -3.05, PI / 2, () => { M3('modern_wooden_cabinet', { w: 1.4, h: 0.62, d: 0.42 }, () => D.sideboard(1.4, 0.42, 0.62, { decor: false })); D.sideboard(1.4, 0.42, 0.62, { body: false }); });
     face(-0.93, -3.05, PI / 2, () => { D.art(-0.3, 1.55, 0.5, 0.7, V.artWest[0], { frame: 'oak' }); D.art(0.32, 1.55, 0.5, 0.7, V.artWest[1], { frame: 'black' }); });
     // cuisine en L (façades laquées sauge, plan quartzite, crédence zellige) ; hotte intégrée à un élément haut (plus de « casquette »)
     at(-0.63, -6.13, PI / 2, () => {
@@ -1598,7 +1621,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     // îlot 1,30 m remonté de 30 cm (z −5,2) : passage îlot / canapé ≈ 70 cm, tabourets hors du tour de table
     at(1.15, -5.2, 0, () => {
       D.island(1.3, 0.95, { front: 'oak', over: 0.25, top: 'stone' });
-      D.fruitBowl(-0.25, 0.91, -0.1); const vh = D.vase(0.35, 0.91, -0.1, 0, 0xe8dfd0); D.branches(0.35, 0.91 + vh, -0.1, 0.5, 5);
+      D.fruitBowl(-0.25, 0.91, -0.1); M3(lv === 3 ? 'ceramic_vase_01' : 'ceramic_vase_02', { h: 0.28 }, () => D.vase(0.35, 0.91, -0.1, 0, 0xe8dfd0), { x: 0.35, y: 0.91, z: -0.1, collide: false }); D.branches(0.35, 0.91 + 0.26, -0.1, 0.5, 5);
     });
     one(() => at(1.15, -5.2, 0, () => { for (const x of [-0.3, 0.3]) at(x, 0.62, PI, () => D.barStool({ seat: lv === 1 ? PAL.ink : lv === 3 ? PAL.rust : PAL.cognac })); }));
     D.dome(0.82, -5.2, 1.68, 0.13, V.domes); D.dome(1.48, -5.2, 1.68, 0.13, V.domes);
@@ -1608,8 +1631,10 @@ export function furnishUpper(THREE, P, D, o = {}) {
       const w = suite ? 1.8 : 1.6, bx = suite ? -4.1 : -4.05, off = w / 2 + 0.1 + 0.24, c1 = V.ch1;
       at(bx, -2.55, 0, () => D.rugF(suite ? 2.6 : 2.3, suite ? 2.0 : 1.7, 'wool', C(0xe7dfd0), false));
       at(bx, -3.96, 0, () => D.bed(w, 2.0, { head: c1.head, headMk: c1.headMk, duvet: PAL.linenWhite, accent: c1.accent, throw: c1.throw }));
-      at(bx - off, -3.75, 0, () => D.nightstand({ lampC: suite ? 0xd9cfbf : 0xc4754e, lamp: !suite }));
-      at(bx + off, -3.75, 0, () => D.nightstand({ lampC: suite ? 0xd9cfbf : 0xc4754e, cup: true, lamp: !suite }));
+      for (const s of [-1, 1]) at(bx + s * off, -3.75, 0, () => {
+        const o = { lampC: suite ? 0xd9cfbf : 0xc4754e, lamp: !suite, cup: s > 0 };
+        if (lv === 2) D.nightstand(o); else { NS(0.46, 0.4)(() => D.nightstand({ ...o, lamp: false, books: false, cup: false })); D.nightstand({ ...o, body: false }); }
+      });
       if (suite) for (const s of [-1, 1]) face(bx + s * off, -3.96, 0, () => D.sconce(0, 1.32));   // appliques laiton au-dessus des chevets
       if (suite) face(bx, -3.96, 0, () => { D.art(-0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.3, 0.5, 0.7] }); D.art(0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.7, 0.5, 0.7], flip: true }); });
       else face(bx, -3.96, 0, () => D.art(0, 1.62, 0.9, 0.6, c1.art));
@@ -1618,7 +1643,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       D.drapes(-4.75, -4.18, -0.53, C(PAL.linenOat)); D.drapes(-1.6, -1.06, -0.53, C(PAL.linenOat));
       walk(() => D.box('black', -4.8, -1.03, P.H - 0.03, P.H - 0.002, -0.545, -0.515));
       D.glassPanel(-4.27, -1.04, -0.47, 0.02, 1.0);               // garde-corps vitré (baie toute hauteur)
-      at(-5.2, -0.85, 0, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1));
+      at(-5.2, -0.85, 0, () => lv === 1 ? M3('potted_plant_02', { h: 0.8 }, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1)) : D.snakePlant(0, 0, 0.8, 0xe7dfd1));
       face(-5.565, -2.4, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
       D.pendant(bx, -2.85, suite ? 1.95 : 1.98, c1.pend[0], c1.pend[1], c1.pend[2]);
       if (suite) { // coin lecture : fauteuil bouclé, lampadaire, guéridon
@@ -1632,10 +1657,10 @@ export function furnishUpper(THREE, P, D, o = {}) {
       const c2 = V.ch2;
       at(-4.24, -6.3, 0, () => D.rugF(1.9, 1.5, 'wool', C(0xd9d2c6), false));
       at(-4.24, -7.475, 0, () => D.bed(1.4, 2.0, { hbW: 1.46, head: c2.head, duvet: PAL.linenWhite, pillow2: PAL.linenSand, accent: c2.accent, throw: c2.throw }));
-      at(-5.19, -7.265, 0, () => { D.nightstand({ w: 0.4, lamp: false }); D.pothos(-0.08, 0.5, -0.06, { n: 5, reach: 0.32, dir: 0.4 }); });
-      at(-3.29, -7.265, 0, () => D.nightstand({ w: 0.4, lampKind: 1 }));
+      at(-5.19, -7.265, 0, () => { if (lv === 2) { NS(0.4, 0.38)(() => D.nightstand({ w: 0.4, lamp: false, books: false })); D.nightstand({ w: 0.4, lamp: false, body: false }); } else D.nightstand({ w: 0.4, lamp: false }); D.pothos(-0.08, 0.5, -0.06, { n: 5, reach: 0.32, dir: 0.4 }); });
+      at(-3.29, -7.265, 0, () => { if (lv === 2) { NS(0.4, 0.38)(() => D.nightstand({ w: 0.4, lamp: false, books: false })); D.nightstand({ w: 0.4, lampKind: 1, body: false }); } else D.nightstand({ w: 0.4, lampKind: 1 }); });
       face(-4.24, -7.475, 0, () => D.art(0, 1.6, 0.6, 0.8, lv === 3 ? ART.dune : ART.sketch, { frame: 'black' }));
-      at(-5.03, -4.315, PI, () => D.desk(1.0, 0.55));
+      at(-5.03, -4.315, PI, () => { if (lv === 2) D.desk(1.0, 0.55); else { M3('small_wooden_table_01', { w: 1.0, h: 0.75, d: 0.52 }, () => D.desk(1.0, 0.55, { items: false })); D.desk(1.0, 0.55, { body: false, h: 0.75 }); } });
       at(-5.03, -4.42, 0, () => D.chair({ seat: lv === 1 ? PAL.ink : PAL.linenGreige }));
       face(-5.03, -4.04, PI, () => { walk(() => D.wallShelf(1.0, 1.28, 0.22)); D.art(0.2, 1.78, 0.4, 0.5, ART.enso); });
       for (const zc of [-5.4, -6.9]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
@@ -1647,7 +1672,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       const c3 = V.ch3;
       at(3.6, -7.3, 0, () => D.rugF(1.5, 1.1, 'wool', C(0xe2d9c9), false));
       at(2.91, -5.94, PI, () => D.bed(1.2, 1.9, { head: c3.head, duvet: PAL.linenWhite, pillow2: PAL.linenGreige, accent: c3.accent, throw: c3.throw, tuck: true }));
-      at(3.88, -6.15, PI, () => D.nightstand({ lampKind: 1, cup: true }));
+      at(3.88, -6.15, PI, () => { if (lv === 3) D.nightstand({ lampKind: 1, cup: true }); else { NS(0.44, 0.38)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampKind: 1, cup: true, body: false }); } });
       face(2.91, -5.94, PI, () => D.art(0, 1.62, 0.7, 0.5, lv === 1 ? ART.blocks : ART.dune));
       face(2.19, -7.05, PI / 2, () => walk(() => { D.wallShelf(0.8, 1.52, 0.17, { objects: false }); D.bookRow(-0.36, 0.0, 1.55, 0.085, 0); D.candle(0.1, 1.55, 0.08, 0.08); D.bowl(0.26, 1.55, 0.085, 0.06, 0x3d3a36); }));
       at(5.33, -6.42, -PI / 2, () => D.desk(0.9, 0.5));
@@ -1665,7 +1690,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     at(-1.01, -6.25, -PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.7, 0.8); });
     at(-2.81, -5.75, PI / 2, () => D.towelRail(0.5, 1.1, 0.3, lv === 3 ? PAL.clay : PAL.linenOat));
     at(-1.95, -6.3, 0, () => D.rugF(0.8, 0.5, 'wool', C(0xe9e2d6), false));
-    at(-1.22, -5.5, 0, () => D.basket(0, 0, 0.17, 0.42, { linen: PAL.linenOat }));
+    at(-1.22, -5.5, 0, () => M3('wicker_basket_02', { w: 0.4 }, () => D.basket(0, 0, 0.17, 0.42, { linen: PAL.linenOat }), { ry: 0.3 }));
     // --- salle d'eau · WC
     D.box('travertine', -1.275, -0.375, 0, 0.03, -9.275, -8.375, D.WHITE);
     at(-0.825, -9.275, 0, () => { D.tileWall(-0.45, 0.45, 0.03, 2.1, 0); D.showerHead(0, 0.35); });
@@ -1721,21 +1746,21 @@ export function furnishUpper(THREE, P, D, o = {}) {
     1: { // 102 — sauge et encre
       sofa: { col: PAL.boucle, mk: 'boucle', pillows: [PAL.ink, PAL.sage, PAL.linenOat, PAL.olive], plaid: PAL.sage }, arm: { mk: 'textile', col: PAL.sage },
       rug: ['wool', C(0xd9d1c3), false], artSofa: [ART.blocks, { frame: 'black' }], artEast: [ART.leaf, { frame: 'oak', mat: 0.08 }],
-      table: 'rect', seat: PAL.linenOat, plants: ['fig', 'strelitzia'], domes: 'black',
+      table: 'rect', seat: PAL.linenOat, plants: ['pp01', 'strelitzia'], domes: 'black',
       ch1: { headMk: 'oak', head: PAL.linenSand, accent: PAL.ink, throw: PAL.sage, pend: [2, 0.2, 0xa9b39b], art: ART.line }, ch2: { head: PAL.ink, accent: PAL.ochre, throw: PAL.linenStone, art: ART.leaf },
       cushion: PAL.sage,
     },
     2: { // 202 — encre et sauge, table ronde
       sofa: { col: PAL.ink, pillows: [PAL.linenWhite, PAL.sage, PAL.ochre, PAL.linenOat], plaid: PAL.linenOat }, arm: { mk: 'boucle', col: PAL.boucle },
       rug: ['wool', C(0xbfc5ae), false], artSofa: [ART.blocks, { frame: 'oak' }], artEast: [ART.line, { frame: 'black', mat: 0.08 }],
-      table: 'round', seat: PAL.linenGreige, plants: ['fig', 'snake'], domes: 'black',
+      table: 'round', seat: PAL.linenGreige, plants: ['fig', 'pp02'], domes: 'black',
       ch1: { head: PAL.linenSand, accent: PAL.sage, throw: PAL.ink, pend: 'akari', art: ART.enso }, ch2: { head: PAL.sage, accent: PAL.ink, throw: PAL.clay, art: ART.dune },
       cushion: PAL.ink,
     },
     3: { // 301 — encre et ocre, canapé sauge, cannage, laiton
       sofa: { col: PAL.sage, pillows: [PAL.ink, PAL.ochre, PAL.linenWhite, PAL.mustard], plaid: PAL.ochre }, arm: { mk: 'textile', col: PAL.ochre },
       rug: ['jute', C(0xf0e6d2), false], artSofa: [ART.enso, { frame: 'black', pair: ART.sketch }], artEast: [ART.sea, { frame: 'black', mat: 0.08 }],
-      table: 'rect', seat: PAL.straw, plants: ['olive', 'strelitzia'], domes: 'brass',
+      table: 'rect', seat: PAL.straw, plants: ['olive', 'pp01'], domes: 'brass',
       ch1: { headMk: 'cane', head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, pend: [0, 0.2, 0xe9dcc4], art: ART.arcs }, ch2: { head: PAL.linenSand, accent: PAL.ochre, throw: PAL.ink, art: ART.sketch },
       cushion: PAL.ochre,
     },
@@ -1771,13 +1796,19 @@ export function furnishUpper(THREE, P, D, o = {}) {
     D.akari(TX, TZ, 1.62, 0.25, 0.34);
     at(3.1, -16.4, PI / 2, () => D.rugF(2.4, 1.9, V.rug[0], V.rug[1], V.rug[2]));
     at(1.86, -16.4, PI / 2, () => D.sofa(2.4, V.sofa));
-    at(3.15, -16.4, PI / 2, () => D.coffeeTable({ w: 1.1, d: 0.6 }));
-    at(3.95, -17.95, -0.55, () => D.armchair(V.arm));
+    // table basse : marbre et métal noir (102), béton et chêne (202), travertin procédural (301)
+    at(3.15, -16.4, PI / 2, () => {
+      if (lv === 1) { M3('coffee_table_round_01', { w: 0.95, d: 0.95, h: 0.36 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false })); D.coffeeTable({ w: 0.95, d: 0.56, h: 0.36, table: false }); }
+      else if (lv === 2) { M3('modern_coffee_table_01', { w: 1.1, h: 0.36, d: 0.56 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false })); D.coffeeTable({ w: 1.0, d: 0.56, h: 0.36, table: false }); }
+      else D.coffeeTable({ w: 1.1, d: 0.6 });
+    });
+    at(3.95, -17.95, -0.55, () => lv === 1 ? M3('mid_century_lounge_chair', { h: 0.95 }, () => D.armchair(V.arm)) : lv === 2 ? M3('modern_arm_chair_01', { h: 0.9 }, () => D.armchair(V.arm)) : D.armchair(V.arm));
     at(1.74, -14.9, 0, () => D.floorLamp(0, 0));          // lampadaire au bout du canapé (plus en contre-jour devant la fenêtre)
     D.sideTable(1.66, -17.9, {});
-    const plant = (k, x, z) => at(x, z, 0, () => k === 'olive' ? D.oliveTree(0, 0, 1.85, 0xb9b2a6) : k === 'fig' ? D.figTree(0, 0, 1.75, 0xd9cfbf) : k === 'snake' ? D.snakePlant(0, 0, 1.0, 0x3d3a36) : D.strelitzia(0, 0, 1.75, 0xb8684a));
+    const plant = (k, x, z) => at(x, z, 0, () => plantK(k, k === 'pp01' ? 1.6 : 1.0, () => k === 'olive' ? D.oliveTree(0, 0, 1.85, 0xb9b2a6) : k === 'fig' || k === 'pp01' ? D.figTree(0, 0, 1.75, 0xd9cfbf) : k === 'snake' || k === 'pp02' ? D.snakePlant(0, 0, 1.0, 0x3d3a36) : D.strelitzia(0, 0, 1.75, 0xb8684a)));
     plant(V.plants[0], 5.15, -18.15); plant(V.plants[1], 5.15, -14.95);
-    at(5.355, -13.2, -PI / 2, () => D.sideboard(1.6, 0.44, 0.7));
+    if (lv === 2) at(5.355, -13.2, -PI / 2, () => D.sideboard(1.6, 0.44, 0.7));
+    else at(5.355, -13.2, -PI / 2, () => { M3('modern_wooden_cabinet', { w: 1.6, h: 0.64, d: 0.44 }, () => D.sideboard(1.6, 0.44, 0.64, { decor: false })); D.sideboard(1.6, 0.44, 0.64, { body: false }); });
     face(5.58, -13.2, -PI / 2, () => D.art(0, 1.55, 1.0, 0.72, V.artEast[0], V.artEast[1]));
     face(1.38, -16.4, PI / 2, () => { const [a, ao] = V.artSofa; if (ao.pair != null) { D.art(-0.38, 1.55, 0.62, 0.82, a, ao); D.art(0.38, 1.55, 0.62, 0.82, ao.pair, ao); } else D.art(0, 1.55, 1.2, 0.8, a, ao); });
     tall(2.88, -18.58, 0, () => D.bookcase(1.1, 1.9, 0.34));
@@ -1787,11 +1818,10 @@ export function furnishUpper(THREE, P, D, o = {}) {
       const c1 = V.ch1;
       at(-3.95, -17.1, 0, () => D.rugF(2.2, 1.5, 'wool', C(0xd9d2c6), false));
       at(-3.95, -15.95, PI, () => D.bed(1.6, 1.95, { head: c1.head, headMk: c1.headMk, z0: c1.headMk ? 0.05 : 0.08, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: c1.accent, throw: c1.throw, tuck: true }));
-      at(-5.09, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36 }));
-      at(-2.81, -16.16, PI, () => D.nightstand({ lampC: 0x3d3a36, cup: true }));
+      for (const [x, cup] of [[-5.09, false], [-2.81, true]]) at(x, -16.16, PI, () => { if (lv === 2) D.nightstand({ lampC: 0x3d3a36, cup }); else { NS(0.46, 0.4)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampC: 0x3d3a36, cup, body: false }); } });
       face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
       at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: c1.accent }));
-      at(-1.05, -18.3, 0, () => D.snakePlant(0, 0, 0.75, 0x3d3a36));
+      at(-1.05, -18.3, 0, () => lv === 2 ? M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)) : D.snakePlant(0, 0, 0.75, 0x3d3a36));
       face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
       for (const x of [-4.5, -1.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
       face(-3.0, -18.58, 0, () => D.art(0, 1.42, 0.9, 0.62, ART.arcs, { frame: 'oak', crop: [0.4, 0.55, 0.75] }));
@@ -1802,11 +1832,11 @@ export function furnishUpper(THREE, P, D, o = {}) {
       const c2 = V.ch2;
       at(-4.15, -12.7, 0, () => D.rugF(1.7, 1.2, 'wool', C(0xe2d9c9), false));
       at(-4.15, -11.525, PI, () => D.bed(1.4, 2.0, { head: c2.head, duvet: PAL.linenWhite, pillow2: PAL.linenOat, accent: c2.accent, throw: c2.throw }));
-      at(-5.19, -11.735, PI, () => D.nightstand({ lamp: false }));
-      at(-3.11, -11.735, PI, () => D.nightstand({ lampKind: 1 }));
+      at(-5.19, -11.735, PI, () => { if (lv === 2) { NS(0.45, 0.38)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lamp: false, body: false }); } else D.nightstand({ lamp: false }); });
+      at(-3.11, -11.735, PI, () => { if (lv === 2) { NS(0.45, 0.38)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampKind: 1, body: false }); } else D.nightstand({ lampKind: 1 }); });
       face(-4.15, -11.525, PI, () => D.art(0, 1.6, 0.55, 0.75, c2.art, { frame: c2.art === ART.sketch ? 'black' : 'oak' }));
       tall(-3.98, -15.58, 0, () => D.wardrobe(1.0, 0.58, { col: 0xe4ddd1 }));
-      at(-5.305, -14.6, PI / 2, () => D.desk(1.1, 0.55));
+      at(-5.305, -14.6, PI / 2, () => { if (lv === 2) { M3('small_wooden_table_01', { w: 1.1, h: 0.75, d: 0.52 }, () => D.desk(1.1, 0.55, { items: false })); D.desk(1.1, 0.55, { body: false, h: 0.75 }); } else D.desk(1.1, 0.55); });
       at(-4.75, -14.6, -PI / 2, () => D.chair({ seat: V.cushion }));
       for (const zc of [-12.1, -13.6, -15.2]) face(-5.565, zc, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenSand)));
       D.pendant(-4.15, -13.4, 2.06, 0, 0.19, 0xe6ddcd);
@@ -1818,7 +1848,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     at(0.4, -15.535, PI / 2, () => D.glassPanel(-0.335, 0.3, 0, 0.025, 1.95));
     at(-0.42, -14.9, PI / 2, () => { D.vanity(0.8); D.rectMirror(0, 1.62, 0.6, 0.8, 'oak'); });
     at(1.3, -14.55, -PI / 2, () => D.towelRail(0.45, 1.0, 0.35, lv === 3 ? PAL.ochre : PAL.clay));
-    at(-0.2, -14.2, 0, () => D.basket(0, 0, 0.15, 0.38, { linen: PAL.linenOat }));
+    at(-0.2, -14.2, 0, () => lv === 2 ? D.basket(0, 0, 0.15, 0.38, { linen: PAL.linenOat }) : M3('wicker_basket_02', { w: 0.36 }, () => D.basket(0, 0, 0.15, 0.38, { linen: PAL.linenOat }), { ry: -0.4 }));
     at(0.85, -14.75, 0, () => D.rugF(0.6, 0.4, 'wool', C(0xe9e2d6), false));
     // --- WC (porte rabattue côté sud : la cuvette se voit depuis le dégagement)
     at(-1.02, -15.87, 0, () => D.wc());

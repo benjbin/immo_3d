@@ -667,9 +667,28 @@ async function start() {
   invalidate(2500);
   requestAnimationFrame(loop);
   window.__viewer = api();
+  setupModels();
   // arrivée depuis le site avec ?lot=ID : étage en coupe, lot sélectionné, fiche ouverte
   if (PARAMS.lot && lots && lotData(PARAMS.lot)) setTimeout(() => selectLot(PARAMS.lot, { fly: true }), 120);
   else if (PARAMS.lot) toast(`Lot ${PARAMS.lot} introuvable : voici la résidence.`);
+}
+
+// mobilier photogrammétrique (models.js) : chargé quand un étage s'affiche, permuté avec ses doublures au repos
+function setupModels() {
+  const Mo = lots && lots.models; if (!Mo) return;
+  Mo.hooks.renderer = renderer;
+  Mo.hooks.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  Mo.hooks.prepare = (m) => patchDim(m);
+  Mo.hooks.busy = () => !!(state.anim || cfg.cut.anim || (xfadePass && xfadePass.enabled));
+  Mo.hooks.compile = async (obj) => {
+    // même environnement « pièce » que les autres matériaux d'intérieur (sinon recompilation à la permutation)
+    const cur = (interiorMaterials()[0] || {}).envMap || null;
+    obj.traverse((o) => { if (o.isMesh && o.material.envMap !== cur) o.material.envMap = cur; });
+    if (renderer.compileAsync) await renderer.compileAsync(obj, camera, scene);
+  };
+  Mo.hooks.onSwap = () => { IN.envMats = null; lampMats = null; renderer.shadowMap.needsUpdate = true; invalidate(300); };
+  Mo.arm();
+  if (lots.floor != null) Mo.request(lots.floor);
 }
 
 function computeBounds(obj) {
@@ -731,16 +750,34 @@ function buildPost() {
   setCheapGlass(q.cheapGlass);
 }
 
+// Netteté : la scène est rendue à 1,25–1,5 × (Retina 2 ×) puis agrandie par le navigateur — d'où le flou.
+// Accentuation adaptative au contraste (CAS, AMD FidelityFX) dans la passe finale : poids négatif des 4 voisins
+// réglé sur le contraste local (pas de halo sur les arêtes fortes, pas d'amplification du bruit en aplat).
+// Même passe en mouvement et au repos : aucune différence de netteté entre les deux.
+const PARAMS_SHARP = (() => { const v = parseFloat(new URLSearchParams(location.search).get('sharp')); return Number.isFinite(v) ? v : 0.5; })();
+const CAS_GLSL = `vec2 casT = 1.0 / vec2(textureSize(tDiffuse, 0));
+      vec4 c0 = texture2D(tDiffuse, vUv);
+      if (uSharp > 0.001) {
+        vec3 cN = texture2D(tDiffuse, vUv + vec2(0.0, casT.y)).rgb, cS = texture2D(tDiffuse, vUv - vec2(0.0, casT.y)).rgb;
+        vec3 cE = texture2D(tDiffuse, vUv + vec2(casT.x, 0.0)).rgb, cW = texture2D(tDiffuse, vUv - vec2(casT.x, 0.0)).rgb;
+        // amplitude sur des valeurs comprimées (HDR) : x / (1 + x)
+        vec3 q0 = c0.rgb / (1.0 + c0.rgb), qN = cN / (1.0 + cN), qS = cS / (1.0 + cS), qE = cE / (1.0 + cE), qW = cW / (1.0 + cW);
+        vec3 mn = min(q0, min(min(qN, qS), min(qE, qW))), mx = max(q0, max(max(qN, qS), max(qE, qW)));
+        vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, 1e-4), 0.0, 1.0));
+        vec3 wq = -amp / mix(8.0, 5.0, clamp(uSharp, 0.0, 1.0));
+        vec3 sh = (c0.rgb + wq * (cN + cS + cE + cW)) / (1.0 + 4.0 * wq);
+        c0.rgb = max(sh, vec3(0.0));
+      }`;
 function makeToneFinishPass() {
   const tf = TonePassShader.fragmentShader, ff = FinishShader.fragmentShader;
   const toneBody = tf.slice(tf.indexOf('void main(){') + 'void main(){'.length, tf.lastIndexOf('}'))
     .replace('vec4 c = texture2D(tDiffuse, vUv);', 'vec4 c0 = texture2D(tDiffuse, vUv);')
     .replace('gl_FragColor = sRGBTransferOETF(vec4(mix(a, b, w), c.a));', 'vec4 c = sRGBTransferOETF(vec4(mix(a, b, w), c0.a));')
     .replace(/\bc\.rgb\b/g, 'c0.rgb');
-  const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom; uniform float uAgx, uBaseAgx, uBloom;')
-    .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', 'vec4 c0 = texture2D(tDiffuse, vUv); c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
+  const frag = ff.replace('uniform sampler2D tDiffuse;', '#include <tonemapping_pars_fragment>\n    uniform sampler2D tDiffuse, tBloom; uniform float uAgx, uBaseAgx, uBloom, uSharp;')
+    .replace('vec4 c = texture2D(tDiffuse, vUv);', toneBody.replace('vec4 c0 = texture2D(tDiffuse, vUv);', CAS_GLSL + ' c0.rgb += uBloom * texture2D(tBloom, vUv).rgb;'));
   const mat = new THREE.ShaderMaterial({
-    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 } }),
+    uniforms: Object.assign({}, outputPass.material.uniforms, finishPass.material.uniforms, { tDiffuse: { value: null }, tBloom: { value: null }, uBloom: { value: 0 }, uSharp: { value: PARAMS_SHARP } }),
     vertexShader: FinishShader.vertexShader, fragmentShader: frag,
   });
   mat.toneMapped = false;
@@ -1537,6 +1574,7 @@ function loop(now) {
   if (lots && lots.update && lots.update(dt)) invalidate();
   if (stepInterior(dt)) invalidate();
   stepMirrors();
+  if (lots && lots.models) lots.models.tick(camera, now);
   const animating = !!state.anim;
   if (!animating && orbit) {
     controls.autoRotate = ui.rotate.getAttribute('aria-pressed') === 'true';
