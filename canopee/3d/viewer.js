@@ -966,6 +966,11 @@ function setCheapGlass(on) {
 /* ------------------------------------------------------------------ */
 function setupLevelDimming() {
   levelUniform = { value: new THREE.Vector4(-1e4, 1e4, 0, 0) }; // y0, y1, intensité
+  // nuit vue de l'intérieur : matériaux de l'extérieur seul (bâtiment, paysage, pas ceux des logements) assombris
+  // vers un bleu nuit ; vitrages : léger reflet chaud de la pièce éclairée. Mêmes programmes (uniformes, compilés au
+  // chargement), intensité nulle hors des logements — vues de maquette inchangées
+  const inLots = new Set(); if (lots && lots.group) lots.group.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m) inLots.add(m); });
+  for (const root of [building, landscape]) if (root) root.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m && !inLots.has(m)) { m.userData.cnpExt = true; if (m === M.glass || m === M.glassRail || /glass|vitr/i.test(m.name || '')) m.userData.cnpGlass = true; } });
   const done = new Set();
   scene.traverse((o) => {
     if (!o.isMesh) return;
@@ -976,6 +981,7 @@ function setupLevelDimming() {
     }
   });
 }
+const NIGHT_U = { tint: { value: new THREE.Vector4(0.1, 0.14, 0.3, 0) }, refl: { value: new THREE.Vector3(0.05, 0.035, 0.022) } };
 function patchDim(m) {
   const prev = m.onBeforeCompile;
   const ownKey = Object.prototype.hasOwnProperty.call(m, 'customProgramCacheKey') ? m.customProgramCacheKey.bind(m) : null;
@@ -1004,12 +1010,26 @@ function patchDim(m) {
         float cnpL = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
         gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( cnpL ) * vec3( 0.88, 0.92, 0.96 ), 0.45 * cnpK ) * ( 1.0 - 0.38 * cnpK );
       }
+      if ( cnpExt > 0.5 && cnpNight.w > 0.001 ) {
+        #if defined( STANDARD ) || defined( PHYSICAL )
+        // embrasures et tableaux tout proches : inchangés ; le dehors (au-delà de ~2–5 m) passe au bleu nuit
+        float cnpD = smoothstep( 1.3, 3.5, length( vViewPosition ) );
+        #else
+        float cnpD = 1.0;
+        #endif
+        if ( cnpExt < 1.5 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, gl_FragColor.rgb * cnpNight.rgb, cnpNight.w * cnpD );
+        #if defined( STANDARD ) || defined( PHYSICAL )
+        if ( cnpExt > 1.5 ) { float cnpFr = 1.0 - abs( dot( normalize( normal ), normalize( vViewPosition ) ) ); gl_FragColor.rgb += cnpRefl * ( 0.22 + 0.78 * cnpFr * cnpFr * cnpFr ) * cnpNight.w; }
+        #endif
+      }
       #ifdef DOUBLE_SIDED
         // faces arrière visibles seulement à travers la coupe : « tranche » pleine et sombre, façon maquette
         if ( cnpSection > 0.5 && !gl_FrontFacing ) gl_FragColor = vec4( 0.028, 0.026, 0.024, 1.0 );
       #endif`);
     s.uniforms.cnpSection = { value: this.userData.cnpSection ? 1 : 0 };
-    s.fragmentShader = 'uniform float cnpSection;\n' + s.fragmentShader;
+    s.uniforms.cnpExt = { value: this.userData.cnpExt ? (this.userData.cnpGlass ? 2 : 1) : 0 };
+    s.uniforms.cnpNight = NIGHT_U.tint; s.uniforms.cnpRefl = NIGHT_U.refl;
+    s.fragmentShader = 'uniform float cnpSection, cnpExt; uniform vec4 cnpNight; uniform vec3 cnpRefl;\n' + s.fragmentShader;
   };
   m.customProgramCacheKey = () => (ownKey ? ownKey() : prevSrc) + '|cnp-dim' + (m.userData.cnpSection ? '|sec' : '');
   m.needsUpdate = true;
@@ -1798,6 +1818,7 @@ const IN_LOOK = {
   probe: 0.75,
   dusk: 0.45,           // heure bleue vue de l'intérieur à 19 h 30 (tons sombres refroidis, lampes chaudes)
           // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
+  nightOut: 0.9,       // extérieur vu des baies la nuit : bleu-noir (0 = inchangé)
   night: 0.42,          // fermeture de l'exposition la nuit (× (1 − night) dans le noir complet)
   meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
@@ -2518,6 +2539,7 @@ function applyInterior(exposureOnly = false) {
     // heure bleue (vue de l'intérieur) : les tons moyens et sombres — ciel, arbres et façades par les baies, recoins
     // éclairés par le ciel — basculent vers le bleu ; les hautes lumières (flaques des lampes, abat-jour) restent chaudes
     const eveB = eve * sm * IN_LOOK.dusk;
+    NIGHT_U.tint.value.w = eve * sm * IN_LOOK.nightOut;   // extérieur bleu nuit vu de l'intérieur
     IN.nightK = eve;
     fu.shadeWB.value.set(lerp(LOOK.shadeWB[0], 0.86, eveB), lerp(LOOK.shadeWB[1], 0.95, eveB), lerp(LOOK.shadeWB[2], 1.16, eveB));
     fu.skyPop.value = lerp(LOOK.skyPop, Math.max(LOOK.skyPop, 2.2), Math.min(1, eveB / Math.max(0.01, IN_LOOK.dusk)));   // ciel des baies : bleu franc
