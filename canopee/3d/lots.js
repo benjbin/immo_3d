@@ -171,7 +171,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       }
       spots.length = 0;
     };
-    let xf = null, tag = 'common', track = null;
+    let xf = null, tag = 'common', track = null, noTrack = false;
+    // objets plaqués aux murs (prises, plaques) : hors de l'emprise de collision du meuble qui les pose
+    const untracked = (fn) => { const p = noTrack; noTrack = true; fn(); noTrack = p; };
     const FIN = key >= 1 && key <= 3;                 // finitions (plinthes, chambranles, poignées) dans les logements
     const withTag = (t, fn) => { const p = tag; tag = t; fn(); tag = p; };
     // tint : multiplicateur de couleur par objet (variantes d'un même matériau dans un seul appel de dessin) ;
@@ -194,7 +196,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       // collisions de visite : seules les pièces qui occupent la tranche du corps (10 cm – 1 m au-dessus du sol)
       // comptent, rattachées au meuble le plus intérieur (une chaise, la table, le lit…) ; suspensions, tapis,
       // objets muraux hauts n'entrent pas dans l'emprise
-      if (track && tag !== 'plan' && tag !== 'px') {
+      if (track && tag !== 'plan' && tag !== 'px' && !noTrack) {
         g.computeBoundingBox(); const bb = g.boundingBox;
         if (bb.min.y < fy + 1.0 && bb.max.y > fy + 0.1) track.union(bb);
       }
@@ -574,7 +576,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
     // bande de sol + plafond sans pièce (passage ouvert entre deux pièces : épaisseur d'une cloison absente)
     const fill = (x0, x1, z0, z1, mat = 'parquet') => { gridPoly(mat, rect(x0, x1, z0, z1), fy + 0.004); if (H > 0) walkOnly(() => gridPoly('ceil', rect(x0, x1, z0, z1), fy + H, true, 0.5)); };
-    return { model, modelList, withTag, markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
+    return { model, modelList, withTag, untracked, markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
   function rectSegs(x0, x1, z0, z1) { return [{ a: [x0, z0], b: [x1, z0] }, { a: [x1, z0], b: [x1, z1] }, { a: [x1, z1], b: [x0, z1] }, { a: [x0, z1], b: [x0, z0] }]; }

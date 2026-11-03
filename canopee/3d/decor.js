@@ -873,7 +873,8 @@ export function createDecor(THREE, P, ctx = {}) {
     // composition : livres, coupe, soliflore, bougie
     const y = h;
     bookStack(-w * 0.22, y, 0.02, 3, 0.1, true);
-    bowl(w * 0.18, y, -0.06, 0.12, 0x3d3a36, 'stoneware');
+    const ty = tray(w * 0.18, y, -0.06, 0.34, 0.22, 0.12, 'oak', C(0xe8d8c2));   // plateau en chêne sous la coupe
+    bowl(w * 0.18, ty, -0.06, 0.12, 0x3d3a36, 'stoneware');
     const vh = vase(w * 0.32, y, 0.12, 2, 0xe8dfd0); branches(w * 0.32, y + vh, 0.12, 0.42, 4);
     candle(-w * 0.05, y, -0.14, 0.09);
   }
@@ -1011,7 +1012,7 @@ export function createDecor(THREE, P, ctx = {}) {
     else sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
     // couette épaisse : dessus bombé matelassé, arrondi sur l'arête du matelas, chute avec plis verticaux,
     // coins en cône (plus bas), ourlet roulé ; envers décalé (épaisseur visible au bord)
-    const hang = 0.27, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
+    const hang = 0.2, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
     const duvet = (u, v) => {
       u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v));
       const s = (u - 0.5) * (2 * hw + 2 * hang), t = v * (len + hangF);
@@ -1055,6 +1056,8 @@ export function createDecor(THREE, P, ctx = {}) {
       const hk = Math.min(1, Math.max(0, Math.abs(s) - hw) / tdrop), q = onDuvet(s, t, 0.018 + 0.016 * hk);
       return [q[0] + 0.006 * hk * Math.sin(v * 9 + u * 5), q[1] + 0.003 * Math.sin(u * 17) * (1 - hk), q[2] + 0.012 * hk * Math.sin(u * 23 + 1)];
     }, C(o.throw || PAL.ochre, 0.02), 0.011, 'u0 u1 v0 v1');
+    // prises murales de part et d'autre de la tête de lit (plaque blanche, deux alvéoles)
+    (P.untracked || ((f) => f()))(() => walk(() => { for (const sx of (o.sockets || [-1, 1])) { const px = sx * (w / 2 + 0.36); rbb('ceramic', px - 0.042, px + 0.042, 0.26, 0.344, 0, 0.009, 0.004, C(0xf4f2ee)); for (const dx of [-0.011, 0.011]) cyl('black', 0.0035, 0.0035, 0.003, px + dx, 0.302, 0.0085, WHITE, { rx: Math.PI / 2, seg: 8 }); } }));
     contact(0, z0 + L / 2, w + 0.3, L + 0.3);
   }
 
@@ -1706,6 +1709,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       if (suite) face(bx, -3.96, 0, () => { D.art(-0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.3, 0.5, 0.7] }); D.art(0.34, 1.68, 0.55, 0.42, c1.art, { frame: 'oak', crop: [0.7, 0.5, 0.7], flip: true }); });
       else face(bx, -3.96, 0, () => D.art(0, 1.62, 0.9, 0.6, c1.art));
       at(bx, -1.62, 0, () => D.bench(1.2, 0.38, { throw: lv === 1 ? PAL.ink : PAL.sage }));
+      if (lv !== 2) D.shoes(bx + off - 0.05, -2.55, 0.35, lv === 3 ? 0 : 1);   // chaussons au pied du lit
       tall(-1.31, -2.5, -PI / 2, () => D.wardrobe(1.6, 0.6, { col: 0xe9e4da }));
       D.drapes(-4.75, -4.18, -0.53, C(PAL.linenOat)); D.drapes(-1.6, -1.06, -0.53, C(PAL.linenOat));
       walk(() => D.box('black', -4.8, -1.03, P.H - 0.03, P.H - 0.002, -0.545, -0.515));
@@ -1738,7 +1742,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     {
       const c3 = V.ch3;
       at(3.6, -7.3, 0, () => D.rugF(1.5, 1.1, 'wool', C(0xe2d9c9), false));
-      at(2.91, -5.94, PI, () => D.bed(1.2, 1.9, { head: c3.head, duvet: PAL.linenWhite, pillow2: PAL.linenGreige, accent: c3.accent, throw: c3.throw, tuck: true }));
+      at(2.91, -5.94, PI, () => D.bed(1.2, 1.9, { sockets: [-1], head: c3.head, duvet: PAL.linenWhite, pillow2: PAL.linenGreige, accent: c3.accent, throw: c3.throw, tuck: true }));
       at(3.88, -6.15, PI, () => { if (lv === 3) D.nightstand({ lampKind: 1, cup: true }); else { NS(0.44, 0.38)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampKind: 1, cup: true, body: false }); } });
       face(2.91, -5.94, PI, () => D.art(0, 1.62, 0.7, 0.5, lv === 1 ? ART.blocks : ART.dune));
       face(2.19, -7.05, PI / 2, () => walk(() => { D.wallShelf(0.8, 1.52, 0.17, { objects: false }); D.bookRow(-0.36, 0.0, 1.55, 0.085, 0); D.candle(0.1, 1.55, 0.08, 0.08); D.bowl(0.26, 1.55, 0.085, 0.06, 0x3d3a36); }));
@@ -1839,7 +1843,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       D.baseRun(2.05, [{ w: 0.8, t: 'drawers', hob: true }, { w: 0.45, t: 'door' }, { w: 0.8, t: 'drawers2', sink: true, sinkW: 0.55 }], { front: 'oak', top: 'travertine', handleMk: 'black', tap: 'brass' });
       D.splash(2.05, 0.9, 1.45);
       D.wallUnits(2.05, 1.45, { hood: -0.625, frontC: 0xd8d0c4 });
-      D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05); D.herbs(-0.85, 0.9, -0.2, 0xb8684a); D.herbs(-0.98, 0.9, -0.15, 0x3d3a36);
+      D.dishes(-0.1, -0.15, 0.9); D.fruitBowl(0.55, 0.9, -0.05); D.vase(0.98, 0.9, -0.22, 1, lv === 2 ? 0x6b7a8a : 0xe8e0d2);   // pichet (bout du plan, hors de la cuve) D.herbs(-0.85, 0.9, -0.2, 0xb8684a); D.herbs(-0.98, 0.9, -0.15, 0x3d3a36);
       D.rbb('oak', 0.15, 0.5, 0.92, 0.942, -0.25, -0.02, 0.01, C(0xe6d6c4), { ry: -0.06 });
     });
     tall(4.98, -9.825, PI, () => { at(-0.3, 0, 0, () => D.tallUnit(0.6, 'fridge', { frontC: 0xd8d0c4, handleMk: 'black' })); at(0.3, 0, 0, () => D.tallUnit(0.6, 'oven', { frontC: 0xd8d0c4, handleMk: 'black' })); });
@@ -1888,6 +1892,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       for (const [x, cup] of [[-5.09, false], [-2.81, true]]) at(x, -16.16, PI, () => { if (lv === 2) D.nightstand({ lampC: 0x3d3a36, cup }); else { NS(0.46, 0.4)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampC: 0x3d3a36, cup, body: false }); } });
       face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
       at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: c1.accent }));
+      if (lv !== 3) D.shoes(-2.55, -17.3, PI - 0.4, lv === 1 ? 1 : 0);
       at(-1.05, -18.3, 0, () => lv === 2 ? M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)) : D.snakePlant(0, 0, 0.75, 0x3d3a36));
       face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
       for (const x of [-4.5, -1.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));

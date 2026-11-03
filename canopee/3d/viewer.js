@@ -1573,6 +1573,7 @@ function loop(now) {
   if (nav && nav.update(dt)) invalidate();
   if (lots && lots.update && lots.update(dt)) invalidate();
   if (stepInterior(dt)) invalidate();
+  if (stepProbes(dt, now)) invalidate();
   stepMirrors();
   if (lots && lots.models) lots.models.tick(camera, now);
   const animating = !!state.anim;
@@ -1668,15 +1669,16 @@ const IN = {
 const IN_LOOK = {
   exposure: 2.5,        // × exposition extérieure (l'appareil s'expose pour la pièce)
   sky: 3.4,             // luminance du ciel vue par les baies
-  sun: 1.3,             // soleil direct (identique : la tache au sol doit « brûler » légèrement)
-  hemi: 0.08,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
-  env: 0.78,            // gain de l'environnement « pièce »
+  sun: 1.45,            // soleil direct (identique : la tache au sol doit « brûler » légèrement)
+  hemi: 0.05,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
+  env: 0.6,             // gain (passe 6 : la sonde par pièce apporte le rebond coloré) de l'environnement « pièce »
   lift: 0.1, contrast: 0.27, sat: 1.12, warm: 0.38, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
   lamp: 5.0, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
   ao: 0.95, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
   sunBounce: 1.05,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
   skySoft: 0.45,        // taille de source des ombres de ciel (× petite dimension de la baie) ; 0 = PCF
+  probe: 0.75,          // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
   meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
   key: 0.3,             // clé de la cellule (luminance moyenne visée après exposition)
@@ -1703,6 +1705,10 @@ function setupInteriorLighting() {
   for (let i = 0; i < N_SKY; i++) IN.bounce.push(mk(new THREE.SpotLight(0xfff1e0, 0, 5, 1.25, 1, 2)));
   for (let i = 0; i < N_LAMP; i++) IN.lamps.push(mk(new THREE.PointLight(0xffcf9c, 0, 4.5, 2)));
   for (let i = 0; i < N_DOWN; i++) IN.downs.push(mk(new THREE.SpotLight(0xffdbb0, 0, 4.5, 0.85, 0.9, 2)));
+  // sonde de lumière (harmoniques sphériques) : rebond coloré par les murs et le sol de la pièce occupée ; présente
+  // dès le démarrage (les programmes sont compilés avec USE_LIGHT_PROBES), intensité nulle hors des logements
+  IN.probe = new THREE.LightProbe(); IN.probe.intensity = 0; scene.add(IN.probe);
+  IN.probeCur = new THREE.SphericalHarmonics3(); IN.probeMap = new Map(); IN.probeFade = 0;
   // les vitrages ne portent pas d'ombre : le soleil entre par les baies (et éclaire les coupes)
   scene.traverse((o) => { if (o.isMesh && o.material && (o.material === M.glass || /:glass$/.test(o.name || ''))) o.castShadow = false; });
   // environnement « pièce »
@@ -2201,12 +2207,58 @@ function stepMirrors() {
 }
 
 // appelée à chaque image (léger) : fondu intérieur/extérieur et réaffectation des sources
+// ---- rebond par pièce : au repos, une capture cubique 32 px au centre de chaque pièce du logement visité (une pièce
+// par image, caméra immobile), convertie en harmoniques sphériques (LightProbeGenerator) ; en marchant, la sonde
+// unique de la scène glisse vers celle de la pièce occupée (aucun rendu supplémentaire, fondu de ~0,4 s)
+let LPG = null, LPGp = null;
+const _probeTmp = new THREE.SphericalHarmonics3(), _probeCam = new THREE.Matrix4();
+let probeStill = 0;
+function probeKey(room) { return `${IN.floor}|${IN.lotId}|${room.name}|${state.hour.toFixed(2)}|${state.season}`; }
+function captureProbe(room) {
+  if (!LPG) { if (!LPGp) LPGp = import('three/addons/lights/LightProbeGenerator.js').then((m) => { LPG = m.LightProbeGenerator; }); return false; }
+  if (!IN.probeRT) { IN.probeRT = new THREE.WebGLCubeRenderTarget(32, { type: THREE.HalfFloatType, generateMipmaps: false }); IN.probeCC = new THREE.CubeCamera(0.05, 30, IN.probeRT); IN.probeCC.layers.mask = camera.layers.mask; }
+  let [cx, cz] = polyCentroid(room.poly);
+  if (!pointInPoly(room.poly, cx, cz)) { const p = room.poly; cx = (p[0][0] + p[2 % p.length][0]) / 2; cz = (p[0][1] + p[2 % p.length][1]) / 2; }
+  const fy = lots.floorY(IN.floor);
+  IN.probeCC.position.set(cx, fy + 1.35, cz); IN.probeCC.updateMatrixWorld(true);
+  const pi = IN.probe.intensity, au = IN.sky.map((L) => L.shadow.autoUpdate), nu = renderer.shadowMap.needsUpdate;
+  IN.probe.intensity = 0; IN.sky.forEach((L) => { L.shadow.autoUpdate = false; }); renderer.shadowMap.needsUpdate = false;
+  try { IN.probeCC.update(renderer, scene); IN.probeMap.set(probeKey(room), LPG.fromCubeRenderTarget(renderer, IN.probeRT).sh.clone()); }
+  catch (e) { IN.probeMap.set(probeKey(room), null); }
+  finally { IN.probe.intensity = pi; IN.sky.forEach((L, i) => { L.shadow.autoUpdate = au[i]; }); renderer.shadowMap.needsUpdate = nu; }
+  return true;
+}
+function stepProbes(dt, now) {
+  if (!IN.probe || !lots) return false;
+  if (!_probeCam.equals(camera.matrixWorld)) { _probeCam.copy(camera.matrixWorld); probeStill = now; }
+  const still = now - probeStill > 350 && !state.anim && !(cfg.cut && cfg.cut.anim);
+  // captures au repos : la pièce occupée d'abord, puis les autres pièces du logement
+  if (still && IN.k > 0.5 && IN.lotId && IN.floor != null) {
+    const L = lots.lot && lots.lot(IN.lotId), rooms = L ? L.rooms : [];
+    const order = IN.curRoom ? [rooms.find((r) => r.name === IN.curRoom.name), ...rooms].filter(Boolean) : rooms;
+    const next = order.find((r) => !IN.probeMap.has(probeKey(r)));
+    if (next) { captureProbe(next); return true; }
+  }
+  const sh = IN.curRoom && IN.k > 0.01 ? IN.probeMap.get(probeKey(IN.curRoom)) : null;
+  const f0 = IN.probeFade, a = 1 - Math.exp(-dt * 6);
+  IN.probeFade = f0 + ((sh ? 1 : 0) - f0) * a;
+  let moved = Math.abs(IN.probeFade - f0) > 1e-3;
+  if (sh) {
+    const c = IN.probeCur.coefficients; let d = 0;
+    for (let i = 0; i < 9; i++) { const v = c[i], t = sh.coefficients[i]; d = Math.max(d, v.distanceTo(t)); v.lerp(t, IN.probeFade < 0.02 ? 1 : a); }
+    if (d > 1e-4) moved = true;
+  }
+  const I = IN_LOOK.probe * IN.k * IN.probeFade;
+  if (Math.abs(IN.probe.intensity - I) > 1e-4) { IN.probe.intensity = I; moved = true; }
+  if (moved) IN.probe.sh.copy(IN.probeCur);
+  return moved;
+}
 function stepInterior(dt) {
   if (!IN.ready || !lots) return false;
   const now = performance.now();
   let changed = false;
   const T = interiorTarget();
-  IN.target = T.t;
+  IN.target = T.t; IN.curRoom = T.t ? T.room || null : null;
   if (T.t && (T.lot !== IN.lotId || T.k !== IN.floor)) IN.lastCheck = 0;
   if (now - IN.lastCheck > 150) {
     IN.lastCheck = now;
