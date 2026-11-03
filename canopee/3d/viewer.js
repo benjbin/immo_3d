@@ -1104,7 +1104,7 @@ function applyHour(h, immediate = false) {
   renderer.toneMappingExposure = (PARAMS.exposure ?? LOOK.exposure) * (1 + 0.12 * dusk + 0.25 * night);
   state.baseExposure = renderer.toneMappingExposure; state.baseHemi = hemi.intensity;
   if (finishPass) { const fu = finishPass.uniforms; fu.warm.value = LOOK.warm; fu.contrast.value = LOOK.contrast; fu.saturation.value = LOOK.sat; fu.greens.value = LOOK.greens; fu.lift.value = LOOK.lift; fu.skyPop.value = LOOK.skyPop; fu.shadeWB.value.set(...LOOK.shadeWB); }
-  if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; bloomPass.radius = 0.45; state.bloomBase = { s: bloomPass.strength }; }
+  if (bloomPass) { bloomPass.strength = 0.07 + 0.3 * dusk; bloomPass.threshold = 0.95 - 0.35 * dusk; bloomPass.radius = 0.45; state.bloomBase = { s: bloomPass.strength, t: bloomPass.threshold }; }
   MIR.dirty = true;
   if (IN.ready && lots) lampGlow(Math.max(THREE.MathUtils.smoothstep(h, 18.75, 19.75), 1 - s.day));
   if (IN.ready && IN.k > 0) applyInterior();
@@ -1790,7 +1790,7 @@ const IN_LOOK = {
   hemi: 0.05,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
   env: 0.6,             // gain (passe 6 : la sonde par pièce apporte le rebond coloré) de l'environnement « pièce »
   lift: 0.1, contrast: 0.27, sat: 1.12, warm: 0.38, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
-  lamp: 5.0, down: 10,  // lampes (cd) et spots de plafond (cd) en soirée
+  lamp: 3.2, down: 6.5,   // passe nuit : flaques maîtrisées (5 / 10 surexposaient l'hiver)  // lampes (cd) et spots de plafond (cd) en soirée
   ao: 0.8, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
   sunBounce: 1.05,       // rebond de la tache de soleil (chêne → murs et plafond voisins, chaud)
@@ -1798,6 +1798,7 @@ const IN_LOOK = {
   probe: 0.75,
   dusk: 0.45,           // heure bleue vue de l'intérieur à 19 h 30 (tons sombres refroidis, lampes chaudes)
           // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
+  night: 0.42,          // fermeture de l'exposition la nuit (× (1 − night) dans le noir complet)
   meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
   key: 0.3,             // clé de la cellule (luminance moyenne visée après exposition)
@@ -2410,7 +2411,8 @@ function stepInterior(dt) {
     if (now - (IN.meterAt || 0) > (TOUCH || state.quality === 'low' ? 320 : 160)) { IN.meterAt = now; meterPass.want = true; }
     if (meterPass.value != null && IN.modelExp) {
       const ev = Math.log2(IN_LOOK.key) - (meterPass.value + Math.log2(IN.modelExp));
-      IN.meterT = THREE.MathUtils.clamp(Math.pow(2, ev * IN_LOOK.meter), 0.72, 1.7);
+      const nightK = IN.nightK || 0;   // la nuit, la cellule ne rouvre pas (sinon brouillard laiteux) et peut fermer davantage
+      IN.meterT = THREE.MathUtils.clamp(Math.pow(2, ev * IN_LOOK.meter), 0.72 - 0.22 * nightK, 1.7 - 0.7 * nightK);
     }
   } else if (IN.k <= 0.01) { IN.meterT = 1; IN.meterC = 1; if (meterPass) meterPass.value = null; }
   const c0 = IN.meterC ?? 1, cT = IN.meterT ?? 1;
@@ -2455,7 +2457,8 @@ function applyInterior(exposureOnly = false) {
   const sd = new THREE.Vector3(s.dir.x, 0, s.dir.z); const sdl = sd.length() || 1; sd.divideScalar(sdl);
   if (on && IN.lotId) sunPatches();
   // ciel moins lumineux quand le soleil descend (heure dorée)
-  const eve = THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75);
+  // « soir » selon la lumière réelle (21 déc. : nuit dès 17 h ; 21 juin : 19 h 30), plus selon l'heure seule
+  const eve = Math.max(THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75) * (1 - s.day), 1 - THREE.MathUtils.smoothstep(s.day, 0.05, 0.6));
   const skyL = (0.04 * s.twilight + 0.36 * s.day * (0.55 + 0.45 * THREE.MathUtils.smoothstep(s.elev, 5, 30))) * IN_LOOK.sky * (1 - 0.3 * eve);
   for (const L of IN.sky) {
     const w = L.userData.win;
@@ -2492,12 +2495,18 @@ function applyInterior(exposureOnly = false) {
   // exposition, ambiance, étalonnage (AgX en intérieur : blancs et bois plus neutres qu'ACES)
   IN.agx = sm;   // fondu ACES → AgX dans la passe de sortie (pas de saut au passage de la baie)
   const base = state.baseExposure ?? renderer.toneMappingExposure;
-  // le soir, l'appareil ne « rattrape » plus la baisse du jour : les lampes prennent le relais
-  IN.modelExp = base * IN_LOOK.exposure * (1 - 0.22 * eve);
+  // nuit : l'exposition extérieure est relevée (vue de maquette) — à l'intérieur on repart de celle du jour, et
+  // l'appareil s'expose pour les lampes (photo d'appartement de nuit : flaques chaudes, recoins sombres)
+  const dayBase = (PARAMS.exposure ?? LOOK.exposure), inBase = THREE.MathUtils.lerp(base, dayBase, eve);
+  IN.modelExp = inBase * IN_LOOK.exposure * (1 - IN_LOOK.night * eve);
   const metered = IN_LOOK.meter > 0 && meterPass && IN.meterT != null;
-  renderer.toneMappingExposure = base * THREE.MathUtils.lerp(1, IN_LOOK.exposure * (metered ? IN.meterC ?? 1 : IN.roomExpCur ?? 1) * (1 - 0.22 * eve), sm);
-  // halo léger autour des baies vues de l'intérieur (photographique, pas « jeu vidéo »)
-  if (bloomPass && state.bloomBase) { bloomPass.strength = THREE.MathUtils.lerp(state.bloomBase.s, Math.max(state.bloomBase.s, IN_LOOK.bloom), sm); bloomPass.radius = THREE.MathUtils.lerp(0.45, 0.6, sm); }
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(base, inBase * IN_LOOK.exposure * (metered ? IN.meterC ?? 1 : IN.roomExpCur ?? 1) * (1 - IN_LOOK.night * eve), sm);
+  if (bloomPass && state.bloomBase) {
+    bloomPass.strength = THREE.MathUtils.lerp(state.bloomBase.s, Math.max(state.bloomBase.s * (1 - 0.6 * eve), IN_LOOK.bloom), sm);
+    // en intérieur, seules les vraies sources (ampoules, abat-jour) dépassent le seuil : plus de murs blancs qui « fument »
+    bloomPass.threshold = THREE.MathUtils.lerp(state.bloomBase.t ?? 0.95, 1.6, sm);
+    bloomPass.radius = THREE.MathUtils.lerp(0.45, 0.6, sm);
+  }
   hemi.intensity = state.baseHemi * THREE.MathUtils.lerp(1, IN_LOOK.hemi, sm);
   sun.shadow.normalBias = THREE.MathUtils.lerp(0.035, 0.012, sm);
   sun.shadow.bias = THREE.MathUtils.lerp(-0.0003, -0.0002, sm);
@@ -2508,7 +2517,8 @@ function applyInterior(exposureOnly = false) {
     fu.greens.value = lerp(LOOK.greens, 0.4, sm); fu.vignette.value = lerp(0.16, IN_LOOK.vignette, sm);
     // heure bleue (vue de l'intérieur) : les tons moyens et sombres — ciel, arbres et façades par les baies, recoins
     // éclairés par le ciel — basculent vers le bleu ; les hautes lumières (flaques des lampes, abat-jour) restent chaudes
-    const eveB = THREE.MathUtils.smoothstep(state.hour, 18.75, 19.75) * sm * IN_LOOK.dusk;
+    const eveB = eve * sm * IN_LOOK.dusk;
+    IN.nightK = eve;
     fu.shadeWB.value.set(lerp(LOOK.shadeWB[0], 0.86, eveB), lerp(LOOK.shadeWB[1], 0.95, eveB), lerp(LOOK.shadeWB[2], 1.16, eveB));
     fu.skyPop.value = lerp(LOOK.skyPop, Math.max(LOOK.skyPop, 2.2), Math.min(1, eveB / Math.max(0.01, IN_LOOK.dusk)));   // ciel des baies : bleu franc
   }
