@@ -175,7 +175,7 @@ body::after{content:"";position:fixed;inset:-50%;z-index:90;pointer-events:none;
 .hero-img{position:absolute;inset:0;will-change:transform;transform:scale(1.2)}
 .hero-img img{width:100%;height:100%;object-fit:cover;object-position:50% 28%}
 .hero-shade{position:absolute;inset:0;opacity:0;background:linear-gradient(180deg,rgba(7,22,51,.45),rgba(7,22,51,0) 26%,rgba(7,22,51,0) 45%,rgba(7,22,51,.86));pointer-events:none}
-.ko{position:absolute;inset:0;width:100%;height:100%;display:none;will-change:transform}
+.ko{position:absolute;inset:0;width:100%;height:100%;display:none}
 .ko-ready .ko{display:block}
 .ko text{font-family:Montserrat,sans-serif;font-weight:800}
 .hero-cover{position:absolute;inset:0;background:var(--night);pointer-events:none;animation:coverOut 1.6s var(--ease) .7s forwards}
@@ -1092,7 +1092,7 @@ io.observe($("wordmark"));
 /* ================= hero : le mot-fenêtre ================= */
 const heroPin = $("heroPin"), ko = $("ko"), koTxt = $("koTxt"), koFill = $("koFill"), koBg = $("koBg");
 const heroImg = $("heroImg"), heroC1 = $("heroC1"), heroC2 = $("heroC2"), heroShade = $("heroShade"), cue = document.querySelector(".cue");
-let koReady = false, koMax = 90;
+let koReady = false, koMax = 90, koO = [0, 0], koS = -1;
 function koLayout(){
   const W = innerWidth, H = heroPin.clientHeight, mob = W < 761;
   ko.setAttribute("viewBox", `0 0 ${W} ${H}`);
@@ -1141,8 +1141,7 @@ function koLayout(){
       sMax = Math.max(sx, sy) * 1.3;
     }
   } catch (e) { /* valeurs par défaut */ }
-  koMax = sMax;
-  ko.style.transformOrigin = `${ox.toFixed(1)}px ${oy.toFixed(1)}px`;
+  koMax = sMax; koO = [ox, oy]; koS = -1;
   koReady = true;
 }
 const koInit = () => { try { document.documentElement.classList.add("ko-ready"); koLayout(); } catch (e) { document.documentElement.classList.remove("ko-ready"); /* titre HTML de repli */ } };
@@ -1157,7 +1156,12 @@ if (!reduce){
   scenes.push({el:$("hero"), fn(r){
     const p = pinP(r), e = clamp(p / 0.58);
     const s = Math.pow(koMax, easeIn(e)), mob = innerWidth < 761;
-    ko.style.transform = `scale(${s.toFixed(4)})`;
+    // zoom par la viewBox : le masque est redessiné net à chaque image (un calque agrandi
+    // en CSS se pixellise et se découpe en blocs, surtout en remontant)
+    if (koReady && Math.abs(s - koS) > 1e-4){
+      koS = s; const W = innerWidth, H = heroPin.clientHeight, [ox, oy] = koO;
+      ko.setAttribute("viewBox", `${(ox - ox / s).toFixed(2)} ${(oy - oy / s).toFixed(2)} ${(W / s).toFixed(3)} ${(H / s).toFixed(3)}`);
+    }
     ko.style.visibility = e >= 1 ? "hidden" : "";
     heroImg.style.transform = `scale(${((mob ? 1.06 : 1.2) - (mob ? 0.06 : 0.2) * easeOut(e)).toFixed(4)})`;
     const c1 = clamp(p / 0.12);
