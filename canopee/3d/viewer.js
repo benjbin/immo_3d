@@ -878,17 +878,21 @@ function patchGtaoGBuffer(pass) {
   const base = pass.normalMaterial;
   base.clippingPlanes = CLIP; base.clipIntersection = true;
   const cache = new Map();
+  // logements et parties communes (lots.js, decor.js, models.js) : jamais coupés au rendu, donc pas non plus dans le
+  // G-buffer — sinon, l'œil au-dessus du plan de coupe (escalier), l'occlusion « voyait » à travers les murs de la cage
+  const inLots = (m) => !!(m.userData && (m.userData.lotsPlan || m.userData.decor || m.userData.model));
+  const baseNoClip = base.clone(); baseNoClip.clippingPlanes = null; baseNoClip.blending = THREE.NoBlending;
   const normalFor = (m) => {
     if (!m) return base;
-    const alpha = m.alphaTest > 0 ? (m.alphaMap || m.map) : null;
-    if (!alpha && m.side === THREE.FrontSide) return base;
+    const alpha = m.alphaTest > 0 ? (m.alphaMap || m.map) : null, nc = inLots(m);
+    if (!alpha && m.side === THREE.FrontSide) return nc ? baseNoClip : base;
     const useG = !!alpha && alpha === m.alphaMap;
-    const key = `${alpha ? alpha.uuid : '-'}|${m.side}|${useG}|${m.alphaTest}`;
+    const key = `${alpha ? alpha.uuid : '-'}|${m.side}|${useG}|${m.alphaTest}|${nc}`;
     let nm = cache.get(key);
     if (!nm) {
       nm = new THREE.MeshNormalMaterial({ side: m.side });
       nm.blending = THREE.NoBlending;
-      nm.clippingPlanes = CLIP; nm.clipIntersection = true;
+      if (!nc) { nm.clippingPlanes = CLIP; nm.clipIntersection = true; }
       if (alpha) {
         nm.defines = { USE_UV: '' };
         const cut = m.alphaTest;
@@ -2400,10 +2404,28 @@ function captureProbe(room) {
   finally { IN.probe.intensity = pi; IN.sky.forEach((L, i) => { L.shadow.autoUpdate = au[i]; }); renderer.shadowMap.needsUpdate = nu; }
   return true;
 }
+// escalier : au repos dans la cage, envoi au GPU des géométries de visite des étages voisins (rendu 1 × 1, une fois
+// par étage) — la bascule d'étage en montant ne déclenche plus de téléversement de tampons pendant la marche
+const stairWarm = new Set(); let stairRT = null;
+function warmStairFloors(still) {
+  if (!still || cfg.walkFloor == null || !lots.inCage || !lots.inCage(camera.position.x, camera.position.z)) return false;
+  const k = cfg.walkFloor, todo = [k - 1, k + 1].filter((j) => j >= 0 && j <= 3 && !stairWarm.has(j));
+  if (!todo.length) return false;
+  const j = todo[0]; stairWarm.add(j);
+  const root = lots.group.getObjectByName('plan:' + j); if (!root) return false;
+  if (!stairRT) stairRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  const vis = root.visible, sh = renderer.shadowMap.autoUpdate, nu = renderer.shadowMap.needsUpdate;
+  root.visible = true; renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = false;
+  const prevRT = renderer.getRenderTarget();
+  try { renderer.setRenderTarget(stairRT); renderer.render(scene, camera); } catch (e) { /* facultatif */ }
+  finally { renderer.setRenderTarget(prevRT); root.visible = vis; renderer.shadowMap.autoUpdate = sh; renderer.shadowMap.needsUpdate = nu; }
+  return false;
+}
 function stepProbes(dt, now) {
   if (!IN.probe || !lots) return false;
   if (!_probeCam.equals(camera.matrixWorld)) { _probeCam.copy(camera.matrixWorld); probeStill = now; }
   const still = now - probeStill > 350 && !state.anim && !(cfg.cut && cfg.cut.anim);
+  warmStairFloors(still);
   // captures au repos : la pièce occupée d'abord, puis les autres pièces du logement
   if (still && IN.k > 0.5 && IN.lotId && IN.floor != null) {
     const L = lots.lot && lots.lot(IN.lotId), rooms = L ? L.rooms : [];
@@ -3605,6 +3627,19 @@ function updateLift() {
   ui.liftBtns.innerHTML = html;
   ui.liftBtns.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => takeLift(+b.dataset.k)));
 }
+// changement d'étage en marchant dans l'escalier : même bascule que l'ascenseur, sans fondu ni vol (la cage est
+// modélisée sur trois niveaux dans chaque étage : rien n'apparaît ni ne disparaît autour du promeneur)
+function stairSwitch(k) {
+  if (k === cfg.walkFloor) return;
+  cfg.walkFloor = k;
+  setFloor(k, { fly: false, view: 'walk' });
+  // coupe placée d'un coup (pas de balayage animé ni de cadence « changement d'étage » pendant la marche)
+  if (cfg.cut.anim) { cfg.cut.anim = null; setCutY(walkCeiling(k)); lots.setFloor(k); cfg.cut.ready = true; updateLabelSet(); }
+  refreshBoxes('walk');
+  if (lots.models) { lots.models.request(k); if (k < 3) lots.models.request(k + 1); if (k > 0) lots.models.request(k - 1); }
+  syncFloorUI();
+  setCaption(`${LEVEL_NAME(k)} · balade`, 'Escalier', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.');
+}
 function takeLift(k) {
   const s = liftStopOf(k);
   if (!s || !nav) return;
@@ -3644,11 +3679,27 @@ async function setupNavigation() {
     building: buildingSegs, trees, buildingHeight: fp.height,
     groundY: (x, z) => (z > 4.5 && z < 7.5 ? 0.14 : 0),
     indoor: (x, z, y) => {
-      const k = y > 2.4 ? floorKeyAt(y) : (inFoot(x, z) || inDoor(x, z) ? 0 : null);
+      // dans la cage d'escalier : murs de l'étage affiché (la hauteur de l'œil y est entre deux niveaux)
+      const cage = cfg.walkFloor != null && lots.inCage && lots.inCage(x, z);
+      const k = cage ? cfg.walkFloor : y > 2.4 ? floorKeyAt(y) : (inFoot(x, z) || inDoor(x, z) ? 0 : null);
       if (k == null) return null;
-      try { return (lots.colliders(k) || []).concat(k > 0 ? rails : []); } catch (e) { return null; }
+      try {
+        const segs = (lots.colliders(k) || []).concat(k > 0 ? rails : []);
+        // R+3 : la volée vers le toit n'est pas praticable (accès par l'édicule) — butée au départ, depuis le palier
+        // de demi-niveau seulement (au même endroit en plan, la volée descendante vers le R+2 reste libre)
+        const S = lots.stair;
+        if (cage && S && k === 3 && y - 1.65 > lots.floorY(3) + 0.6) segs.push({ a: [S.S1a, S.zn - 0.04], b: [S.S1b, S.zn - 0.04] });
+        return segs;
+      } catch (e) { return null; }
     },
     floorAt: (x, z, eyeY) => {
+      // escalier : rampe continue le long des volées, bascule de l'étage affiché au-delà des paliers de demi-niveau
+      if (cfg.walkFloor != null && lots.stairFloor && lots.inCage(x, z)) {
+        const foot = eyeY - 1.65, k2 = lots.stairLevel(cfg.walkFloor, foot);
+        if (k2 !== cfg.walkFloor) stairSwitch(k2);
+        const f = lots.stairFloor(cfg.walkFloor, x, z, foot);
+        if (f != null) return f;
+      }
       if (cfg.walkFloor == null || !inFoot(x, z) || eyeY < 2.4) return null;
       // sol de visite local (dallage surélevé des loggias, seuils) quand lots.js le fournit
       try { if (lots.walkFloorAt) { const f = lots.walkFloorAt(cfg.walkFloor, x, z); if (Number.isFinite(f)) return f; } } catch (e) { /* repli */ }
@@ -3656,6 +3707,7 @@ async function setupNavigation() {
     },
     ceilingAt: (x, z, y) => {
       if (!inFoot(x, z)) return null;
+      if (cfg.walkFloor != null && lots.inCage && lots.inCage(x, z)) return null;   // cage ouverte sur deux niveaux
       const k = y > 2.4 ? floorKeyAt(y) : 0;
       if (k == null) return null;
       try { return lots.walkCeilingY ? lots.walkCeilingY(k) : lots.floorY(k) + 2.5; } catch (e) { return null; }

@@ -96,6 +96,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const disposables = [];
   // mobilier photogrammétrique (models.js) : chargé à la demande, étage par étage
   const MODELS = createModels(THREE);
+  let STAIR = null;   // géométrie de la cage d'escalier (core), pour la marche dans l'escalier
   // ombres de contact à la forme exacte : empreinte de chaque meuble rastérisée vue de dessus (triangles proches
   // du sol, plus sombres en bas), floutée, rangée dans un atlas commun 2048² (cellules 64 px) ; décalque unique
   // par meuble, même matériau 'contact' (l'atlas devient sa carte alpha, canal vert) — aucun coût par image
@@ -632,11 +633,13 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       labels.push({ name: 'Escalier', surface: Math.abs(area(plan)), x: -4.45, z: -9.5, y: cy + 0.12 });
       gridPoly('tile', key === 0 ? plan : rect(xW, -3.3, nS, zl), fy + 0.004);
       // volée : profil (z, y) extrudé sur la largeur ; marches en pierre (giron + nez de 2 cm)
-      const flight = (xa, xb, z0, dirZ, y0, rise) => {
+      const flight = (xa, xb, z0, dirZ, y0, rise, solid = false) => {
         const sh = new THREE.Shape(), th = 0.17, slope = Math.hypot(tr, rise) / tr;
         sh.moveTo(0, 0);
         for (let i = 0; i < nR; i++) { sh.lineTo(i * tr, (i + 1) * rise); sh.lineTo((i + 1) * tr, (i + 1) * rise); }
-        sh.lineTo((nR - 1) * tr, nR * rise - th * slope); sh.lineTo(0, -th * slope); sh.lineTo(0, 0);
+        if (solid) { sh.lineTo((nR - 1) * tr, -y0); sh.lineTo(0, -y0); }                      // paillasse pleine jusqu'au sol (RDC)
+        else { sh.lineTo((nR - 1) * tr, nR * rise - th * slope); sh.lineTo(0, -th * slope); }
+        sh.lineTo(0, 0);
         const g = new THREE.ExtrudeGeometry(sh, { depth: xb - xa, bevelEnabled: false });
         // repère de la forme : x = avancée, y = hauteur, z = largeur → monde
         const m = new THREE.Matrix4().set(0, 0, 1, xa, 0, 1, 0, fy + y0, dirZ, 0, 0, z0, 0, 0, 0, 1);
@@ -661,14 +664,14 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       if (H > 0) walkOnly(() => {
         flight(S2a, S2b, zl, 1, 0, rise);                              // volée 1 : vers le palier de demi-niveau
         landing(zn, nN - 0.01, ff / 2);                                // palier de demi-niveau
-        flight(S1a, S1b, zn, -1, ff / 2, rise);                        // volée 2 : vers l'étage supérieur (traverse le plafond)
+        flight(S1a, S1b, zn, -1, ff / 2, rise, key === 0);             // volée 2 : vers l'étage supérieur (traverse le plafond)
         if (key > 0) {                                                 // volée descendante et palier inférieur (trémie)
           flight(S1a, S1b, zn, -1, -ff / 2, ff / (2 * nR));
           landing(zn, nN - 0.01, -ff / 2 + 0.0);
           B('wall', S1a, S1b, -ff / 2 - 0.2, -0.02, zl - 0.01, zl);    // nez de dalle sous le palier
         }
         // mur d'échiffre entre les volées, sur toute la hauteur visible
-        B('wall', S1b + 0.005, S2a - 0.005, key > 0 ? -ff / 2 - 0.25 : 0, ff + 0.05, zl + 0.25, nN);
+        B('wall', S1b + 0.005, S2a - 0.005, key > 0 ? -ff / 2 - 0.25 : 0, ff + 0.05, zl + 0.25, zn);
         // au-dessus : la cage reste ouverte jusqu'à l'étage suivant — volées et palier de l'étage supérieur (sous-faces
         // visibles), plafond seulement sous le palier d'étage du dessus, parois de la cage sur deux niveaux (fenêtre
         // de l'étage supérieur laissée ouverte), fond de cage au-dessus
@@ -682,10 +685,31 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         B('wall', xW, -3.3, H, top, nN - 0.012, nN + 0.03);               // nord
         B('wall', -3.312, -3.27, H, top, nS, nN);                         // est
         B('wall', xW, -3.3, ff + H, top, nS - 0.03, nS + 0.012);         // sud (au-dessus du palier supérieur)
-        B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, nN); // échiffre, niveau supérieur
+        B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, zn); // échiffre, niveau supérieur
         gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, 0.5);    // fond de cage
-        // garde-corps du palier d'étage le long de la trémie : main courante chêne sur barreaudage noir
+        // fenêtre de la cage aux niveaux voisins (au-dessus et au-dessous de la coupe de l'étage affiché, la façade du
+        // bâtiment n'est pas dessinée) : dormant noir et vitrage
+        const pane = (y0) => {
+          B('black', xW - 0.03, xW + 0.02, y0, y0 + 0.05, wz0, wz1); B('black', xW - 0.03, xW + 0.02, y0 + 2.45, y0 + 2.5, wz0, wz1);
+          B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz0, wz0 + 0.05); B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz1 - 0.05, wz1);
+          B('black', xW - 0.03, xW + 0.02, y0 + 1.0, y0 + 1.04, wz0, wz1);
+          B('glassClear', xW - 0.012, xW - 0.008, y0 + 0.05, y0 + 2.45, wz0 + 0.05, wz1 - 0.05);
+        };
+        pane(ff);
         if (key > 0) {
+          // niveau inférieur vu par la trémie : volée 1 et palier d'étage de l'étage du dessous, parois de la cage
+          const fb = key === 1 ? FL[0] + SLAB : 3.0, rb = fb / (2 * nR);
+          flight(S2a, S2b, zl, 1, -fb, rb);
+          landing(nS + 0.01, zl, -fb + 0.0);
+          B('wall', xW - 0.03, xW + 0.012, -fb, 0, nS, wz0); B('wall', xW - 0.03, xW + 0.012, -fb, 0, wz1, nN);
+          B('wall', xW - 0.03, xW + 0.012, -fb + 2.5, 0, wz0, wz1); pane(-fb);
+          B('wall', xW, -3.3, -fb, 0, nN - 0.012, nN + 0.03);
+          B('wall', -3.312, -3.27, -fb, 0, nS, nN);
+          B('wall', xW, -3.3, -fb, 0, nS - 0.03, nS + 0.012);
+          B('wall', S1b + 0.005, S2a - 0.005, -fb, -fb / 2 - 0.25, zl + 0.25, zn);
+        }
+        // garde-corps du palier d'étage le long de la trémie : main courante chêne sur barreaudage noir
+        if (false) {
           for (let x = S1a + 0.06; x < S1b - 0.02; x += 0.11) B('black', x - 0.006, x + 0.006, 0.02, 0.98, zl + 0.015, zl + 0.027);
           B('black', S1a, S1b, 0.02, 0.04, zl + 0.01, zl + 0.035);
           const hr = new RoundedBoxGeometry(S1b - S1a, 0.04, 0.06, 2, 0.015); hr.translate((S1a + S1b) / 2, fy + 1.0, zl + 0.021); push('oak', hr);
@@ -704,8 +728,10 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           const t = new THREE.CylinderGeometry(0.03, 0.04, 0.06, 12); t.translate(-1.61, fy + 0.66, -10.93); push('black', t); B('black', -1.54, -1.525, 0.3, 0.7, -10.97, -10.89); }
       });
       // collisions : on ne monte pas les volées (balade à niveau), garde-corps sur la trémie
-      colliders.push({ a: [S1a, zl], b: [S2b, zl] });
-      wallRect(S1b + 0.005, S2a - 0.005, zl + 0.25, nN, false);       // tranche du mur d'échiffre en plan + collision
+      // escalier praticable (sol de visite : stairFloor) ; au RDC, la volée 2 est pleine jusqu'au sol
+      STAIR = { S1a, S1b, S2a, S2b, zl, zn, nN, nS, xW, xE: -3.3 };
+      if (key === 0) colliders.push({ a: [S1a, zl + 0.02], b: [S1b, zl + 0.02] });
+      wallRect(S1b + 0.005, S2a - 0.005, zl + 0.25, zn, false);       // tranche du mur d'échiffre en plan + collision
       // cage d'ascenseur
       const lx0 = -3.1, lx1 = nE, lz0 = -9.3, d0 = -2.75, d1 = -1.95, dc = (d0 + d1) / 2;
       run('x', lz0 - 0.1, lz0, lx0, lx1, [{ a: d0, b: d1, type: 'void' }]);
@@ -1290,6 +1316,29 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   }
   function commonRooms(key) { const p = plans.get(+key); return p ? p.rooms.filter(r => !r.lot && H_OK(r)).map(r => ({ name: r.name, poly: r.poly.map(q => q.slice()) })) : []; }
   const H_OK = (r) => /Palier|Escalier|Ascenseur|Hall/.test(r.name);
+  // ---- escalier praticable : hauteur de marche (rampe continue) dans la cage, par étage affiché k
+  const ffOf = (k) => (k <= 0 ? FL[0] + SLAB : 3.0);
+  function inCage(x, z) { const S = STAIR; return !!S && x > S.xW - 0.05 && x < S.xE + 0.02 && z > S.nS - 0.05 && z < S.nN + 0.05; }
+  // surface praticable sous le pied (foot = hauteur actuelle du pied), sinon null hors de la cage
+  function stairFloor(k, x, z, foot) {
+    const S = STAIR; if (!S || !inCage(x, z) || k < 0 || k > 3) return null;
+    const F = floorY(k), ff = ffOf(k), fb = k > 0 ? ffOf(k - 1) : 0, run = S.zn - S.zl;
+    if (z <= S.zl) return F;
+    const t = Math.min(1, Math.max(0, (z - S.zl) / run)), cand = [];
+    if (z >= S.zn) { cand.push(F + ff / 2); if (k > 0) cand.push(F - fb / 2); }
+    else if (x >= S.S2a - 0.06) cand.push(F + t * ff / 2);                                   // volée 1 (montée)
+    else { cand.push(F + ff / 2 + (1 - t) * ff / 2); if (k > 0) cand.push(F - t * fb / 2); else cand.push(F); }   // volée 2 / volée descendante
+    let best = cand[0];
+    for (const c of cand) if (Math.abs(c - foot) < Math.abs(best - foot)) best = c;
+    return best;
+  }
+  // étage affiché selon la hauteur du pied dans la cage (bascule au-dessus des paliers de demi-niveau, hystérésis 10 cm)
+  function stairLevel(k, foot) {
+    if (!STAIR || k == null || k < 0 || k > 3) return k;
+    if (k < 3 && foot > floorY(k) + ffOf(k) / 2 + 0.12) return k + 1;
+    if (k > 0 && foot < floorY(k) - ffOf(k - 1) / 2 + 0.02) return k - 1;
+    return k;
+  }
   function colliders(key) { const p = plans.get(key == null ? floorKey : +key); return p ? p.colliders.map(s => ({ a: s.a.slice(), b: s.b.slice() })) : []; }
   // ancres des étiquettes de pièces (rendu HTML côté viewer)
   function roomLabels(key) {
@@ -1370,7 +1419,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
-    models: MODELS, commonRooms,
+    models: MODELS, commonRooms, stairFloor, stairLevel, inCage, get stair() { return STAIR; },
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },
     get floor() { return floorKey; }, get mode() { return mode; }, get viewMode() { return viewMode; },
