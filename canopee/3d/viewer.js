@@ -80,9 +80,10 @@ import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 /* ?fallback=1 (force les remplacements)  ?tm=agx|aces  ?exp=1.0       */
 /* ------------------------------------------------------------------ */
 const URLP = new URLSearchParams(location.search);
+const HOUR_MIN = 6, HOUR_MAX = 22;   // curseur de l'heure : soirées et nuits d'été, matins d'hiver
 const PARAMS = {
   view: clampInt(URLP.get('view'), 1, 8, 1) - 1,
-  hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, 8, 20) : 18,
+  hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, HOUR_MIN, HOUR_MAX) : 18,
   quality: ['auto', 'native', 'high', 'medium', 'low'].includes(URLP.get('q')) ? URLP.get('q') : 'auto',
   ui: URLP.get('ui') !== '0',
   intro: URLP.get('intro') !== '0',
@@ -600,6 +601,7 @@ async function start() {
 
   progress(0.74, 'Lumière du jour…');
   await nextFrame();
+  // setupNeighbourWindows();   // désactivé : sans façades voisines modélisées, les baies flottent au-dessus des arbres
   setupClipping();
   setupLevelDimming();
   buildPost();
@@ -964,6 +966,32 @@ function setCheapGlass(on) {
 /* Mise en lumière d'un étage : patch des matériaux (atténuation hors   */
 /* de la tranche y0–y1) + volume translucide laiton                    */
 /* ------------------------------------------------------------------ */
+// Fenêtres éclairées des voisins (nuit) : ~250 baies réparties sur une dizaine de façades fictives au-delà des arbres,
+// un tiers allumées au hasard (graine fixe), teintes chaudes variées, certaines voilées (stores, rideaux : plus
+// faibles). Un seul maillage additif non éclairé ; couleur pilotée par la nuit (noire = invisible le jour)
+let neighbourMat = null;
+function setupNeighbourWindows() {
+  const R = mulberry32(2207), pos = [], col = [];
+  const cx = (bounds.minX + bounds.maxX) / 2, cz = (bounds.minZ + bounds.maxZ) / 2;
+  for (let b = 0; b < 11; b++) {
+    const a = b / 11 * Math.PI * 2 + (R() - 0.5) * 0.35, rr = 44 + R() * 22, bx = cx + Math.sin(a) * rr, bz = cz + Math.cos(a) * rr;
+    const nx = -Math.sin(a), nz = -Math.cos(a), tx = Math.cos(a), tz = -Math.sin(a);   // façade tournée vers le site
+    const cols = 5 + Math.floor(R() * 6), floors = 3 + Math.floor(R() * 4), pitch = 3.1 + R() * 0.6;
+    for (let f = 0; f < floors; f++) for (let c = 0; c < cols; c++) {
+      if (R() > 0.33) continue;
+      const u = (c - (cols - 1) / 2) * pitch, y = 1.0 + f * 3.0, w = 0.9 + R() * 0.4, h = 1.1 + R() * 0.3;
+      const veiled = R() < 0.4, k = (veiled ? 0.35 : 0.75) * (0.7 + 0.3 * R());
+      const c0 = new THREE.Color().setHSL(0.08 + R() * 0.04, 0.75, 0.55).multiplyScalar(k);
+      const P = (du, dy) => [bx + tx * (u + du) - nx * 0.0, y + dy, bz + tz * (u + du)];
+      const q = [P(-w / 2, 0), P(w / 2, 0), P(w / 2, h), P(-w / 2, h)];
+      for (const i of [0, 1, 2, 0, 2, 3]) { pos.push(...q[i]); col.push(c0.r, c0.g, c0.b); }
+    }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  neighbourMat = new THREE.MeshBasicMaterial({ name: 'neighbourWindows', vertexColors: true, color: 0x000000, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: true });
+  const m = new THREE.Mesh(g, neighbourMat); m.name = 'voisins:fenetres'; m.userData.noAO = true; m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false;
+  scene.add(m);
+}
 function setupLevelDimming() {
   levelUniform = { value: new THREE.Vector4(-1e4, 1e4, 0, 0) }; // y0, y1, intensité
   // nuit vue de l'intérieur : matériaux de l'extérieur seul (bâtiment, paysage, pas ceux des logements) assombris
@@ -1111,6 +1139,7 @@ function applyHour(h, immediate = false) {
     M.interiorWarm.emissiveIntensity = state.interiorBase * (1 + 0.9 * dusk + 1.2 * night);
   }
   setInteriorGain(1 + 0.35 * dusk + 0.6 * night);
+  if (neighbourMat) neighbourMat.color.setScalar(0.45 * THREE.MathUtils.smoothstep(night, 0.15, 1));   // voisins : s'allument au crépuscule
   // de jour, une pièce vue de la rue est bien plus sombre que la façade ensoleillée (rapport ~1:5 en photo) :
   // intérieurs simulés d'interiors.js atténués, et leur reflet de ciel uniforme réduit (le verre de façade
   // porte désormais les vrais reflets : arbres, rue, ciel)
@@ -2672,7 +2701,7 @@ function buildUI() {
     const txt = formatHour(h);
     ui.hourOut.textContent = txt;
     ui.hour.setAttribute('aria-valuetext', txt);
-    ui.hour.style.setProperty('--p', `${((h - 8) / 12) * 100}%`);
+    ui.hour.style.setProperty('--p', `${((h - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * 100}%`);
     return h;
   };
   ui.hour.value = String(state.hour);
@@ -4042,10 +4071,10 @@ function showPane(id) {
 /* ------------------------- course du soleil (UI) ------------------------- */
 function renderSunBar() {
   const stops = [];
-  for (let h = 8; h <= 20.001; h += 0.1) {
+  for (let h = HOUR_MIN; h <= HOUR_MAX + 0.001; h += 0.1) {
     const e = solarPosition(h, state.season).elev;
     const c = e < -6 ? 'rgba(40,50,80,.7)' : e < 0 ? '#7f9fd8' : e < 7 ? '#7fa6ff' : 'rgba(255,255,255,.14)';
-    stops.push(`${c} ${(((h - 8) / 12) * 100).toFixed(1)}%`);
+    stops.push(`${c} ${(((h - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * 100).toFixed(1)}%`);
   }
   ui.sunBar.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
 }
@@ -4183,7 +4212,7 @@ function api() {
   return {
     THREE, scene, camera, controls, renderer, composer, M, building, landscape,
     goToView: (i, instant = false) => goToView(i, instant ? { duration: 0 } : {}),
-    setHour: (h) => { ui.hour.value = String(h); ui.hour.dispatchEvent(new Event('input')); updateEnvironment(); },
+    setHour: (h) => { ui.hour.value = String(THREE.MathUtils.clamp(+h, HOUR_MIN, HOUR_MAX)); ui.hour.dispatchEvent(new Event('input')); updateEnvironment(); },
     setLevel, setQuality: (q) => { state.auto = q === 'auto'; setQuality(q === 'auto' ? AUTO_TOP : q); },
     render: () => { renderer.shadowMap.needsUpdate = true; render(); },
     get state() { return { ...state, sun: undefined }; },
