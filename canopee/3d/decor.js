@@ -14,6 +14,7 @@
  * occlusion bakée multipliée par lots.js. Tout ce qui dépasse le plan de coupe (1,2 m) est « visite » seulement.
  */
 import { createFurniture } from './furniture.js';
+import { CATALOG as MODEL_CATALOG, fitSize } from './models.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ------------------------------------------------------------------ aléatoire & bruit périodique
@@ -213,11 +214,15 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   // --- tranches de livres (papier)
   D.paper = std('decoPaper', 0xf2ede2, { roughness: 0.9 });
   // ombres de contact (décalques multiplicatifs sous les meubles)
-  const sh = canvas(128, 128), sg = sh.getContext('2d'), gr = sg.createRadialGradient(64, 64, 8, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-  sg.fillStyle = gr; sg.fillRect(0, 0, 128, 128);
+  // empreinte floue d'un meuble vu de dessus (rectangle aux angles arrondis) : noyau serré sous le meuble + pénombre
+  // large ; calculée une fois, posée en décalque multiplicatif sous chaque pièce (aucun coût par image)
+  const sh = canvas(128, 128), sg = sh.getContext('2d');
+  const rr = (x, y, w, h, r) => { sg.beginPath(); sg.roundRect(x, y, w, h, r); sg.fill(); };
+  sg.filter = 'blur(14px)'; sg.fillStyle = 'rgba(0,0,0,0.6)'; rr(22, 22, 84, 84, 26);
+  sg.filter = 'blur(6px)'; sg.fillStyle = 'rgba(0,0,0,0.75)'; rr(30, 30, 68, 68, 18);
+  sg.filter = 'none';
   const shT = new THREE.CanvasTexture(sh); list.push(shT);
-  D.contact = new THREE.MeshBasicMaterial({ name: 'decoContact', color: 0x000000, alphaMap: shT, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+  D.contact = new THREE.MeshBasicMaterial({ name: 'decoContact', color: 0x000000, alphaMap: shT, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   list.push(D.contact);
   // matériaux partagés de materials.js quand ils existent (réglés pour l'éclairage intérieur)
   const share = { black: 'blackMetal', brass: 'brassBrushed', steel: 'steelBrushed', mirror: 'mirror', sheer: 'curtainSheer', glassClear: 'glassClear', ceramic: 'ceramicWhite', skirt: 'skirting' };
@@ -997,8 +1002,10 @@ export function createDecor(THREE, P, ctx = {}) {
       }
     }
     // base (sommier gainé) sur socle en retrait
-    box('oak', -w / 2 + 0.08, w / 2 - 0.08, 0, 0.08, z0 + 0.1, z0 + L - 0.1, C(0x5a4636));
-    rbb('textile', -w / 2 - 0.02, w / 2 + 0.02, 0.07, 0.33, z0, z0 + L + 0.02, 0.03, hb);
+    // sommier tapissé débordant (+4 cm par côté) sur pieds chêne fuselés : 10 cm de vide sous le lit
+    for (const sx of [-1, 1]) for (const zz of [z0 + 0.12, z0 + L - 0.1]) cyl('oak', 0.017, 0.024, 0.1, sx * (w / 2 - 0.08), 0, zz, C(0xe6d4bb), { seg: 14 });
+    rbb('textile', -w / 2 - 0.04, w / 2 + 0.04, 0.1, 0.34, z0, z0 + L + 0.03, 0.035, hb, { seg: 3 });
+    seamLoop('textile', w / 2 + 0.036, (L + 0.03) / 2 - 0.004, 0.004, 0, 0.335, z0 + (L + 0.03) / 2, hb.map(v => v * 0.88), {}, 0.12, 80);
     // matelas 22 cm : boîte arrondie maillée finement, passepoils (furniture.js) ; repli superquadrique sinon
     if (fxCushion) fxCushion('textile', w, 0.22, L, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { r: 0.05, puff: 0.08, sag: 0, step: 0.05 });
     else sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
@@ -1029,8 +1036,12 @@ export function createDecor(THREE, P, ctx = {}) {
     // oreillers : deux grands carrés contre la tête de lit, deux standard, un coussin
     const np = 2;
     // grands oreillers presque droits, adossés à la tête de lit (≈ 15°), bombés et tassés au centre ; oreillers standard devant
-    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.33, z0 + 0.15, Math.min(0.62, w / np - 0.04), 0.23, sheetC, { rx: -Math.PI / 2 + 0.27 + jit(0.05), rz: jit(0.06), e2: 0.34, puff: 0.38, crease: 0.18, wob: 0.007 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.38, Math.min(0.6, w / np - 0.05) * 0.93, 0.19, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.6, rz: jit(0.05), puff: 0.32, crease: 0.12 }); }
-    pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
+    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.34, z0 + 0.16, Math.min(0.64, w / np - 0.03), 0.27, sheetC, { rx: -Math.PI / 2 + 0.27 + jit(0.05), rz: jit(0.06), e2: 0.24, puff: 0.42, crease: 0.16, wob: 0.006 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.38, Math.min(0.6, w / np - 0.05) * 0.93, 0.19, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.6, rz: jit(0.05), puff: 0.32, crease: 0.12 }); }
+    if (o.bolster) { // traversin : cylindre rembourré, extrémités bombées et passepoilées
+      const bl = w - 0.2, br = 0.085, bc = C(o.bolster, 0.03);
+      lathe('textile', [[0, -bl / 2], [br * 0.75, -bl / 2 + 0.004], [br * 0.97, -bl / 2 + 0.03], [br, -bl / 2 + 0.06], [br * 1.02, 0], [br, bl / 2 - 0.06], [br * 0.97, bl / 2 - 0.03], [br * 0.75, bl / 2 - 0.004], [0, bl / 2]], 0, top + 0.11, z0 + 0.6, bc, { rz: Math.PI / 2, seg: 28 });
+      for (const sx of [-1, 1]) torus('textile', br * 0.97, 0.004, sx * (bl / 2 - 0.03), top + 0.11, z0 + 0.6, bc.map(v => v * 0.88), { rz: Math.PI / 2, seg: 32, rad: 4 });
+    } else pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
     // plaid épais plié en travers au pied : épouse la couette (décalé selon sa normale), retombe moins bas qu'elle
     const tW = 2 * hw + 2 * hang, tL = len + hangF, tdrop = 0.19, tz0 = L - 0.52 + z0 - zA, tdz = 0.44;
     const onDuvet = (s, t, e) => {
@@ -1154,7 +1165,7 @@ export function createDecor(THREE, P, ctx = {}) {
     for (const [sx, sw] of sinks) {
       box(top, cx, sx - sw / 2, ty0, ty1, zb, zf, topC); box(top, sx - sw / 2, sx + sw / 2, ty0, ty1, zb, -0.2, topC); box(top, sx - sw / 2, sx + sw / 2, ty0, ty1, 0.22, zf, topC);
       // cuve sous plan en inox + bonde, robinet col de cygne noir mat
-      box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0 - 0.19, -0.19, 0.21, C(0x9da1a4)); for (const s of [-1, 1]) { box('steel', s > 0 ? sx + sw / 2 - 0.012 : sx - sw / 2 + 0.002, s > 0 ? sx + sw / 2 - 0.002 : sx - sw / 2 + 0.012, ty0 - 0.2, ty0, -0.19, 0.21, C(0x9da1a4)); box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0, s > 0 ? 0.2 : -0.2, s > 0 ? 0.21 : -0.19, C(0x9da1a4)); }
+      box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0 - 0.19, -0.19, 0.21, C(0xe2e4e6)); for (const s of [-1, 1]) { box('steel', s > 0 ? sx + sw / 2 - 0.012 : sx - sw / 2 + 0.002, s > 0 ? sx + sw / 2 - 0.002 : sx - sw / 2 + 0.012, ty0 - 0.2, ty0, -0.19, 0.21, C(0xd6d9dc)); box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0, s > 0 ? 0.2 : -0.2, s > 0 ? 0.21 : -0.19, C(0xd6d9dc)); }   // inox brossé clair
       cyl('steel', 0.03, 0.03, 0.003, sx, ty0 - 0.19, 0.01, C(0x55585a));
       const tm = o.tap || 'black';
       if (kitchenTap) kitchenTap(sx, ty1, -0.25, tm);
@@ -1178,8 +1189,13 @@ export function createDecor(THREE, P, ctx = {}) {
       const F = (y0, y1, handle = true) => { rbb(fr, -w / 2 + 0.0015, w / 2 - 0.0015, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 }); if (handle) { const hl = Math.min(0.42, y1 - y0 - 0.12), hy = y1 - y0 > 1 ? (y0 < 0.6 ? y1 - 0.1 - hl / 2 : y0 + 0.1 + hl / 2) : (y0 + y1) / 2; if (barHandleFn) barHandleFn(o.handleMk || 'brass', w / 2 - 0.045, hy, 0.299, hl, { vertical: true, r: 0.0055, off: 0.026 }); else rbb(o.handleMk || 'brass', w / 2 - 0.05, w / 2 - 0.038, hy - hl / 2, hy + hl / 2, 0.299, 0.318, 0.004, WHITE); } };
       if (kind === 'oven') {
         F(0.1, 0.5); F(0.5, 0.8);
-        box('glassBlack', -w / 2 + 0.003, w / 2 - 0.003, 0.8, 1.38, 0.27, 0.3); box('steel', -w / 2 + 0.02, w / 2 - 0.02, 1.31, 1.37, 0.3, 0.302, C(0x2a2b2d));
-        tube('steel', [[-w / 2 + 0.06, 1.28, 0.31], [w / 2 - 0.06, 1.28, 0.31]], 0.007, WHITE, { seg: 2 }); for (const s of [-1, 1]) box('steel', s * (w / 2 - 0.06) - 0.005, s * (w / 2 - 0.06) + 0.005, 1.275, 1.285, 0.3, 0.31);
+        // four encastré : cadre inox brossé, porte en verre noir (reflets), bandeau de commande (deux manettes, afficheur), poignée barre
+        rbb('steel', -w / 2 + 0.004, w / 2 - 0.004, 0.8, 1.38, 0.268, 0.29, 0.004, C(0xc9ccd0));
+        rbb('glassBlack', -w / 2 + 0.02, w / 2 - 0.02, 0.81, 1.26, 0.289, 0.302, 0.006, WHITE);
+        box('glassBlack', -w / 2 + 0.02, w / 2 - 0.02, 1.28, 1.37, 0.289, 0.3, C(0x2a2b2d));
+        for (const s of [-1, 1]) { cyl('steel', 0.019, 0.019, 0.022, s * (w / 2 - 0.09), 1.325, 0.3, C(0xd0d3d6), { rx: Math.PI / 2, seg: 24 }); box('black', s * (w / 2 - 0.09) - 0.002, s * (w / 2 - 0.09) + 0.002, 1.325, 1.34, 0.32, 0.323); }
+        box('bulb', -0.05, 0.05, 1.31, 1.34, 0.3, 0.3015);                                       // afficheur
+        if (barHandleFn) barHandleFn('steel', 0, 1.235, 0.302, w - 0.14, { r: 0.007, off: 0.03 }); else tube('steel', [[-w / 2 + 0.06, 1.24, 0.33], [w / 2 - 0.06, 1.24, 0.33]], 0.007, WHITE, { seg: 2 });
         box('glassBlack', -w / 2 + 0.003, w / 2 - 0.003, 1.38, 1.83, 0.27, 0.3); tube('steel', [[-w / 2 + 0.06, 1.75, 0.31], [w / 2 - 0.06, 1.75, 0.31]], 0.006, WHITE, { seg: 2 });
         F(1.83, hT);
       } else { F(0.1, 1.55); F(1.55, hT); }
@@ -1192,7 +1208,8 @@ export function createDecor(THREE, P, ctx = {}) {
     walk(() => {
       box('lacquer', -L / 2, L / 2, y0, y1, -0.3, -0.3 + d - 0.02, C(0xe9e5dd));
       for (let i = 0; i < n; i++) { const x0 = -L / 2 + i * L / n + 0.0015, x1 = x0 + L / n - 0.003; rbb(o.front || 'lacquer', x0, x1, y0 + 0.0015, y1 - 0.0015, -0.3 + d - 0.02, -0.3 + d, 0.0015, fc, { seg: 1 }); }
-      if (o.hood != null) { const hx = o.hood; box('steel', hx - 0.28, hx + 0.28, y0 - 0.002, y0, -0.28, -0.3 + d - 0.03, C(0x8e9295)); box('bulb', hx - 0.2, hx - 0.15, y0 - 0.003, y0 - 0.002, -0.05, 0.0); box('bulb', hx + 0.15, hx + 0.2, y0 - 0.003, y0 - 0.002, -0.05, 0.0); }
+      // hotte tiroir extra-plate en inox (4,5 cm) sous le meuble haut, deux éclairages
+      if (o.hood != null) { const hx = o.hood; rbb('steel', hx - 0.3, hx + 0.3, y0 - 0.045, y0, -0.3, -0.3 + d + 0.01, 0.004, C(0xc9ccd0)); box('steel', hx - 0.28, hx + 0.28, y0 - 0.047, y0 - 0.045, -0.28, -0.3 + d - 0.03, C(0x8e9295)); box('bulb', hx - 0.2, hx - 0.15, y0 - 0.048, y0 - 0.047, -0.05, 0.0); box('bulb', hx + 0.15, hx + 0.2, y0 - 0.048, y0 - 0.047, -0.05, 0.0); }
     });
   }
   function splash(L, y0, y1, mk = 'zellige') { box(mk, -L / 2, L / 2, y0, y1, -0.3, -0.292, C(0xffffff)); }
@@ -1255,7 +1272,7 @@ export function createDecor(THREE, P, ctx = {}) {
       box('glassClear', x0, x1, y0, y0 + h, z - 0.004, z + 0.004);
       // profilés noirs : U mural, traverse haute, seuil bas, barre de stabilisation vers le mur
       rbb('black', x0, x1, y0 + h - 0.022, y0 + h, z - 0.011, z + 0.011, 0.003); rbb('black', x0 - 0.002, x0 + 0.022, y0, y0 + h, z - 0.013, z + 0.013, 0.003);
-      rbb('black', x0, x1, y0, y0 + 0.012, z - 0.009, z + 0.009, 0.002);
+      if (y0 < 0.1) rbb('black', x0, x1, y0, y0 + 0.012, z - 0.009, z + 0.009, 0.002);   // seuil (douche) ; pas sur un pare-baignoire
     });
     P.planOnly(() => box('black', x0, x1, 0, CUT - 0.02, z - 0.006, z + 0.006));
   }
@@ -1560,7 +1577,7 @@ export function createDecor(THREE, P, ctx = {}) {
   if (typeof location !== 'undefined' && /[?&]fx=0/.test(location.search)) return D0;   // diagnostic : mobilier d'origine
   const FX = createFurniture(THREE, D0);
   Object.assign(D0, { sofa: FX.sofa, chair: FX.chair, rectTable: FX.rectTable, cushion: FX.cushion, strut: FX.strut, ribbon: FX.ribbon,
-    vanity: FX.vanity, towelRail: FX.towelRail, showerHead: FX.showerSet, barHandle: FX.barHandle });
+    vanity: FX.vanity, towelRail: FX.towelRail, showerHead: FX.showerSet, barHandle: FX.barHandle, bathTub: FX.bathTub });
   barHandleFn = FX.barHandle; puffBoxFn = FX.puffBox;
   kitchenTap = FX.kitchenTap; fxCushion = FX.cushion;
   return D0;
@@ -1581,7 +1598,11 @@ export function furnishUpper(THREE, P, D, o = {}) {
   const one = (fn) => { const n0 = FUR.length; fn(); const parts = FUR.splice(n0); if (!parts.length) return; const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9]; for (const b of parts) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], b.min[k]); mx[k] = Math.max(mx[k], b.max[k]); } FUR.push({ kind: 'meuble', min: mn, max: mx }); };
   // meubles hauts (armoires, colonnes, bibliothèques) : marge de 10 cm, la caméra ne voit plus au travers
   // mobilier photogrammétrique (models.js) : le meuble procédural sert de doublure jusqu'au chargement
-  const M3 = (id, fit, proxy, o = {}) => D.model(id, { fit, ...o }, proxy);
+  const M3 = (id, fit, proxy, o = {}) => {
+    D.model(id, { fit, ...o }, proxy);
+    // ombre de contact du modèle (celle de la doublure disparaît avec elle) : meubles et plantes posés au sol
+    if (o.y == null && MODEL_CATALOG[id] && MODEL_CATALOG[id].kind !== 'objet') { const [fw, , fd] = fitSize(id, fit); D.at(o.x || 0, o.z || 0, o.ry || 0, () => D.contact(0, 0, fw + 0.18, fd + 0.18)); }
+  };
   const NS = (w = 0.46, d = 0.4) => (proxy) => M3('side_table_01', { w, h: 0.5, d }, proxy);   // chevet chêne à deux plateaux
   const plantK = (k, h, proxy) => k === 'pp01' ? M3('potted_plant_01', { h: h || 1.55 }, proxy) : k === 'pp02' ? M3('potted_plant_02', { h: h || 0.95 }, proxy) : proxy();
   const tall = (x, z, ry, fn) => { const n0 = FUR.length; at(x, z, ry, fn); for (let i = n0; i < FUR.length; i++) { const b = FUR[i]; b.min[0] -= 0.1; b.min[2] -= 0.1; b.max[0] += 0.1; b.max[2] += 0.1; b.max[1] = Math.max(b.max[1], b.min[1] + 2.0); } };
@@ -1676,7 +1697,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     {
       const w = suite ? 1.8 : 1.6, bx = suite ? -4.1 : -4.05, off = w / 2 + 0.1 + 0.24, c1 = V.ch1;
       at(bx, -2.55, 0, () => D.rugF(suite ? 2.6 : 2.3, suite ? 2.0 : 1.7, 'wool', C(0xe7dfd0), false));
-      at(bx, -3.96, 0, () => D.bed(w, 2.0, { head: c1.head, headMk: c1.headMk, duvet: PAL.linenWhite, accent: c1.accent, throw: c1.throw }));
+      at(bx, -3.96, 0, () => D.bed(w, 2.0, { head: c1.head, headMk: c1.headMk, duvet: PAL.linenWhite, accent: c1.accent, throw: c1.throw, bolster: lv === 3 ? PAL.rust : lv === 1 ? PAL.ink : null }));
       for (const s of [-1, 1]) at(bx + s * off, -3.75, 0, () => {
         const o = { lampC: suite ? 0xd9cfbf : 0xc4754e, lamp: !suite, cup: s > 0 };
         if (lv === 2) D.nightstand(o); else { NS(0.46, 0.4)(() => D.nightstand({ ...o, lamp: false, books: false, cup: false })); D.nightstand({ ...o, body: false }); }
@@ -1863,7 +1884,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     {
       const c1 = V.ch1;
       at(-3.95, -17.1, 0, () => D.rugF(2.2, 1.5, 'wool', C(0xd9d2c6), false));
-      at(-3.95, -15.95, PI, () => D.bed(1.6, 1.95, { head: c1.head, headMk: c1.headMk, z0: c1.headMk ? 0.05 : 0.08, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: c1.accent, throw: c1.throw, tuck: true }));
+      at(-3.95, -15.95, PI, () => D.bed(1.6, 1.95, { head: c1.head, headMk: c1.headMk, z0: c1.headMk ? 0.05 : 0.08, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: c1.accent, throw: c1.throw, tuck: true, bolster: lv === 2 ? PAL.sage : null }));
       for (const [x, cup] of [[-5.09, false], [-2.81, true]]) at(x, -16.16, PI, () => { if (lv === 2) D.nightstand({ lampC: 0x3d3a36, cup }); else { NS(0.46, 0.4)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampC: 0x3d3a36, cup, body: false }); } });
       face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
       at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: c1.accent }));

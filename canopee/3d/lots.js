@@ -821,7 +821,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
   // petits objets : pas d'ombre portée (économise les passes d'ombre des projecteurs de baie)
-  const NO_CAST = new Set(['jute', 'ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
+  // zellige : carrelage plaqué aux murs et tablier de baignoire, ombre portée inutile (elle noircissait le fond de la cuve)
+  const NO_CAST = new Set(['zellige', 'jute', 'ceil', 'parquet', 'tile', 'concrete', 'brass', 'steel', 'bulb', 'shade', 'paper', 'glassBlack', 'mirror', 'art', 'skirt', 'black', 'bark', 'stoneware', 'ceramic', 'spot', 'travertine']);
   function finish(P) {
     P.flushWalls();
     P.emitSpots();

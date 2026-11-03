@@ -263,5 +263,44 @@ export function createFurniture(THREE, K) {
     });
   }
 
-  return { sofa, chair, rectTable, cushion, strut, ribbon, kitchenTap, vanity, towelRail, showerSet, hangingTowel, barHandle, puffBox };
+  // ------------------------------------------------------------------ baignoire encastrée (tablier carrelé)
+  // L × W (x × z local), dos au mur z = −W/2 ; cuve en céramique émaillée : bords arrondis (rayon 12 cm en plan,
+  // 6 cm en fond), plage fine de 3 cm, trop-plein et bonde inox, bec mural et mitigeur sur la plage côté mur
+  function bathTub(L = 1.7, W = 0.75) {
+    const h = 0.56, rim = 0.035, ce = C(0xf7f6f2), depth = 0.42;
+    K.box('zellige', -L / 2, L / 2, 0.06, h - 0.03, W / 2 - 0.01, W / 2, C(0xffffff));         // tablier
+    K.box('lacquer', -L / 2, L / 2, 0, 0.06, -W / 2, W / 2 - 0.04, C(0x4a4744));
+    // plage : anneau extrudé (rectangle extérieur, découpe aux angles arrondis)
+    const rr = (sh, hw, hd, r) => { sh.moveTo(-hw + r, -hd); sh.lineTo(hw - r, -hd); sh.quadraticCurveTo(hw, -hd, hw, -hd + r); sh.lineTo(hw, hd - r); sh.quadraticCurveTo(hw, hd, hw - r, hd); sh.lineTo(-hw + r, hd); sh.quadraticCurveTo(-hw, hd, -hw, hd - r); sh.lineTo(-hw, -hd + r); sh.quadraticCurveTo(-hw, -hd, -hw + r, -hd); return sh; };
+    const ia = L / 2 - rim, ib = W / 2 - rim, rc = 0.12;
+    const outer = rr(new THREE.Shape(), L / 2, W / 2, 0.01), hole = rr(new THREE.Path(), ia, ib, rc); outer.holes.push(hole);
+    const deck = new THREE.ExtrudeGeometry(outer, { depth: 0.024, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2, curveSegments: 10 });
+    deck.rotateX(-Math.PI / 2); deck.translate(0, h - 0.028, 0); put('ceramic', deck, ce);
+    // cuve : anneaux de superellipse qui se resserrent avec la profondeur, fond plat légèrement en pente vers la bonde
+    const nu = 96, rings = [], sup = (t, a, b, e) => { const c = Math.cos(t), sn = Math.sin(t); return [a * Math.sign(c) * Math.pow(Math.abs(c), e), b * Math.sign(sn) * Math.pow(Math.abs(sn), e)]; };
+    const prof = []; for (let k = 0; k <= 10; k++) { const t = k / 10, ang = t * Math.PI / 2; prof.push([1 - (1 - Math.cos(ang)) * 0.075 / 0.34 - 0.03 * t, -Math.sin(ang) * 0.075 - (depth - 0.075) * 0]); }
+    const levels = [[1, 0], [0.995, -0.04], [0.985, -0.2], [0.97, -(depth - 0.07)], ...prof.slice(1).map(([s0, y]) => [0.97 * s0, -(depth - 0.07) + y]), [0.55, -depth], [0.2, -depth - 0.004], [0.0, -depth - 0.006]];
+    const pos = [], idx = [];
+    for (let j = 0; j < levels.length; j++) { const [sc, y] = levels[j], e = 0.22 + 0.4 * (1 - sc); for (let i = 0; i <= nu; i++) { const [px, pz] = sup(2 * Math.PI * i / nu, ia * sc, ib * sc, e); pos.push(px, h - 0.028 + y, pz); } }
+    // orientation : chaque face regarde vers l'intérieur de la cuve et vers le haut (parois et fond visibles)
+    const tri = (p, q, r) => {
+      const P = (k) => new V3(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]), A = P(p), B = P(q), Cc = P(r);
+      const n = B.clone().sub(A).cross(Cc.clone().sub(A)), c = A.add(B).add(Cc).multiplyScalar(1 / 3);
+      if (n.dot(new V3(-c.x / ia, 0.6, -c.z / ib)) < 0) idx.push(p, r, q); else idx.push(p, q, r);
+    };
+    for (let j = 0; j < levels.length - 1; j++) for (let i = 0; i < nu; i++) { const a0 = j * (nu + 1) + i, b0 = a0 + nu + 1; tri(a0, a0 + 1, b0); tri(a0 + 1, b0 + 1, b0); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); put('ceramic', g, ce);
+    // bonde, trop-plein (paroi de tête), bec mural et mitigeur
+    K.cyl('steel', 0.03, 0.03, 0.004, L / 2 - 0.25, h - 0.028 - depth - 0.002, 0, C(0xd6d9dc), { seg: 24 });
+    K.cyl('steel', 0.028, 0.028, 0.006, L / 2 - rim - 0.012, h - 0.12, 0, C(0xd6d9dc), { rz: Math.PI / 2, seg: 24 });
+    K.walk(() => {
+      tube('black', [[L / 2 - 0.3, h + 0.16, -W / 2], [L / 2 - 0.3, h + 0.16, -W / 2 + 0.16], [L / 2 - 0.3, h + 0.13, -W / 2 + 0.19]], 0.011, WHITE, { seg: 12, rad: 10 });
+      K.cyl('black', 0.03, 0.03, 0.012, L / 2 - 0.3, h + 0.16, -W / 2, WHITE, { rx: Math.PI / 2, seg: 20 });
+      K.cyl('black', 0.024, 0.024, 0.03, L / 2 - 0.45, h + 0.16, -W / 2, WHITE, { rx: Math.PI / 2, seg: 20 }); K.cyl('black', 0.006, 0.006, 0.06, L / 2 - 0.45, h + 0.16, -W / 2 + 0.03, WHITE, { rx: Math.PI / 2, seg: 8 });
+    });
+    K.foldedThrow(-L / 2 + 0.22, h, -W / 2 + 0.02, 0.26, 0.05, C(PAL.linenOat));
+    const vh = K.vase(-L / 2 + 0.03, h, W / 2 - 0.03, 2, 0x3d3a36); K.branches(-L / 2 + 0.03, h + vh, W / 2 - 0.03, 0.35, 4);
+  }
+
+  return { sofa, chair, rectTable, cushion, strut, ribbon, kitchenTap, vanity, towelRail, showerSet, hangingTowel, barHandle, puffBox, bathTub };
 }
