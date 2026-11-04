@@ -430,13 +430,10 @@ button.cell:hover{border-color:rgba(127,166,255,.5);transform:translateY(-2px)}
 .arch-card figcaption{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:baseline;margin-top:18px;max-width:46ch}
 .arch-card h3{font-family:var(--serif);font-weight:800;font-size:clamp(24px,2.2vw,34px);line-height:1;letter-spacing:-.02em;grid-column:1/-1}
 .arch-card p{font-size:15px;color:var(--ink-2);grid-column:1/-1}
-.a1{width:min(58vw,880px)}.a1 .im{height:min(52vh,560px)}
-.a2{width:min(30vw,440px)}.a2 .im{height:min(60vh,640px)}
-.a3{width:min(34vw,500px)}.a3 .im{height:min(40vh,420px)}
-.a4{width:min(36vw,540px)}.a4 .im{height:min(56vh,600px)}
-.a5{width:min(46vw,700px)}.a5 .im{height:min(46vh,500px)}
+/* un seul format pour toutes les vues : le 4:3 des rendus, sans recadrage */
+.a1,.a2,.a3,.a4,.a5{width:min(46vw,calc(56vh * 4 / 3),760px)}
+.a1 .im,.a2 .im,.a3 .im,.a4 .im,.a5 .im{aspect-ratio:4/3}
 .a6{width:min(34vw,480px);align-self:center}
-.a2 img{object-position:78% 50%}.a3 img{object-position:30% 50%}.a4 img{object-position:50% 40%}
 .arch-end{font-family:var(--serif);font-weight:800;font-size:clamp(40px,4.6vw,76px);line-height:.95;letter-spacing:-.035em}
 .arch-end em{font-style:normal;color:var(--elec)}
 .arch-end p{font:400 16px/1.6 var(--sans);letter-spacing:0;color:var(--ink-2);margin-top:20px;max-width:34ch}
@@ -445,7 +442,7 @@ button.cell:hover{border-color:rgba(127,166,255,.5);transform:translateY(-2px)}
 .arch.hpin .arch-pin{position:sticky;top:0;height:100svh;padding:96px 0 6vh;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
 .arch .h2{font-size:clamp(42px,4.8vw,82px)}
 .arch.hpin .arch-track{margin-top:32px}
-.arch.hpin .a1 .im{height:40vh}.arch.hpin .a2 .im{height:46vh}.arch.hpin .a3 .im{height:30vh}.arch.hpin .a4 .im{height:40vh}.arch.hpin .a5 .im{height:34vh}
+.arch.hpin .a1,.arch.hpin .a2,.arch.hpin .a3,.arch.hpin .a4,.arch.hpin .a5{width:min(46vw,calc(44vh * 4 / 3),760px)}
 .arch.hpin .arch-track{overflow:visible;scroll-snap-type:none;will-change:transform;padding-right:calc(var(--gutter) + 6vw)}
 .arch.hpin .arch-bar{display:block}
 
@@ -527,7 +524,7 @@ footer{background:var(--night);color:rgba(255,255,255,.72);padding-top:clamp(70p
   .facade-col,.feat-title{position:static}
   .facade{aspect-ratio:4/3}
   .intro-fig{aspect-ratio:4/3;border-radius:160px 160px 18px 18px;max-width:640px}
-  .a1{width:80vw}.a2{width:56vw}.a3{width:64vw}.a4{width:64vw}.a5{width:78vw}.a6{width:70vw}
+  .a1,.a2,.a3,.a4,.a5{width:72vw}.a6{width:70vw}
   .hero-facts{flex-direction:column;gap:14px}
 }
 @media (max-width:760px){
@@ -589,9 +586,7 @@ footer{background:var(--night);color:rgba(255,255,255,.72);padding-top:clamp(70p
   .specs b{font-size:19px}
   .flap i{width:40px;height:54px;font-size:32px}
   .board-sum{gap:16px}
-  .a1,.a5{width:84vw}.a2,.a3,.a4{width:72vw}.a6{width:76vw}
-  .a1 .im,.a2 .im,.a3 .im,.a4 .im,.a5 .im{height:auto;aspect-ratio:4/5}
-  .a1 .im,.a5 .im{aspect-ratio:4/3}
+  .a1,.a2,.a3,.a4,.a5{width:84vw}.a6{width:76vw}
   form{grid-template-columns:minmax(0,1fr);border-radius:22px}
   .feat-item{grid-template-columns:52px 1fr;padding:26px 10px;gap:14px}
   .feat-item::before{font-size:30px}
@@ -871,11 +866,11 @@ footer{background:var(--night);color:rgba(255,255,255,.72);padding-top:clamp(70p
         <p class="lead reveal" style="max-width:40ch">Un enduit blanc lumineux, un bardage anthracite qui dessine les volumes, et le végétal partout où il peut s'installer.</p>
       </div>
       <div class="arch-track" id="archTrack" tabindex="0" role="group" aria-label="Galerie architecture, défilement horizontal">
-        <figure class="arch-card a1"><div class="im"><span class="n">04.1</span><img src="img/hd/p03-2000.webp" srcset="img/hd/p03-1200.webp 1200w, img/hd/p03-2000.webp 2000w, img/hd/p03-3200.webp 3200w, img/hd/p03-4800.webp 4800w" sizes="(max-width:760px) 85vw, 62vw" alt="Survol de la façade principale et du toit-terrasse" loading="lazy" style="object-position:50% 35%"></div><figcaption><h3>Le toit-terrasse jardin</h3><p>Pergola, cuisine d'été et prairie plantée : un étage de plus, à ciel ouvert.</p></figcaption></figure>
-        <figure class="arch-card a2"><div class="im"><span class="n">04.2</span><img src="img/hd/p02-2000.webp" srcset="img/hd/p02-1200.webp 1200w, img/hd/p02-2000.webp 2000w, img/hd/p02-3200.webp 3200w, img/hd/p02-4800.webp 4800w" sizes="(max-width:760px) 85vw, 62vw" alt="Balcons plantés à l'angle de la résidence" loading="lazy"></div><figcaption><h3>Balcons plantés</h3><p>Des jardinières intégrées aux garde-corps pour une intimité végétale.</p></figcaption></figure>
-        <figure class="arch-card a3"><div class="im"><span class="n">04.3</span><img src="img/hd/p07-2000.webp" srcset="img/hd/p07-1200.webp 1200w, img/hd/p07-2000.webp 2000w, img/hd/p07-3200.webp 3200w, img/hd/p07-4800.webp 4800w" sizes="(max-width:760px) 85vw, 62vw" alt="Façade blanche côté jardin" loading="lazy"></div><figcaption><h3>Façade jardin</h3><p>Fenêtres régulières et noyau anthracite.</p></figcaption></figure>
-        <figure class="arch-card a4"><div class="im"><span class="n">04.4</span><img src="img/hd/p08-2000.webp" srcset="img/hd/p08-1200.webp 1200w, img/hd/p08-2000.webp 2000w, img/hd/p08-3200.webp 3200w, img/hd/p08-4800.webp 4800w" sizes="(max-width:760px) 85vw, 62vw" alt="Vue zénithale du toit-terrasse" loading="lazy"></div><figcaption><h3>Vu du ciel</h3><p>Une toiture entièrement aménagée.</p></figcaption></figure>
-        <figure class="arch-card a5"><div class="im"><span class="n">04.5</span><img src="img/hd/p05-2000.webp" srcset="img/hd/p05-1200.webp 1200w, img/hd/p05-2000.webp 2000w, img/hd/p05-3200.webp 3200w, img/hd/p05-4800.webp 4800w" sizes="(max-width:760px) 85vw, 62vw" alt="Survol côté jardin, dans les arbres" loading="lazy"></div><figcaption><h3>Dans la verdure</h3><p>Un jardin planté tout autour.</p></figcaption></figure>
+        <figure class="arch-card a1"><div class="im"><span class="n">04.1</span><img src="img/hd/p03-2000.webp" srcset="img/hd/p03-1200.webp 1200w, img/hd/p03-2000.webp 2000w, img/hd/p03-3200.webp 3200w, img/hd/p03-4800.webp 4800w" sizes="(max-width:760px) 84vw, 46vw" alt="Survol de la façade principale et du toit-terrasse" loading="lazy"></div><figcaption><h3>Le toit-terrasse jardin</h3><p>Pergola, cuisine d'été et prairie plantée : un étage de plus, à ciel ouvert.</p></figcaption></figure>
+        <figure class="arch-card a2"><div class="im"><span class="n">04.2</span><img src="img/hd/p02-2000.webp" srcset="img/hd/p02-1200.webp 1200w, img/hd/p02-2000.webp 2000w, img/hd/p02-3200.webp 3200w, img/hd/p02-4800.webp 4800w" sizes="(max-width:760px) 84vw, 46vw" alt="Balcons plantés à l'angle de la résidence" loading="lazy"></div><figcaption><h3>Balcons plantés</h3><p>Des jardinières intégrées aux garde-corps pour une intimité végétale.</p></figcaption></figure>
+        <figure class="arch-card a3"><div class="im"><span class="n">04.3</span><img src="img/hd/p07-2000.webp" srcset="img/hd/p07-1200.webp 1200w, img/hd/p07-2000.webp 2000w, img/hd/p07-3200.webp 3200w, img/hd/p07-4800.webp 4800w" sizes="(max-width:760px) 84vw, 46vw" alt="Façade blanche côté jardin" loading="lazy"></div><figcaption><h3>Façade jardin</h3><p>Fenêtres régulières et noyau anthracite.</p></figcaption></figure>
+        <figure class="arch-card a4"><div class="im"><span class="n">04.4</span><img src="img/hd/p08-2000.webp" srcset="img/hd/p08-1200.webp 1200w, img/hd/p08-2000.webp 2000w, img/hd/p08-3200.webp 3200w, img/hd/p08-4800.webp 4800w" sizes="(max-width:760px) 84vw, 46vw" alt="Vue zénithale du toit-terrasse" loading="lazy"></div><figcaption><h3>Vu du ciel</h3><p>Une toiture entièrement aménagée.</p></figcaption></figure>
+        <figure class="arch-card a5"><div class="im"><span class="n">04.5</span><img src="img/hd/p05-2000.webp" srcset="img/hd/p05-1200.webp 1200w, img/hd/p05-2000.webp 2000w, img/hd/p05-3200.webp 3200w, img/hd/p05-4800.webp 4800w" sizes="(max-width:760px) 84vw, 46vw" alt="Survol côté jardin, dans les arbres" loading="lazy"></div><figcaption><h3>Dans la verdure</h3><p>Un jardin planté tout autour.</p></figcaption></figure>
         <div class="arch-card a6 arch-end" aria-hidden="true">Blanc, anthracite,<br><em>vert.</em><p>Une palette courte, pour une silhouette qui se lit de loin et se découvre de près.</p></div>
       </div>
       <div class="arch-bar" aria-hidden="true"><i id="archBar"></i></div>
