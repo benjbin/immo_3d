@@ -41,6 +41,10 @@ const ED_X = [X(-4.0), X(-1.6)]; // emprise de l'édicule en x
 const ED_Z = [-10.6, -7.6];      // emprise de l'édicule en z (façade vitrée vers +Z)
 // façade gauche (recalée sur p04/p05/p07) : bande d'escalier sous l'édicule, bande pleine à l'arrière
 const STAIR_Z = [-10.4, -8.9];
+// trémie de l'escalier commun dans la dalle de toit (débouché de l'escalier dans l'édicule) et édicule prolongé
+// au-dessus de la cage (lots.js : cage x [−5,58 ; −3,3], z [−11,275 ; −7,725])
+const HOLE = { x0: -(6 - 0.42), x1: -3.25, z0: -11.35, z1: -7.7 };
+const ED_W = { x0: -6, z0: -11.525 };
 const BAND1_Z = [-14.2, -13.0];
 const LEFT_WIN = [-2.4, -5.4, -6.9, -12.1, -13.6, -15.2, -17.6];
 
@@ -569,7 +573,9 @@ export function createBuilding(THREE, M) {
   grp = 'toiture';
   {
     const IN = HW - T;
-    box('renderWhite', -IN, IN, ROOF, 12.3, -18.58, -0.42, 'ny');
+    // dalle percée au droit de la cage d'escalier (on la voit d'en haut en descendant)
+    box('renderWhite', -IN, IN, ROOF, 12.3, -18.58, HOLE.z0, 'ny'); box('renderWhite', -IN, IN, ROOF, 12.3, HOLE.z1, -0.42, 'ny');
+    box('renderWhite', HOLE.x1, IN, ROOF, 12.3, HOLE.z0, HOLE.z1, 'ny');
     // couvertines
     box('slabWhite', -HW - 0.02, -IN + 0.02, TOP, TOP + 0.04, -19.02, 0);
     box('slabWhite', -IN + 0.02, HW + 0.02, TOP, TOP + 0.04, -19.02, -18.56);
@@ -580,7 +586,7 @@ export function createBuilding(THREE, M) {
     // dalle de pavés devant l'édicule
     cbox('paver', ED_X[0] - 0.1, ED_X[1] + 0.2, 12.3, DECK + 0.02, ED_Z[1], ED_Z[1] + 1.5, 0.01);
     // bande de gravier périphérique (UV resserrées pour un grain fin)
-    push('asphalt', boxGeom(-IN, IN, 12.3, 12.405, -18.58, -7.5), { uvScale: 2 }); // 5 mm au-dessus de la dalle : évite le z-fighting vu du ciel
+    for (const [a, b, c, d] of [[-IN, IN, -18.58, HOLE.z0], [-IN, IN, HOLE.z1, -7.5], [HOLE.x1, IN, HOLE.z0, HOLE.z1]]) push('asphalt', boxGeom(a, b, 12.3, 12.405, c, d), { uvScale: 2 }); // 5 mm au-dessus de la dalle : évite le z-fighting vu du ciel
     // toiture végétalisée bosselée (bords plongeant dans le gravier)
     {
       const x0 = -(HW - 0.85), x1 = HW - 0.85, z0 = -18.15, z1 = -7.75, nx = 48, nz = 50;
@@ -596,12 +602,17 @@ export function createBuilding(THREE, M) {
         if (edge < 0.01) h = 12.38;
         p.setY(i, h);
       }
+      // trémie de l'escalier : triangles retirés au-dessus de la cage
+      { const pa = p, idx = g.index.array, keep = [];
+        for (let t = 0; t < idx.length; t += 3) { let cx = 0, cz = 0; for (let k = 0; k < 3; k++) { cx += pa.getX(idx[t + k]) / 3; cz += pa.getZ(idx[t + k]) / 3; }
+          if (!(cx > HOLE.x0 - 0.2 && cx < HOLE.x1 + 0.1 && cz > HOLE.z0 - 0.1 && cz < HOLE.z1 + 0.1)) keep.push(idx[t], idx[t + 1], idx[t + 2]); }
+        g.setIndex(keep); }
       g.computeVertexNormals();
       push('greenRoof', g);
       // zones plantables (hors emprise de l'édicule)
       const gx0 = ED_X[1] + 0.2;      // à droite de l'édicule (débord de toit compris)
-      planters.push({ x: 0, y: 12.45, z: -14.475, w: +(x1 - x0).toFixed(3), d: 7.35, kind: 'greenroof' });
-      planters.push({ x: +((gx0 + x1) / 2).toFixed(3), y: 12.45, z: -9.275, w: +(x1 - gx0).toFixed(3), d: 3.05, kind: 'greenroof' });
+      planters.push({ x: 0, y: 12.45, z: -14.925, w: +(x1 - x0).toFixed(3), d: 6.45, kind: 'greenroof' });   // au sud de l'édicule (z < -11,7)
+      planters.push({ x: +((gx0 + x1) / 2).toFixed(3), y: 12.45, z: -9.725, w: +(x1 - gx0).toFixed(3), d: 3.95, kind: 'greenroof' });
     }
     // garde-corps vitré périphérique (montants + main courante)
     const r = HW - 0.18;
@@ -617,11 +628,22 @@ export function createBuilding(THREE, M) {
   {
     const F = FR.front(ED_Z[1]);
     const [e0, e1] = ED_X;
-    box('cladding', e0, e1, 12.3, 14.75, ED_Z[0], ED_Z[1] - 0.3, 'pz');
-    wall(F, 'cladding', e0, e1, 12.3, 14.75, 0, 0.3, [[e0 + 0.1, e1 - 0.1, DECK, 14.55]]);
+    // édicule creux (débouché de l'escalier commun et palier de l'ascenseur visitables, parois intérieures dans lots.js) :
+    // enveloppe de 15 cm, toiture, porte de service sur le côté est (z -11,1 → -10,0), ouverte et rabattue contre la façade
+    const t = 0.15, DZ = [-11.1, -10.0], DH = DECK + 2.1;
+    box('cladding', ED_W.x0, ED_W.x0 + t, 12.3, 14.75, ED_W.z0, ED_Z[1]);                 // ouest
+    box('cladding', ED_W.x0 + t, e1, 12.3, 14.75, ED_W.z0, ED_W.z0 + t);                   // sud
+    box('cladding', e1 - t, e1, 12.3, 14.75, ED_W.z0 + t, DZ[0]);                          // est, au sud de la porte
+    box('cladding', e1 - t, e1, 12.3, 14.75, DZ[1], ED_Z[1] - 0.12);                       // est, au nord de la porte
+    box('cladding', e1 - t, e1, DH, 14.75, DZ[0], DZ[1]);                                  // imposte
+    box('cladding', ED_W.x0 + t, e0, 12.3, 14.75, ED_Z[1] - 0.12, ED_Z[1]);               // façade nord, partie pleine (cage)
+    box('cladding', ED_W.x0 + t, e1 - t, 14.7, 14.75, ED_W.z0 + t, ED_Z[1] - 0.12);       // toiture (au-dessus du plafond de lots.js à 14,65)
+    cbox('frameDark', ED_W.x0 - 0.1, e1 + 0.1, 14.75, 14.9, ED_W.z0 - 0.1, ED_Z[1] + 0.1, 0.012);
+    box('frameDark', e1, e1 + 0.02, DECK, DH, DZ[0] - 0.03, DZ[0]); box('frameDark', e1, e1 + 0.02, DECK, DH, DZ[1], DZ[1] + 0.03); box('frameDark', e1, e1 + 0.02, DH, DH + 0.03, DZ[0] - 0.03, DZ[1] + 0.03);
+    box('frameDark', e1 + 0.02, e1 + 0.06, DECK + 0.01, DH - 0.02, DZ[1] + 0.05, DZ[1] + 0.05 + (DZ[1] - DZ[0]) - 0.02);   // vantail ouvert
+    wall(F, 'cladding', e0, e1, 12.3, 14.75, 0, 0.12, [[e0 + 0.1, e1 - 0.1, DECK, 14.55]]);
     windowUnit(F, { s0: e0 + 0.1, s1: e1 - 0.1, y0: DECK, y1: 14.55, gd: 0.1, fw: 0.055, mull: [e1 - 1.1], trans: [14.0], threshold: true, im: { kind: 1, sill: 0.05, RH: 2.3, RD: 2.4, RW: 3.0 } });
     fbox(F, 'metal', e1 - 1.02, e1 - 1.0, 13.1, 13.7, 0.02, 0.07);
-    cbox('frameDark', e0 - 0.1, e1 + 0.1, 14.75, 14.9, ED_Z[0] - 0.1, ED_Z[1] + 0.1, 0.012);
     // applique murale
     fbox(F, 'frameDark', e1 - 0.06, e1 - 0.02, 14.1, 14.27, -0.06, 0);
     fbox(F, 'interiorWarm', e1 - 0.055, e1 - 0.025, 14.09, 14.1, -0.05, -0.01);

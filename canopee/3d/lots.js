@@ -96,6 +96,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const disposables = [];
   // mobilier photogrammétrique (models.js) : chargé à la demande, étage par étage
   const MODELS = createModels(THREE);
+  const ffOf = (k) => (k <= 0 ? FL[0] + SLAB : k === 3 ? DECK - (FL[2] + SLAB) : 3.0);   // hauteur d'étage à étage
   let STAIR = null;   // géométrie de la cage d'escalier (core), pour la marche dans l'escalier
   // ombres de contact à la forme exacte : empreinte de chaque meuble rastérisée vue de dessus (triangles proches
   // du sol, plus sombres en bas), floutée, rangée dans un atlas commun 2048² (cellules 64 px) ; décalque unique
@@ -514,11 +515,26 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           if (Hs.some(h => cs > h[0] && cs < h[1] && cyy > h[2] && cyy < h[3])) continue;
           // jonctions en T entre panneaux : recouvrement de 1,5 mm (sinon liseré clair le long des baies)
           const o = 0.0015, sa = i > 0 ? ss[i] - o : ss[i], sb = i < ss.length - 2 ? ss[i + 1] + o : ss[i + 1], ya = j > 0 ? ys[j] - o : ys[j], yb2 = j < ys.length - 2 ? ys[j + 1] + o : ys[j + 1];
-          if (axis === 'x') B('wall', sa, sb, ya, yb2, c0, c1, '', 0.5);
-          else B('wall', c0, c1, ya, yb2, sa, sb, '', 0.5);
+          // faces de jonction invisibles retirées (sol / plafond) : vues en rasante depuis la cage d'escalier, elles
+          // perçaient la face du mur en un liseré clair d'un pixel à hauteur de dalle
+          const hole = (ii, jj) => { const a = (ss[ii] + ss[ii + 1]) / 2, c = (ys[jj] + ys[jj + 1]) / 2; return Hs.some(h => a > h[0] && a < h[1] && c > h[2] && c < h[3]); };
+          const sA = axis === 'x' ? ['nx', 'px'] : ['nz', 'pz'];
+          const sk = [(j === 0 || !hole(i, j - 1)) && 'ny', (j === ys.length - 2 || !hole(i, j + 1)) && 'py',
+            i > 0 && !hole(i - 1, j) && sA[0], i < ss.length - 2 && !hole(i + 1, j) && sA[1]].filter(Boolean).join(' ');
+          if (axis === 'x') B('wall', sa, sb, ya, yb2, c0, c1, sk, 0.5);
+          else B('wall', c0, c1, ya, yb2, sa, sb, sk, 0.5);
           if (j === 0 && FIN) { // plinthe au pied du doublage, côté pièce
             const f = cIn + dir * 0.012, g0 = Math.min(f, f + dir * SK_T), g1 = Math.max(f, f + dir * SK_T);
-            if (axis === 'x') B('skirt', ss[i], ss[i + 1], 0, Math.min(SK_H, ys[1]), g0, g1); else B('skirt', g0, g1, 0, Math.min(SK_H, ys[1]), ss[i], ss[i + 1]);
+            // cage d'escalier (étages) : pas de plinthe au-dessus de la trémie (pas de sol au droit des volées ;
+            // la plinthe flottante dessinait un liseré clair à hauteur de dalle sur les parois de la cage)
+            let parts = [[ss[i], ss[i + 1]]];
+            if (key > 0 && key < 4) {
+              const cxW = -IN - 0.05, cxE = -3.3 + 0.05, czl = -11.4 + WALL_T / 2 + 0.95, czN = -7.6 - WALL_T / 2 + 0.05;
+              const cut = (a, b) => { parts = parts.flatMap(([u, v]) => [[u, Math.min(v, a)], [Math.max(u, b), v]]); };
+              if (axis === 'z' && cIn > cxW && cIn < cxE) cut(czl, czN);
+              else if (axis === 'x' && cIn > czl && cIn < czN) cut(cxW, cxE);
+            }
+            for (const [pa, pb] of parts) if (pb > pa + 0.005) { if (axis === 'x') B('skirt', pa, pb, 0, Math.min(SK_H, ys[1]), g0, g1); else B('skirt', g0, g1, 0, Math.min(SK_H, ys[1]), pa, pb); }
           }
         }
       });
@@ -617,21 +633,23 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     };
 
     // ----- noyau : escalier à deux volées, palier intermédiaire, ascenseur -----
-    const core = () => {
+    const core = (opts = {}) => {
+      const roof = !!opts.roof;   // toit : débouché de l'escalier (édicule) et cage vue d'en haut
       const zN = -7.6, zS = -11.4, xW = -IN, xE = -1.4;
       const nN = zN - WALL_T / 2, nS = zS + WALL_T / 2, nE = xE - WALL_T / 2;
       // escalier à deux volées droites (dog-leg) : palier d'étage au sud (on y entre depuis le palier commun), volée 1
       // côté est qui monte vers le nord jusqu'au palier de demi-niveau, volée 2 côté ouest qui revient vers le sud
       // jusqu'au palier de l'étage supérieur ; la volée descendante (volée 2 de l'étage inférieur) se voit par la trémie,
       // derrière un garde-corps. Volées pleines (paillasse), marches en pierre à nez arrondi, mur d'échiffre central
-      const ff = key === 0 ? FL[0] + SLAB : 3.0;                 // hauteur d'étage à étage
+      const ff = key === 0 ? FL[0] + SLAB : key === 3 ? DECK - floorY(3) : 3.0;   // hauteur d'étage à étage (R+3 → toit : 3,05 m)
+      const HH = 2.2;                                            // hauteur sous plafond de l'édicule
       const S1a = xW + 0.02, S1b = S1a + 1.05, S2b = -3.32, S2a = S2b - 1.05;      // volée 2 (ouest), volée 1 (est)
       const zl = nS + 0.95, zn = nN - 0.9, nR = 9, runL = zn - zl, tr = runL / (nR - 1);
       const plan = rect(xW, -3.3, nS, nN);
       // pièce (étiquette, lumière) ; sol et plafond seulement sur le palier d'étage (le reste est la trémie)
       rooms.push({ name: 'Escalier', surface: +Math.abs(area(plan)).toFixed(1), poly: plan.map(q => [+q[0].toFixed(3), +q[1].toFixed(3)]), lot: null, level: key, label: [-4.45, -9.5] });
       labels.push({ name: 'Escalier', surface: Math.abs(area(plan)), x: -4.45, z: -9.5, y: cy + 0.12 });
-      gridPoly('tile', key === 0 ? plan : rect(xW, -3.3, nS, zl), fy + 0.004);
+      if (!roof) gridPoly('tile', key === 0 ? plan : rect(xW, -3.3, nS, zl), fy + 0.004);
       // volée : profil (z, y) extrudé sur la largeur ; marches en pierre (giron + nez de 2 cm)
       const flight = (xa, xb, z0, dirZ, y0, rise, solid = false) => {
         const sh = new THREE.Shape(), th = 0.17, slope = Math.hypot(tr, rise) / tr;
@@ -655,6 +673,59 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       };
       const landing = (z0, z1, y, xa = S1a, xb = S2b) => { B('wall', xa, xb, y - 0.2, y - 0.02, z0, z1); const g = new RoundedBoxGeometry(xb - xa, 0.03, z1 - z0, 2, 0.008); g.translate((xa + xb) / 2, fy + y - 0.005, (z0 + z1) / 2); push('tile', g); };
       const rise = ff / (2 * nR);
+      const [wz0, wz1] = LY.stairWin;
+      const paneAt = (y0) => {
+        B('black', xW - 0.03, xW + 0.02, y0, y0 + 0.05, wz0, wz1); B('black', xW - 0.03, xW + 0.02, y0 + 2.45, y0 + 2.5, wz0, wz1);
+        B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz0, wz0 + 0.05); B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz1 - 0.05, wz1);
+        B('black', xW - 0.03, xW + 0.02, y0 + 1.0, y0 + 1.04, wz0, wz1);
+        B('glassClear', xW - 0.012, xW - 0.008, y0 + 0.05, y0 + 2.45, wz0 + 0.05, wz1 - 0.05);
+      };
+      // débouché de l'escalier sur le toit (palier à y0) : édicule prolongé, garde-corps sur la trémie de la volée 1,
+      // porte vers le palier de l'ascenseur puis porte de service sur la toiture (côté est)
+      const xL = -2.12, zLift = -9.4, dz0 = -11.1, dz1 = -10.0;
+      const head = (y0, yb) => {
+        landing(nS + 0.01, zl, y0);
+        for (let x = S2a + 0.06; x < S2b - 0.02; x += 0.11) B('black', x - 0.006, x + 0.006, y0 + 0.02, y0 + 0.98, zl + 0.015, zl + 0.027);
+        B('black', S2a, S2b, y0 + 0.02, y0 + 0.04, zl + 0.01, zl + 0.035);
+        { const hr = new RoundedBoxGeometry(S2b - S2a, 0.04, 0.06, 2, 0.015); hr.translate((S2a + S2b) / 2, fy + y0 + 1.0, zl + 0.021); push('oak', hr); }
+        B('wall', xW - 0.03, xW + 0.012, yb, y0 + HH, nS, nN);
+        B('wall', xW, -3.3, yb, y0 + HH, nN - 0.012, nN + 0.03);
+        B('wall', xW, xL, yb, y0 + HH, nS - 0.03, nS + 0.012);
+        B('wall', -3.312, -3.27, yb, y0, nS, nN); B('wall', -3.312, -3.27, y0, y0 + HH, zl - 0.02, nN); B('wall', -3.312, -3.27, y0, y0 + HH, nS, nS + 0.1);
+        B('wall', -3.312, -3.27, y0 + DOOR_H, y0 + HH, nS + 0.1, zl - 0.02);
+        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + y0 + HH, true, 0.5);
+        // palier de l'ascenseur (toit)
+        gridPoly('tile', rect(-3.3, xL, nS, zLift), fy + y0 + 0.004); gridPoly('ceil', rect(-3.3, xL, nS, zLift), fy + y0 + HH, true, 0.5);
+        B('wall', -3.3, xL, y0, y0 + HH, zLift, zLift + 0.03);
+        B('wall', xL, xL + 0.03, y0, y0 + HH, nS, dz0); B('wall', xL, xL + 0.03, y0, y0 + HH, dz1, zLift); B('wall', xL, xL + 0.03, y0 + DOOR_H, y0 + HH, dz0, dz1);
+        B('black', xL - 0.01, xL + 0.04, y0 + DOOR_H - 0.04, y0 + DOOR_H, dz0, dz1);
+        B('ceramic', -3.29, -3.27, y0 + 2.07, y0 + 2.17, -10.95, -10.6); B('lightF', -3.27, -3.265, y0 + 2.09, y0 + 2.15, -10.92, -10.63);
+      };
+      if (roof) {
+        // ----- toit : la cage vue d'en haut (volées du R+3) et le débouché ; collisions de l'édicule
+        const fb = ffOf(3), rb = fb / (2 * nR);
+        walkOnly(() => {
+          head(0, 0);
+          flight(S1a, S1b, zn, -1, -fb / 2, rb);                      // volée 2 du R+3 (arrive au toit)
+          landing(zn, nN - 0.01, -fb / 2);                            // palier de demi-niveau du R+3
+          flight(S2a, S2b, zl, 1, -fb, rb);                           // volée 1 du R+3
+          landing(nS + 0.01, zl, -fb);
+          B('wall', S1a, S2b, -fb / 2 - 0.2, -0.02, zl - 0.01, zl);
+          B('wall', S1b + 0.005, S2a - 0.005, -fb, 0.02, zl + 0.25, zn);
+          B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, nS, wz0, 'py'); B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, wz1, nN, 'py'); B('wall', xW - 0.03, xW + 0.012, -fb + 2.5, 0.004, wz0, wz1, 'py'); paneAt(-fb);
+          B('wall', xW, -3.3, -fb, 0.004, nN - 0.012, nN + 0.03, 'py'); B('wall', -3.312, -3.27, -fb, 0.004, nS, nN, 'py'); B('wall', xW, -3.3, -fb, 0.004, nS - 0.03, nS + 0.012, 'py');
+          gridPoly('ceil', rect(xW, -3.3, nS, nN), fy - fb - 0.3, false, 0.5);
+        });
+        rooms.push({ name: 'Escalier', surface: 8.1, poly: plan.map(q => q.slice()), lot: null, level: key, label: [-4.45, -9.5] });
+        rooms.push({ name: 'Palier', surface: 2.2, poly: rect(-3.3, xL, nS, zLift), lot: null, level: key, label: [-2.7, -10.3] });
+        // collisions : parois de l'édicule, garde-corps de la trémie (volée 1), porte vers la toiture
+        colliders.push(...rectSegs(xW, -3.3, nS, nN).filter(sg => !(sg.a[0] === -3.3 && sg.b[0] === -3.3)));
+        colliders.push({ a: [-3.3, nS], b: [-3.3, nS + 0.1] }, { a: [-3.3, zl - 0.02], b: [-3.3, nN] });
+        colliders.push({ a: [S2a, zl], b: [S2b, zl] }, { a: [S1b + 0.005, zl + 0.25], b: [S1b + 0.005, zn] }, { a: [S2a - 0.005, zl + 0.25], b: [S2a - 0.005, zn] });
+        colliders.push({ a: [-3.3, zLift], b: [xL, zLift] }, { a: [-3.3, nS], b: [xL, nS] }, { a: [xL, nS], b: [xL, dz0] }, { a: [xL, dz1], b: [xL, zLift] });
+        STAIR = STAIR || { S1a, S1b, S2a, S2b, zl, zn, nN, nS, xW, xE: -3.3 };
+        return;
+      }
       planOnly(() => {
         let z = zl, h = 0;
         while (h + rise <= CUT - 0.02 && z + tr < zn) { h += rise; B('concrete', S2a, S2b, 0, h, z, z + tr); z += tr; }
@@ -677,35 +748,33 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         // de l'étage supérieur laissée ouverte), fond de cage au-dessus
         gridPoly('ceil', rect(xW, -3.3, nS, zl), fy + H, true, 0.5);
         B('wall', S1a, S2b, H, ff, zl - 0.005, zl + 0.005);              // nez de la dalle du palier supérieur
-        flight(S2a, S2b, zl, 1, ff, rise); landing(zn, nN - 0.01, ff * 1.5); flight(S1a, S1b, zn, -1, ff * 1.5, rise);
-        const top = 2 * ff + 0.05, [wz0, wz1] = LY.stairWin;
-        B('wall', xW - 0.03, xW + 0.012, H, ff, nS, nN);                 // ouest (façade), bandeau de dalle
-        B('wall', xW - 0.03, xW + 0.012, ff, top, nS, wz0); B('wall', xW - 0.03, xW + 0.012, ff, top, wz1, nN);
+        if (key === 3) head(ff, H);
+        else { flight(S2a, S2b, zl, 1, ff, rise); landing(zn, nN - 0.01, ff * 1.5); flight(S1a, S1b, zn, -1, ff * 1.5, rise); }
+        const top = 2 * ff + 0.05;
+        if (key !== 3) {
+        B('wall', xW - 0.03, xW + 0.012, H - 0.004, ff + 0.004, nS, nN, 'py ny');                 // ouest (façade), bandeau de dalle
+        B('wall', xW - 0.03, xW + 0.012, ff - 0.004, top, nS, wz0, 'ny'); B('wall', xW - 0.03, xW + 0.012, ff - 0.004, top, wz1, nN, 'ny');
         B('wall', xW - 0.03, xW + 0.012, ff + 2.5, top, wz0, wz1);
-        B('wall', xW, -3.3, H, top, nN - 0.012, nN + 0.03);               // nord
-        B('wall', -3.312, -3.27, H, top, nS, nN);                         // est
-        B('wall', xW, -3.3, ff + H, top, nS - 0.03, nS + 0.012);         // sud (au-dessus du palier supérieur)
+        B('wall', xW, -3.3, H - 0.004, top, nN - 0.012, nN + 0.03, 'ny');               // nord
+        B('wall', -3.312, -3.27, H - 0.004, top, nS, nN, 'ny');                         // est
+        B('wall', xW, -3.3, ff + H - 0.004, top, nS - 0.03, nS + 0.012, 'ny');         // sud (au-dessus du palier supérieur)
         B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, zn); // échiffre, niveau supérieur
         gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, 0.5);    // fond de cage
+        }
         // fenêtre de la cage aux niveaux voisins (au-dessus et au-dessous de la coupe de l'étage affiché, la façade du
         // bâtiment n'est pas dessinée) : dormant noir et vitrage
-        const pane = (y0) => {
-          B('black', xW - 0.03, xW + 0.02, y0, y0 + 0.05, wz0, wz1); B('black', xW - 0.03, xW + 0.02, y0 + 2.45, y0 + 2.5, wz0, wz1);
-          B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz0, wz0 + 0.05); B('black', xW - 0.03, xW + 0.02, y0, y0 + 2.5, wz1 - 0.05, wz1);
-          B('black', xW - 0.03, xW + 0.02, y0 + 1.0, y0 + 1.04, wz0, wz1);
-          B('glassClear', xW - 0.012, xW - 0.008, y0 + 0.05, y0 + 2.45, wz0 + 0.05, wz1 - 0.05);
-        };
-        pane(ff);
+        const pane = paneAt;
+        if (key !== 3) pane(ff);
         if (key > 0) {
           // niveau inférieur vu par la trémie : volée 1 et palier d'étage de l'étage du dessous, parois de la cage
           const fb = key === 1 ? FL[0] + SLAB : 3.0, rb = fb / (2 * nR);
           flight(S2a, S2b, zl, 1, -fb, rb);
           landing(nS + 0.01, zl, -fb + 0.0);
-          B('wall', xW - 0.03, xW + 0.012, -fb, 0, nS, wz0); B('wall', xW - 0.03, xW + 0.012, -fb, 0, wz1, nN);
-          B('wall', xW - 0.03, xW + 0.012, -fb + 2.5, 0, wz0, wz1); pane(-fb);
-          B('wall', xW, -3.3, -fb, 0, nN - 0.012, nN + 0.03);
-          B('wall', -3.312, -3.27, -fb, 0, nS, nN);
-          B('wall', xW, -3.3, -fb, 0, nS - 0.03, nS + 0.012);
+          B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, nS, wz0, 'py'); B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, wz1, nN, 'py');
+          B('wall', xW - 0.03, xW + 0.012, -fb + 2.5, 0.004, wz0, wz1, 'py'); pane(-fb);
+          B('wall', xW, -3.3, -fb, 0.004, nN - 0.012, nN + 0.03, 'py');
+          B('wall', -3.312, -3.27, -fb, 0.004, nS, nN, 'py');
+          B('wall', xW, -3.3, -fb, 0.004, nS - 0.03, nS + 0.012, 'py');
           B('wall', S1b + 0.005, S2a - 0.005, -fb, -fb / 2 - 0.25, zl + 0.25, zn);
         }
         // garde-corps du palier d'étage le long de la trémie : main courante chêne sur barreaudage noir
@@ -984,14 +1053,14 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.room('Terrasse privative', rect(-IN, IN, -7.5, -T), 'none', lot302 && lot302.id, [1.2, -1.2]);
     P.room('Toiture végétalisée', rect(-IN + 0.4, IN - 0.4, -18.2, -10.8), 'none', null, [1.5, -14.5]);
     const [x0, x1] = E.x, [z0, z1] = E.z, t = 0.2;
-    P.room('Édicule', rect(x0 + t, x1 - t, z0 + t, z1 - 0.3), 'concrete', null, [(x0 + x1) / 2, (z0 + z1) / 2]);
-    P.wallRect(x0, x1, z0, z0 + t, false); P.wallRect(x0, x0 + t, z0, z1, false); P.wallRect(x1 - t, x1, z0, z1, false);
-    P.run('x', z1 - 0.3, z1, x0 + t, x1 - t, [{ a: x0 + 0.1, b: x1 - 1.1, type: 'win' }, { a: x1 - 1.1, b: x1 - 0.1, type: 'door' }], false);
-    for (let k = 0; k < 6; k++) { const zz = z0 + t + 0.3 + k * 0.28; P.B('dark', x0 + t + 0.02, x0 + t + 1.1, 0, 0.012, zz, zz + 0.012); }
-    P.B('dark', x1 - 1.6, x1 - t - 0.05, 0, 0.01, z0 + t + 0.05, z0 + 1.6);
+    // édicule prolongé au-dessus de la cage d'escalier (building.js) : débouché de l'escalier, palier de l'ascenseur,
+    // porte de service à l'est vers la toiture ; la façade vitrée côté terrasse n'est plus une porte
+    P.core({ roof: true });
+    P.colliders.push({ a: [-IN, z1], b: [x1, z1] }, { a: [x1, z1], b: [x1, -10.0] }, { a: [x1, -11.1], b: [x1, -11.525] }, { a: [-IN, -11.525], b: [x1, -11.525] });
+    P.planOnly(() => { P.B('dark', -IN, x1, 0, 0.01, -11.525, z1); });
     const r = HW - 0.18;
     P.colliders.push({ a: [-r, -0.2], b: [r, -0.2] }, { a: [r, -0.2], b: [r, -18.82] }, { a: [r, -18.82], b: [-r, -18.82] }, { a: [-r, -18.82], b: [-r, -0.2] });
-    P.colliders.push({ a: [x1 + 0.2, -7.5], b: [IN, -7.5] }, { a: [-IN, -7.5], b: [x0 - 0.1, -7.5] });
+    P.colliders.push({ a: [x1 + 1.4, -7.5], b: [IN, -7.5] }, { a: [-IN, -7.5], b: [-IN + 0.01, -7.5] });   // passage de la toiture à la terrasse le long de l'édicule
     return finish(P);
   }
 
@@ -1013,6 +1082,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       _p.fromBufferAttribute(pos, i); _n.fromBufferAttribute(nor, i);
       const y = _p.y - P.fy;
       let occ = (1 - 0.32 * Math.exp(-Math.max(0, y) / 0.25)) * (1 - 0.22 * Math.exp(-Math.max(0, H - y) / 0.3));
+      // cage d'escalier (ouverte sur plusieurs niveaux) et tout ce qui dépasse la tranche de l'étage : pas d'occlusion
+      // bakée (sol / plafond de l'étage) — elle laissait des bandes sombres horizontales au droit des dalles
+      if (y < -0.02 || y > H + 0.02 || (STAIR && _p.x > STAIR.xW - 0.06 && _p.x < STAIR.xE + 0.06 && _p.z > STAIR.nS - 0.06 && _p.z < STAIR.nN + 0.06)) occ = 1;
       if (_n.y > 0.5 && y < 0.05) { let d = 9; for (const s of segs) d = Math.min(d, segDist(_p.x, _p.z, s)); occ *= 1 - 0.32 * Math.exp(-d / 0.28); }
       // matériaux éclairés : la couleur de sommet ne porte que l'occlusion (et la teinte de l'objet)
       const a = occ, ti = i * 3;
@@ -1317,14 +1389,14 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   function commonRooms(key) { const p = plans.get(+key); return p ? p.rooms.filter(r => !r.lot && H_OK(r)).map(r => ({ name: r.name, poly: r.poly.map(q => q.slice()) })) : []; }
   const H_OK = (r) => /Palier|Escalier|Ascenseur|Hall/.test(r.name);
   // ---- escalier praticable : hauteur de marche (rampe continue) dans la cage, par étage affiché k
-  const ffOf = (k) => (k <= 0 ? FL[0] + SLAB : 3.0);
   function inCage(x, z) { const S = STAIR; return !!S && x > S.xW - 0.05 && x < S.xE + 0.02 && z > S.nS - 0.05 && z < S.nN + 0.05; }
   // surface praticable sous le pied (foot = hauteur actuelle du pied), sinon null hors de la cage
   function stairFloor(k, x, z, foot) {
-    const S = STAIR; if (!S || !inCage(x, z) || k < 0 || k > 3) return null;
+    const S = STAIR; if (!S || !inCage(x, z) || k < 0 || k > 4) return null;
     const F = floorY(k), ff = ffOf(k), fb = k > 0 ? ffOf(k - 1) : 0, run = S.zn - S.zl;
-    if (z <= S.zl) return F;
+    if (z <= S.zl) return k === 3 && Math.abs(foot - (F + ff)) < Math.abs(foot - F) ? F + ff : F;   // R+3 : palier d'étage ou débouché du toit
     const t = Math.min(1, Math.max(0, (z - S.zl) / run)), cand = [];
+    if (k === 4) return z >= S.zn ? F - fb / 2 : x < S.S2a - 0.06 ? F - t * fb / 2 : F;   // toit : seule la descente
     if (z >= S.zn) { cand.push(F + ff / 2); if (k > 0) cand.push(F - fb / 2); }
     else if (x >= S.S2a - 0.06) cand.push(F + t * ff / 2);                                   // volée 1 (montée)
     else { cand.push(F + ff / 2 + (1 - t) * ff / 2); if (k > 0) cand.push(F - t * fb / 2); else cand.push(F); }   // volée 2 / volée descendante
@@ -1333,8 +1405,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     return best;
   }
   // étage affiché selon la hauteur du pied dans la cage (bascule au-dessus des paliers de demi-niveau, hystérésis 10 cm)
-  function stairLevel(k, foot) {
-    if (!STAIR || k == null || k < 0 || k > 3) return k;
+  function stairLevel(k, foot, x, z) {
+    if (!STAIR || k == null || k < 0 || k > 4) return k;
+    // toit : on reste dans l'étage R+3 (cage, coupe levée) tant qu'on est dans le débouché ; on passe au toit en sortant
+    // de la cage (palier de l'ascenseur, puis toiture), on revient au R+3 en y rentrant
+    if (k === 3 && foot > floorY(3) + ffOf(3) - 0.3) return x != null && !inCage(x, z) && x > -3.35 && x < -1.85 && z > -11.4 && z < -9.35 ? 4 : 3;   // palier de l'ascenseur du toit
+    if (k === 4) return x != null && inCage(x, z) ? 3 : 4;
     if (k < 3 && foot > floorY(k) + ffOf(k) / 2 + 0.12) return k + 1;
     if (k > 0 && foot < floorY(k) - ffOf(k - 1) / 2 + 0.02) return k - 1;
     return k;
@@ -1380,7 +1456,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     b('acrotere', HW - 0.4, HW + 0.02, 12.4, 13.5, -19.02, 0);
     b('garde-corps', -HW, HW, 12.42, 13.5, -0.25, -0.15);
     const E = LY.edicule;
-    b('edicule', E.x[0] - 0.1, E.x[1] + 0.1, 12.3, 14.9, E.z[0] - 0.1, E.z[1] + 0.1);
+    b('edicule', -HW - 0.02, E.x[1] + 0.1, 12.3, 14.9, -11.625, E.z[1] + 0.1);   // prolongé au-dessus de la cage d'escalier
     // fonds de loggia (le corps couvre déjà les creux : le drone n'y entre pas) ; la porte-fenêtre reste libre
     // pour la visite (une boîte de part et d'autre du passage)
     for (const k of ['A', 'B', 'C']) {

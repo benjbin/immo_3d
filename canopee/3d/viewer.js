@@ -3199,7 +3199,7 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
   updateViewOffsetTarget();
   invalidate(1600);
 }
-const DRONE_ONLY = new Set(['corps', 'socle', 'lame', 'toiture']);
+const DRONE_ONLY = new Set(['corps', 'socle', 'lame', 'toiture', 'edicule']);   // édicule : parois de visite dans lots.js (débouché de l'escalier)
 // Toit-terrasse de l'attique (building.js, « Mobilier de la terrasse » et grands bacs) : emprises au sol pour
 // la balade (le mobilier et les bacs appartiennent à building.js, que lots.collisionBoxes() ne couvre pas)
 let roofBoxCache = null;
@@ -3685,18 +3685,19 @@ async function setupNavigation() {
       if (k == null) return null;
       try {
         const segs = (lots.colliders(k) || []).concat(k > 0 ? rails : []);
-        // R+3 : la volée vers le toit n'est pas praticable (accès par l'édicule) — butée au départ, depuis le palier
-        // de demi-niveau seulement (au même endroit en plan, la volée descendante vers le R+2 reste libre)
+        // R+3, au niveau du débouché sur le toit : garde-corps de la trémie (volée 1) et parois du palier de l'ascenseur
         const S = lots.stair;
-        if (cage && S && k === 3 && y - 1.65 > lots.floorY(3) + 0.6) segs.push({ a: [S.S1a, S.zn - 0.04], b: [S.S1b, S.zn - 0.04] });
+        if (S && k === 3 && y - 1.65 > lots.floorY(3) + 2.5) segs.push({ a: [S.S2a, S.zl], b: [S.S2b, S.zl] }, { a: [-3.3, -9.4], b: [-2.12, -9.4] }, { a: [-2.12, S.nS], b: [-2.12, -11.1] }, { a: [-2.12, -10.0], b: [-2.12, -9.4] });
         return segs;
       } catch (e) { return null; }
     },
     floorAt: (x, z, eyeY) => {
       // escalier : rampe continue le long des volées, bascule de l'étage affiché au-delà des paliers de demi-niveau
-      if (cfg.walkFloor != null && lots.stairFloor && lots.inCage(x, z)) {
-        const foot = eyeY - 1.65, k2 = lots.stairLevel(cfg.walkFloor, foot);
+      if (cfg.walkFloor != null && lots.stairFloor && (lots.inCage(x, z) || (cfg.walkFloor === 3 && eyeY - 1.65 > lots.floorY(3) + 2.7 && x > -6.05 && x < -1.85 && z > -11.6 && z < -7.55))) {
+        const foot = eyeY - 1.65, k2 = lots.stairLevel(cfg.walkFloor, foot, x, z);
         if (k2 !== cfg.walkFloor) stairSwitch(k2);
+        // R+3 au-dessus du palier de demi-niveau : coupe levée (débouché sur le toit, toiture visible par la porte)
+        if (cfg.walkFloor === 3) { const up = foot > lots.floorY(3) + 1.6, want = up ? CUT_TOP() : walkCeiling(3); if (Math.abs(cfg.cut.y - want) > 0.01 && !cfg.cut.anim) setCutY(want); }
         const f = lots.stairFloor(cfg.walkFloor, x, z, foot);
         if (f != null) return f;
       }
