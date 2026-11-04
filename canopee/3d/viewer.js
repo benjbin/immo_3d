@@ -1642,14 +1642,29 @@ function walkDivFor() {
   }
   return MOTION.walkDiv;
 }
+// verre dépoli de l'interface (backdrop-filter) : recalculé à chaque image tant que la scène bouge — pendant la
+// marche, voile plus dense sans flou (même teinte perçue), rétabli 0,35 s après l'arrêt
+let _uiMoving = false, _uiTimer = 0;
+function walkMovingUI(moved) {
+  if (!moved) return;
+  if (!_uiMoving) { _uiMoving = true; document.body.classList.add('walk-moving'); }
+  // au repos, plus aucune image n'est rendue : le retour du flou est minuté
+  clearTimeout(_uiTimer);
+  _uiTimer = setTimeout(() => { _uiMoving = false; document.body.classList.remove('walk-moving'); }, 350);
+}
 function trackWalkPacing(now) {
-  if (!(nav && nav.mode !== 'orbit')) { MOTION.wLate = 0; MOTION.wN = 0; return; }
+  if (!(nav && nav.mode !== 'orbit')) { MOTION.wLate = 0; MOTION.wN = 0; if (_uiMoving) { _uiMoving = false; document.body.classList.remove('walk-moving'); } return; }
   const dt = now - MOTION.last;
   if (state.quality === 'native') {   // natif : > 10 % d'images au-delà de la cible → cible plus lente (24 i/s)
     const ms = MOTION.walkMs || NATIVE_MS;
     // seules comptent les images où l'on marche (caméra en mouvement) : les à-coups du repos (chargement des
     // modèles, captures des sondes, textures) ne doivent pas faire tomber la cadence
     const moved = !_walkCam.equals(camera.matrixWorld); _walkCam.copy(camera.matrixWorld);
+    walkMovingUI(moved);
+    // repli 24 i/s non définitif : chaque nouvelle marche (après 1,2 s d'arrêt) repart à 30 i/s
+    if (moved) MOTION.wMoveAt = now; else if (MOTION.walkMs && now - (MOTION.wMoveAt || 0) > 1200) { MOTION.walkMs = 0; MOTION.wN = 0; MOTION.wLate = 0; }
+    // changement d'étage dans l'escalier (géométrie, modèles, panneau des étages) : 1,2 s non comptées
+    if (now < (MOTION.graceUntil || 0)) return;
     if (!moved || !(dt < 2.5 * ms)) return;
     // retard franc seulement (au moins un créneau d'affichage manqué : > cible + 1,5 période), sur 60 images
     MOTION.wN = (MOTION.wN || 0) + 1; if (dt > ms + 1.5 * Math.max(4, MOTION.vsync)) MOTION.wLate = (MOTION.wLate || 0) + 1;
@@ -2020,6 +2035,9 @@ function interiorMaterials() {
   // plafonds de visite : lots.js y bake une occlusion uniforme de 0,78 (bord haut) qui les grise ;
   // l'occlusion réelle vient désormais de la GTAO et des ombres → on la compense sur le matériau
   lots.group.traverse((o) => { if (o.isMesh && /:walk:ceil$/.test(o.name || '') && o.material && !o.material.userData.ceilFix) { o.material.userData.ceilFix = true; o.material.color.multiplyScalar(1.22); } });
+  // plafonds en léger recul de profondeur : leur rive, posée à 1 mm derrière le nu des murs voisins, perçait en liseré
+  // d'un pixel vue en rasante (cage d'escalier : arêtes des paliers voisins sur les parois)
+  lots.group.traverse((o) => { if (o.isMesh && /:walk:ceil$/.test(o.name || '') && o.material && !o.material.polygonOffset) { o.material.polygonOffset = true; o.material.polygonOffsetFactor = 1; o.material.polygonOffsetUnits = 4; } });
   // voilages et objets translucides : pas d'ombre portée (le soleil filtre à travers)
   lots.group.traverse((o) => { if (o.isMesh && o.castShadow) { const m = Array.isArray(o.material) ? o.material[0] : o.material; if (m && m.transparent && m.opacity < 0.95) o.castShadow = false; } });
   collect(building, outside); collect(landscape, outside);
@@ -2112,6 +2130,19 @@ function assignSkyLights(lotId, k) {
     Bn.position.copy(c).addScaledVector(n, 1.1); Bn.position.y = fy + 0.15;
     Bn.target.position.copy(Bn.position).addScaledVector(n, 1.2); Bn.target.position.y = fy + 3;
     Bn.target.updateMatrixWorld();
+    // cage d'escalier : pas de sol devant la baie (volées, trémie) — posé là, le rebond collait au mur d'échiffre
+    // (tache surexposée de ~60 cm). Remplacé par un éclairage zénithal doux : source au centre de la cage, sous le
+    // fond de cage (≥ 1,1 m de chaque paroi), tournée vers le bas ; les parois sont lavées en rasant, sans point chaud
+    Bn.userData.cage = false;
+    const S = lots.stair;
+    if (S && w.room && /Escalier/.test(w.room.name || '')) {
+      const cx = (S.xW + S.xE) / 2;
+      // rebond du palier d'étage (R+3 : du palier du débouché, sous le plafond bas de l'édicule), cône serré
+      // incliné vers le centre de la cage : plafonds et sous-faces des volées éclairés, parois en rasant
+      const yh = (k >= 3 ? lots.floorY(4) : fy) + 0.15, zh = (S.nS + S.zl) / 2;
+      Bn.position.set(cx, yh, zh + 0.1); Bn.target.position.set(cx, yh + 3, zh + 0.6);
+      Bn.target.updateMatrixWorld(); Bn.userData.cage = true;
+    }
     Bn.userData.base = { pos: Bn.position.clone(), tgt: Bn.target.position.clone() };
     Bn.userData.c = c; Bn.userData.fy = fy;
   });
@@ -2136,7 +2167,7 @@ function sunPatches() {
   IN.bounce.forEach((Bn, i) => {
     const L = IN.sky[i], w = L && L.userData.win, b = Bn.userData.base;
     Bn.userData.sun = 0;
-    if (!w || !b || !up) return;
+    if (!w || !b || !up || Bn.userData.cage) return;   // cage : pas de tache de soleil au sol (volées)
     const outN = L.userData.n.clone().negate(), cosI = outN.dot(dir);
     if (cosI < 0.03) return;
     const c = Bn.userData.c, fy = Bn.userData.fy;
@@ -2209,13 +2240,20 @@ function windowsOfFloor(k) {
 function interiorTarget() {
   if (!nav || !nav.getState || cfg.immersive) return { t: 0 };
   // étage visité : balade de la maquette, ou étage coupé en vue « visite » (expérience pilotée)
-  const k = cfg.walkFloor != null ? cfg.walkFloor : (cfg.viewMode === 'walk' ? cfg.floor : null);
+  let k = cfg.walkFloor != null ? cfg.walkFloor : (cfg.viewMode === 'walk' ? cfg.floor : null);
   if (k == null) return { t: 0 };
   const st = nav.getState();
   if (st.mode !== 'walk' && st.mode !== 'look') return { t: 0 };
   const p = camera.position;
+  // toit, dans l'édicule (palier de l'ascenseur du débouché) : même éclairage que le débouché du R+3 — pas de saut
+  // de lumière au passage R+3 → toit
+  const inEd = (x, z) => x > -6.05 && x < -1.9 && z > -11.55 && z < -7.6;
+  const kd = k === 4 && inEd(p.x, p.z) ? 3 : k;
+  if (kd !== k) { const fy3 = lots.floorY(3), r3 = interiorAt(p.x, p.z, 3) || interiorAt(-4.45, -10.8, 3); return p.y > fy3 && p.y < fy3 + 5.4 && r3 ? { t: 1, lot: r3.lot, k: 3, room: r3 } : { t: 0 }; }
   const fy = lots.floorY(k);
-  if (p.y < fy || p.y > fy + 3.2) return { t: 0 };
+  // R+3 : la cage monte jusqu'au débouché du toit (plafond de l'édicule à +5,25 m) — éclairage intérieur maintenu
+  const top = k === 3 && ((lots.inCage && lots.inCage(p.x, p.z)) || inEd(p.x, p.z)) ? fy + 5.4 : fy + 3.2;
+  if (p.y < fy || p.y > top) return { t: 0 };
   const r = interiorAt(p.x, p.z, k);
   // au droit d'une baie : fondu continu selon la profondeur de la caméra (de 20 cm dehors à 50 cm dedans),
   // pour que l'exposition ne saute pas quand on franchit le vitrage
@@ -2547,12 +2585,12 @@ function applyInterior(exposureOnly = false) {
       // rebond du ciel (sol près de la baie) + rebond de la tache de soleil sur le chêne (chaud, local)
       const skyB = skyL * w.area * sunSide * IN_LOOK.bounce;
       const sunB = (Bn.userData.sun || 0) * sun.intensity * 0.45 / Math.PI * IN_LOOK.sunBounce * (1 - 0.5 * eve);
-      Bn.intensity = (skyB + sunB) * sm;
+      Bn.intensity = (skyB + sunB) * sm * (Bn.userData.cage ? 0.75 : 1);
       const f = sunB / Math.max(1e-6, skyB + sunB), b = Bn.userData.base;
       Bn.color.copy(IN.skyColor).lerp(_bounceSky, 0.5).lerp(_bounceSun, f);
       if (b) {
         if (f > 0.15 && Bn.userData.patch) { Bn.position.copy(Bn.userData.patch); Bn.target.position.copy(Bn.userData.patch).setY(Bn.userData.patch.y + 3); Bn.angle = 1.35; }
-        else { Bn.position.copy(b.pos); Bn.target.position.copy(b.tgt); Bn.angle = 1.25; }
+        else { Bn.position.copy(b.pos); Bn.target.position.copy(b.tgt); Bn.angle = Bn.userData.cage ? 0.5 : 1.25; }
         Bn.target.updateMatrixWorld();
       }
     }
@@ -3632,6 +3670,7 @@ function updateLift() {
 function stairSwitch(k) {
   if (k === cfg.walkFloor) return;
   cfg.walkFloor = k;
+  MOTION.graceUntil = performance.now() + 1200;
   setFloor(k, { fly: false, view: 'walk' });
   // coupe placée d'un coup (pas de balayage animé ni de cadence « changement d'étage » pendant la marche)
   if (cfg.cut.anim) { cfg.cut.anim = null; setCutY(walkCeiling(k)); lots.setFloor(k); cfg.cut.ready = true; updateLabelSet(); }

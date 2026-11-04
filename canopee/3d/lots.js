@@ -403,7 +403,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     function cap(x0, x1, z0, z1) {
       if (H <= 0) return;
       const e = 0.015;
-      walkOnly(() => gridPoly('ceil', rect(x0 - e, x1 + e, z0 - e, z1 + e), fy + H + 0.003, true, 0.5));
+      // pas de débord dans la cage d'escalier (ouverte sur deux niveaux) : la bande de 15 mm s'y voyait par-dessous,
+      // en liseré sombre au droit de la dalle, sur les parois de la cage
+      const cX0 = -IN - 0.001, cX1 = -3.3 + 0.001, cZ0 = -11.4 + WALL_T / 2 - 0.001, cZ1 = -7.6 - WALL_T / 2 + 0.001;
+      const inCageAt = (x, z) => x > cX0 && x < cX1 && z > cZ0 && z < cZ1, zm = (z0 + z1) / 2, xm = (x0 + x1) / 2;
+      const ex0 = inCageAt(x0 - e / 2, zm) ? 0 : e, ex1 = inCageAt(x1 + e / 2, zm) ? 0 : e, ez0 = inCageAt(xm, z0 - e / 2) ? 0 : e, ez1 = inCageAt(xm, z1 + e / 2) ? 0 : e;
+      walkOnly(() => gridPoly('ceil', rect(x0 - ex0, x1 + ex1, z0 - ez0, z1 + ez1), fy + H + 0.003, true, 0.5));
     }
     const lintel = (axis, c0, c1, a, b) => {
       if (H <= DOOR_H) return;
@@ -688,10 +693,11 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         for (let x = S2a + 0.06; x < S2b - 0.02; x += 0.11) B('black', x - 0.006, x + 0.006, y0 + 0.02, y0 + 0.98, zl + 0.015, zl + 0.027);
         B('black', S2a, S2b, y0 + 0.02, y0 + 0.04, zl + 0.01, zl + 0.035);
         { const hr = new RoundedBoxGeometry(S2b - S2a, 0.04, 0.06, 2, 0.015); hr.translate((S2a + S2b) / 2, fy + y0 + 1.0, zl + 0.021); push('oak', hr); }
-        B('wall', xW - 0.03, xW + 0.012, yb, y0 + HH, nS, nN);
-        B('wall', xW, -3.3, yb, y0 + HH, nN - 0.012, nN + 0.03);
-        B('wall', xW, xL, yb, y0 + HH, nS - 0.03, nS + 0.012);
-        B('wall', -3.312, -3.27, yb, y0, nS, nN); B('wall', -3.312, -3.27, y0, y0 + HH, zl - 0.02, nN); B('wall', -3.312, -3.27, y0, y0 + HH, nS, nS + 0.1);
+        const yb2 = yb > 0 ? yb - 0.004 : yb;   // recouvrement et faces de jonction retirées (liseré à hauteur de dalle)
+        B('wall', xW - 0.03, xW + 0.012, yb2, y0 + HH, nS, nN, 'ny');
+        B('wall', xW, -3.3, yb2, y0 + HH, nN - 0.012, nN + 0.03, 'ny');
+        B('wall', xW, xL, yb2, y0 + HH, nS - 0.03, nS + 0.012, 'ny');
+        B('wall', -3.312, -3.27, yb2, y0 + 0.004, nS, nN, 'ny'); B('wall', -3.312, -3.27, y0, y0 + HH, zl - 0.02, nN, 'ny'); B('wall', -3.312, -3.27, y0, y0 + HH, nS, nS + 0.1, 'ny');
         B('wall', -3.312, -3.27, y0 + DOOR_H, y0 + HH, nS + 0.1, zl - 0.02);
         gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + y0 + HH, true, 0.5);
         // palier de l'ascenseur (toit)
@@ -733,6 +739,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         for (let k2 = 0; k2 < 8; k2++) { const zz = zl + 0.1 + k2 * tr; B('dark', S1a, S1b, 0, 0.012, zz, zz + 0.012); }
       });
       if (H > 0) walkOnly(() => {
+        // doublage de 12 mm sur les murs du noyau côté cage (est, nord), du sol au plafond : la paroi de la cage reste
+        // d'un seul nu sur toute sa hauteur (sinon ressaut de 12 mm à hauteur de dalle = liseré sombre vu d'en bas)
+        // (0,5 mm devant les parois « niveau voisin » de l'étage du dessous, affiché en même temps : pas de moirage)
+        B('wall', -3.3125, -3.3, 0, H + 0.004, nS, nS + 0.1, 'py'); B('wall', -3.3125, -3.3, 0, H + 0.004, zl - 0.02, nN, 'py');
+        B('wall', -3.3125, -3.3, DOOR_H, H + 0.004, nS + 0.1, zl - 0.02, 'py');
+        B('wall', xW, -3.3125, 0, H + 0.004, nN - 0.0125, nN, 'py');
         flight(S2a, S2b, zl, 1, 0, rise);                              // volée 1 : vers le palier de demi-niveau
         landing(zn, nN - 0.01, ff / 2);                                // palier de demi-niveau
         flight(S1a, S1b, zn, -1, ff / 2, rise, key === 0);             // volée 2 : vers l'étage supérieur (traverse le plafond)
@@ -757,7 +769,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         B('wall', xW - 0.03, xW + 0.012, ff + 2.5, top, wz0, wz1);
         B('wall', xW, -3.3, H - 0.004, top, nN - 0.012, nN + 0.03, 'ny');               // nord
         B('wall', -3.312, -3.27, H - 0.004, top, nS, nN, 'ny');                         // est
-        B('wall', xW, -3.3, ff + H - 0.004, top, nS - 0.03, nS + 0.012, 'ny');         // sud (au-dessus du palier supérieur)
+        B('wall', xW, -3.3, H - 0.004, top, nS - 0.03, nS + 0.012, 'ny');              // sud (bandeau de dalle et palier supérieur : sinon trou sur le dehors)
         B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, zn); // échiffre, niveau supérieur
         gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, 0.5);    // fond de cage
         }
@@ -786,7 +798,11 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         // mains courantes murales (chêne sur consoles noires), parallèles aux volées
         const rail = (x, z0, z1, y0, y1) => {
           const pts = [new THREE.Vector3(x, fy + y0, z0), new THREE.Vector3(x, fy + y1, z1)];
-          push('oak', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 4, 0.021, 10, false));
+          // UV propres au tube (fil du bois le long de la main courante, en mètres) : la projection par face
+          // étirait le veinage en volutes sur la pente
+          const tg = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 4, 0.021, 12, false), len = pts[0].distanceTo(pts[1]), tu = tg.attributes.uv;
+          for (let i = 0; i < tu.count; i++) tu.setXY(i, tu.getX(i) * len, tu.getY(i) * 2 * Math.PI * 0.021);
+          push('oak', tg, { keepUV: true });
           for (const t of [0.15, 0.85]) { const z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t; B('black', x - 0.03 * Math.sign(x - (S1a + S2b) / 2), x, y - 0.03, y - 0.015, z - 0.008, z + 0.008); }
         };
         rail(S2b - 0.05, zl, zn, 0.9 + rise, 0.9 + ff / 2);
