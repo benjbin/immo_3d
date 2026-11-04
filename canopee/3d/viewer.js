@@ -1662,7 +1662,8 @@ function trackWalkPacing(now) {
     const moved = !_walkCam.equals(camera.matrixWorld); _walkCam.copy(camera.matrixWorld);
     walkMovingUI(moved);
     // repli 24 i/s non définitif : chaque nouvelle marche (après 1,2 s d'arrêt) repart à 30 i/s
-    if (moved) MOTION.wMoveAt = now; else if (MOTION.walkMs && now - (MOTION.wMoveAt || 0) > 1200) { MOTION.walkMs = 0; MOTION.wN = 0; MOTION.wLate = 0; }
+    // (au repos, aucune image n'est rendue : le test se fait à la reprise du mouvement)
+    if (moved) { if (MOTION.walkMs && now - (MOTION.wMoveAt || 0) > 1200) { MOTION.walkMs = 0; MOTION.wN = 0; MOTION.wLate = 0; } MOTION.wMoveAt = now; }
     // changement d'étage dans l'escalier (géométrie, modèles, panneau des étages) : 1,2 s non comptées
     if (now < (MOTION.graceUntil || 0)) return;
     if (!moved || !(dt < 2.5 * ms)) return;
@@ -1767,6 +1768,7 @@ function loop(now) {
   stepCut(now);
   stepViewOffset(now);
   if (nav && nav.mode === 'walk' && (++liftTick % 10) === 0) updateLift();
+  updateOutdoorWalk();
   if (cfg.pointer.dirty) updateHover();
   controls.target.y = THREE.MathUtils.clamp(controls.target.y, 0.5, 16);
   if (controls.autoRotate) { invalidate(); if (!state.free) setFree(true); }
@@ -3267,6 +3269,31 @@ function refreshBoxes(mode) {
   if (!nav || navIsStub || !nav.setColliders) return;
   nav.setColliders({ boxes: boxesFor(mode || nav.mode) });
 }
+// balade au RDC, dehors (rue, jardin, allée) : la résidence entière, sans coupe — tous les étages, façades, toiture ;
+// retour à la coupe du RDC en rentrant. Bascule par fondu de l'image (caméra en mouvement : 3 images)
+let _outTick = 0;
+function updateOutdoorWalk() {
+  const walk = nav && nav.mode === 'walk' && cfg.walkFloor === 0 && !cfg.immersive;
+  if (!walk) { if (cfg.outdoor && M.glass && M.glass.userData.uOut) M.glass.userData.uOut.value = 0; cfg.outdoor = false; return; }
+  if ((++_outTick % 3) !== 0 && !cfg.outdoor) return;
+  const p = camera.position, m = 0.35;
+  // emprise du rez-de-chaussée (socle) : sous les balcons en débord, devant la porte, on est déjà dehors
+  const x0 = bounds.floorMinX ?? bounds.minX, x1 = bounds.floorMaxX ?? bounds.maxX, z1 = bounds.socleMaxZ ?? bounds.maxZ;
+  const out = p.x < x0 - m || p.x > x1 + m || p.z < bounds.minZ - m || p.z > z1 + m;
+  if (out === !!cfg.outdoor || cfg.cut.anim) return;
+  render(); snapFrame();
+  cfg.outdoor = out;
+  MOTION.graceUntil = performance.now() + 1200;   // bascule (carte d'ombre, étages) : non comptée dans la cadence
+  if (M.glass && M.glass.userData.uOut) M.glass.userData.uOut.value = out ? 1 : 0;
+  if (out) { setCutY(1e4); setSections(false); setCaption(`Extérieur · balade`, 'Rue', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.'); }
+  else {
+    setSections(true); setCutY(walkCeiling(0));
+    const r = interiorAt(p.x, p.z, 0);
+    setCaption(`${LEVEL_NAME(0)} · balade`, (r && r.name) || 'Palier', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.');
+  }
+  startXFade(state.anim ? XF_SLAB : XF_SLAB_STILL);
+  invalidate();
+}
 function walkCeiling(k) {
   try {
     if (lots.walkCeilingY) {
@@ -3716,7 +3743,7 @@ async function setupNavigation() {
   const inDoor = (x, z) => x > dA && x < dB && z > sz1 - 2.5 && z < sz1 + 0.6;
   const colliders = {
     building: buildingSegs, trees, buildingHeight: fp.height,
-    groundY: (x, z) => (z > 4.5 && z < 7.5 ? 0.14 : 0),
+    groundY: (x, z) => ((z > 4.5 && z < 7.5) || (z > 14.95 && z < 17.1) ? 0.14 : 0),   // trottoirs (rue au sud)
     indoor: (x, z, y) => {
       // dans la cage d'escalier : murs de l'étage affiché (la hauteur de l'œil y est entre deux niveaux)
       const cage = cfg.walkFloor != null && lots.inCage && lots.inCage(x, z);

@@ -46,8 +46,8 @@ export const TILE = {
   door: 1.0,
   paver: 2.4,           // pavés 60 × 30 cm à joints décalés
   sidewalk: 3.0,        // 2 × 2 dalles de 1,5 m
-  asphalt: 4.0,
-  curb: 2.0,            // joint tous les 1 m
+  asphalt: 2.0,          // 1024 texels : 2 mm ; granulats de 9–18 mm
+  curb: 3.0,            // joint tous les 1,5 m (au droit des joints des dalles du trottoir)
   grass: 4.0,
   soil: 2.0,
   bark: [0.8, 1.6],     // écorce : 0,8 m autour × 1,6 m en hauteur
@@ -872,13 +872,17 @@ export function createMaterials(THREE, renderer) {
     blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
   });
   M.glass.userData.noAO = true;
+  // balade dehors (viewer.js) : un intérieur vu de la rue est bien plus sombre que le dehors (éclairement ≈ 10 %) ;
+  // les pièces n'étant éclairées que par la lumière extérieure de la maquette, le vitrage les assombrit davantage
+  M.glass.userData.uOut = { value: 0 };
   M.glass.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
+    sh.uniforms.gOut = M.glass.userData.uOut;
+    sh.fragmentShader = 'uniform float gOut;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
       {
         float gNoV = clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
         float gF = 0.05 + 0.95 * pow( 1.0 - gNoV, 5.0 );   // verre extra-clair à couche : ~5 % de face
         gl_FragColor.rgb *= vec3( 0.93, 1.0, 0.97 );
-        gl_FragColor.a = clamp( 0.16 + 0.84 * gF, 0.0, 0.97 );
+        gl_FragColor.a = clamp( mix( 0.16, 0.5, gOut ) + 0.84 * gF, 0.0, 0.97 );
       }`);
   };
   M.glass.customProgramCacheKey = () => 'glass-fresnel-v2';
@@ -996,18 +1000,37 @@ export function createMaterials(THREE, renderer) {
   }
 
   lap('Trottoir');
-  // --- Enrobé --------------------------------------------------------------------------------
+  // --- Enrobé ----------------------------------------------------------------------------------
+  // granulats arrondis (cellules de Worley, 6–14 mm, teintes de pierre variées) dans un liant sombre, grain fin
+  // par texel et nuances de chaussée à grande échelle ; avant : seuils sur un bruit de valeur à 4 texels par cellule,
+  // dont la grille alignée donnait des pavés pixelisés au ras du sol
   {
-    const S = 1024, tile = TILE.asphalt, g1 = fbm(S, S, { px: 256, oct: 1, seed: 121 }), g2 = fbm(S, S, { px: 64, oct: 3, seed: 122 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 123 });
-    const base = hex('#5d6064'), light = hex('#8d8f90'), dark = hex('#36383b'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      const stone = sstep(0.62, 0.78, g1[i]) * sstep(0.35, 0.6, g2[i]), pit = 1 - sstep(0.06, 0.2, g1[i]);
-      let c = mixc(base, light, stone * 0.7); c = mixc(c, dark, pit * 0.7);
-      col.set(i, c, 1 + 0.1 * (lo[i] - 0.5) + 0.05 * (g2[i] - 0.5));
-      rough[i] = 0.9 - 0.12 * stone + 0.05 * pit;
-      hgt[i] = 0.65 * g1[i] + 0.35 * g2[i];
+    const S = 1024, tile = TILE.asphalt, C = 128, cs = S / C;           // 128 cellules par tuile (≈ 1,6 cm)
+    const lo = fbm(S, S, { px: 2, oct: 4, seed: 123 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 124 });
+    const hsh = (x, y, k) => { let n = (x * 374761393 + y * 668265263 + k * 1442695041) | 0; n = (n ^ (n >>> 13)) * 1274126177; n = n ^ (n >>> 16); return (n >>> 0) / 4294967296; };
+    const base = hex('#4b4e52'), light = hex('#9a9b99'), warm = hex('#8a8178'), dark = hex('#2e3033');
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const gx = x / cs, gy = y / cs, ix = Math.floor(gx), iy = Math.floor(gy);
+      let best = 9, b2 = 9, bv = 0, br = 1;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const cx = ix + dx, cy = iy + dy, wx = ((cx % C) + C) % C, wy = ((cy % C) + C) % C;
+        const px = cx + 0.15 + 0.7 * hsh(wx, wy, 1), py = cy + 0.15 + 0.7 * hsh(wx, wy, 2);
+        const r = 0.28 + 0.3 * hsh(wx, wy, 3), d = Math.hypot(gx - px, gy - py) / r;
+        if (d < best) { b2 = best; best = d; bv = hsh(wx, wy, 4); br = r; } else if (d < b2) b2 = d;
+      }
+      const i = y * S + x;
+      const stone = 1 - sstep(0.75, 1.0, best);                           // granulat (bord adouci)
+      const sp = hsh(x, y, 9) - 0.5;                                        // grain fin du liant
+      // granulats surtout gris sombre (basalte, calcaire patiné), quelques éclats clairs (15 %) : enrobé, pas gravier
+      const sc = bv < 0.15 ? mixc(base, light, 0.6 + 2 * bv) : bv < 0.6 ? mixc(dark, base, (bv - 0.15) / 0.45 * 1.3) : mixc(base, warm, (bv - 0.6) * 0.9);
+      let c = mixc(base, sc, stone * 0.6);
+      c = mixc(c, dark, sstep(0.0, 0.5, 1 - b2 + best) * 0.25 * (1 - stone));   // creux entre granulats
+      col.set(i, c, 1 + 0.06 * (lo[i] - 0.5) + 0.06 * (mid[i] - 0.5) + 0.06 * sp);
+      rough[i] = 0.92 - 0.14 * stone * (bv > 0.4 ? 1 : 0.5) + 0.03 * sp;
+      hgt[i] = stone * (0.6 + 0.4 * Math.sqrt(Math.max(0, 1 - best * best))) + 0.08 * sp;
     }
-    M.asphalt = std(pbrSet(S, S, tile, col, rough, hgt, 2.2), { name: 'asphalt' });
+    M.asphalt = std(pbrSet(S, S, tile, col, rough, hgt, 1.6), { name: 'asphalt', normalScale: new THREE.Vector2(0.7, 0.7) });
   }
 
   lap('Enrobé');

@@ -143,6 +143,10 @@ body.sheet-open .lvl.ext svg{width:16px;height:16px}
 
 .sun{border-radius:16px;padding:12px 16px 10px;width:300px;flex:0 0 auto}
 .sun .row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+/* l'intitulé et l'heure restent chacun sur une ligne, à toutes les largeurs (avant : « HEURE DU / JOUR », « 18 h / 00 ») */
+.sun .row > *{white-space:nowrap;min-width:0}
+.sun .row .plabel{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
+.sun .row output{flex:0 0 auto}
 .sun .plabel{padding:0}
 .sun output{font-family:var(--serif);font-weight:var(--dw);font-size:28px;line-height:1;font-variant-numeric:tabular-nums}
 .sun .scale{display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px}
@@ -378,6 +382,8 @@ body.immersive .dock .sun{display:block!important}
 /* écrans moyens */
 @media (max-width:1100px){
   .sun{width:250px}
+  .sun .plabel{letter-spacing:.12em}
+  .sun output{font-size:25px}
   .vbtn{width:78px}
 }
 @media (max-width:1400px) and (min-width:761px){
@@ -457,6 +463,13 @@ body.immersive .dock .sun{display:block!important}
   body.sheet-open .navroot{display:none}
   body.sheet-open .dock{visibility:hidden}
   .hgrid{grid-template-columns:1fr}
+}
+/* téléphones étroits (≤ 420 px) : la barre d'outils tenait 386 px pour 351 disponibles (débordait à droite) */
+@media (max-width:420px){
+  .brand b{font-size:21px}
+  .brand{gap:7px}
+  .tool{min-width:36px;height:38px;padding:0 8px}
+  #tFs{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}

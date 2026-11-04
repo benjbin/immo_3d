@@ -347,16 +347,40 @@ export function createLandscape(THREE, M, bud = {}) {
     addMesh(merge(dashes), M.marking, { name: 'marking' });
 
     const curbs = [];
-    // bordure côté trottoir, abaissée devant l'allée des garages
-    const c0 = DR[0] - 0.5, c1 = ST[0] + 0.6;
-    curbs.push(boxGeo(-RX, c0 - 0.6, 0, 0.15, 7.35, 7.55), boxGeo(c0 - 0.6, c0, 0, 0.1, 7.35, 7.55), boxGeo(c0, c1, 0, 0.05, 7.35, 7.55),
-      boxGeo(c1, c1 + 0.6, 0, 0.1, 7.35, 7.55), boxGeo(c1 + 0.6, RX, 0, 0.15, 7.35, 7.55));
-    curbs.push(boxGeo(-RX, RX, 0, 0.15, 14.95, 15.15));
+    // bordure côté trottoir : profil continu (arête chanfreinée côté chaussée), abaissée devant l'allée des garages
+    // par des rampes linéaires de 0,9 m (avant : cinq blocs à hauteurs franches, marches visibles le long de la rue)
+    const c0 = DR[0] - 0.5, c1 = ST[0] + 0.6, KT = 0.9, KH = 0.15, KL = 0.04;
+    const kerbH = (x) => x <= c0 - KT || x >= c1 + KT ? KH : x < c0 ? lerp(KH, KL, (x - (c0 - KT)) / KT) : x > c1 ? lerp(KL, KH, (x - c1) / KT) : KL;
+    const kerb = (z0, z1, xs, hf) => {
+      // profil (z, y) parcouru dos → dessus → chanfrein → face chaussée ; un ruban de quads par arête du profil
+      const prof = (h) => [[z0, 0], [z0, h], [z1 - 0.025, h], [z1, h - 0.025], [z1, 0]];
+      const pos = [], uv = [];
+      for (let e = 0; e < 4; e++) for (let i = 0; i < xs.length - 1; i++) {
+        const xa = xs[i], xb = xs[i + 1], pa = prof(hf(xa)), pb = prof(hf(xb));
+        const A = [xa, pa[e][1], pa[e][0]], B = [xb, pb[e][1], pb[e][0]], C = [xb, pb[e + 1][1], pb[e + 1][0]], D = [xa, pa[e + 1][1], pa[e + 1][0]];
+        for (const q of [A, B, C, A, C, D]) { pos.push(...q); uv.push(q[0], e === 1 ? -q[2] : q[1] + (e === 2 ? 0.02 : 0)); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.computeVertexNormals();
+      // sens des faces : les normales doivent sortir (dos vers -z, dessus vers +y, chaussée vers +z)
+      const nr = g.attributes.normal; if (nr.getY(6 * (xs.length - 1)) < 0) { const p = g.attributes.position; for (let t = 0; t < p.count; t += 3) for (const ax of ['X', 'Y', 'Z']) { const v = p['get' + ax](t + 1); p['set' + ax](t + 1, p['get' + ax](t + 2)); p['set' + ax](t + 2, v); } const u = g.attributes.uv; for (let t = 0; t < u.count; t += 3) { const a = u.getX(t + 1), b = u.getY(t + 1); u.setXY(t + 1, u.getX(t + 2), u.getY(t + 2)); u.setXY(t + 2, a, b); } g.computeVertexNormals(); }
+      g.setIndex(null); return g;
+    };
+    const xsK = [-RX]; for (let x = Math.floor(c0 - KT - 0.3); x <= c1 + KT + 0.3; x += 0.15) xsK.push(+x.toFixed(3)); xsK.push(c0 - KT, c0, c1, c1 + KT, RX); xsK.sort((a, b) => a - b);
+    const xsU = [...new Set(xsK)];
+    curbs.push(kerb(7.35, 7.55, xsU, kerbH), kerb(14.95, 15.15, [-RX, RX], () => KH));
     // bordurette de l'allée côté gauche
     curbs.push(boxGeo(DR[0] - 0.12, DR[0], 0, 0.09, frontZ, 4.5));
     addMesh(merge(curbs), M.curb, { cast: true, name: 'curbs' });
 
-    const walk = [boxGeo(-RX, RX, 0, 0.14, 4.5, 7.35)];
+    // trottoir : bateau devant l'allée — la dalle descend vers la bordure abaissée sur ses 70 derniers centimètres
+    const wx0 = c0 - KT - 0.3, wx1 = c1 + KT + 0.3;
+    const mid = new THREE.BoxGeometry(wx1 - wx0, 0.14, 7.35 - 4.5, Math.ceil((wx1 - wx0) / 0.1), 1, 8);
+    mid.translate((wx0 + wx1) / 2, 0.07, (4.5 + 7.35) / 2);
+    { const p = mid.attributes.position; for (let i = 0; i < p.count; i++) if (p.getY(i) > 0.07) { const x = p.getX(i), z = p.getZ(i), d = Math.max(0, 0.14 - (kerbH(x) - 0.005)); p.setY(i, 0.14 - d * sstep(6.65, 7.35, z)); } mid.computeVertexNormals(); }
+    const walk = [boxGeo(-RX, wx0, 0, 0.14, 4.5, 7.35), worldUV(mid), boxGeo(wx1, RX, 0, 0.14, 4.5, 7.35)];
+    walk.push(boxGeo(-RX, RX, 0, 0.14, 15.15, 17.1));   // trottoir d'en face (avant : la bordure donnait sur l'herbe)
     // marches devant l'entrée (x 2.3 → 3.8) : palier puis marche
     walk.push(boxGeo(ST[0], ST[1], 0, 0.16, frontZ, frontZ + 0.75), boxGeo(ST[0], ST[1], 0, 0.08, frontZ + 0.75, frontZ + 1.2));
     addMesh(merge(walk), M.sidewalk, { cast: true, name: 'sidewalk' });
