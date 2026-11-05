@@ -82,6 +82,12 @@ import { startTexturePool } from './texpool.js';
 /* ------------------------------------------------------------------ */
 const URLP = new URLSearchParams(location.search);
 const HOUR_MIN = 6, HOUR_MAX = 22;   // curseur de l'heure : soirées et nuits d'été, matins d'hiver
+// Maquette affichée : la résidence par défaut. Une autre page peut déclarer window.MAQUETTE avant ce script
+// (voir tour/index.html) : modules du bâtiment et du paysage, points de vue, échelle de la navigation, ambiance.
+const MAQ = Object.assign({
+  building: './building.js', landscape: './landscape.js', lots: true, nav: true, views: null, look: null,
+  far: 1600, maxDist: 90, targetRadius: 26, targetY: [0.5, 16], cursorY: 6, probeY: 6.5, maxPolar: Math.PI / 2 + 0.2, thumbs: '../img/',
+}, window.MAQUETTE || {});
 const PARAMS = {
   view: clampInt(URLP.get('view'), 1, 8, 1) - 1,
   hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, HOUR_MIN, HOUR_MAX) : 18,
@@ -120,6 +126,7 @@ const LOOK = {
   fog: 0.0042, fogWarm: 0.45,                                             // perspective atmosphérique chaude
   greens: 1.3, lift: 0.55, warm: 0.6, contrast: 0.14, sat: 1.1, shadeWB: [1.02, 1.0, 0.98], // étalonnage
 };
+if (MAQ.look) Object.assign(LOOK, MAQ.look);
 // ?look={...} : surcharge de réglages pour la mise au point (ignorée si invalide)
 try { if (URLP.has('look')) Object.assign(LOOK, JSON.parse(URLP.get('look'))); } catch (e) { /* réglages par défaut */ }
 const DEG = Math.PI / 180;
@@ -128,7 +135,7 @@ const DEG = Math.PI / 180;
 /* Points de vue : reproduisent les 8 rendus de référence              */
 /* pos / tgt en mètres, fov vertical pour l'aspect de la référence     */
 /* ------------------------------------------------------------------ */
-const VIEWS = [
+const VIEWS = MAQ.views || [
   { id: 'p01', t: 'Façade sur rue', d: 'Le socle des garages, puis trois niveaux de balcons plantés.', pos: [0.2, 8.5, 27], tgt: [0.3, 6.4, -8.5], fov: 38, aspect: 4 / 3},
   { id: 'p02', t: "À l'angle", d: 'Les balcons filants qui se retournent sur la façade anthracite.', pos: [25, 2.2, 11.5], tgt: [-1, 6.2, -8], fov: 42, aspect: 4 / 3, crop: 0.7, portrait: { pos: [25, 2.4, 11.5], tgt: [-0.5, 7.4, -8], fov: 66 }},
   { id: 'p03', t: 'Survol de la façade', d: 'Le toit-terrasse apparaît : salon, table et prairie.', pos: [18.1, 24.25, 27.0], tgt: [-0.5, 4.0, -7.0], fov: 35, aspect: 4 / 3},
@@ -544,7 +551,7 @@ async function start() {
   renderer.setSize(innerWidth, innerHeight, false);
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.2, 1600);
+  camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.2, MAQ.far);
 
   // --- Ciel et environnement
   progress(0.08, 'Ciel et lumière…');
@@ -572,7 +579,7 @@ async function start() {
 
   // --- Modules du modèle (en parallèle)
   progress(0.12, 'Chargement des modules…');
-  const [matMod, bldMod, lndMod] = await Promise.all([tryImport('./materials.js'), tryImport('./building.js'), tryImport('./landscape.js')]);
+  const [matMod, bldMod, lndMod] = await Promise.all([tryImport('./materials.js'), tryImport(MAQ.building), tryImport(MAQ.landscape)]);
   progress(0.25, 'Matériaux procéduraux…');
   await nextFrame();
 
@@ -1222,7 +1229,7 @@ function updateGlassProbe() {
     if (!glassProbe) {
       const rtc = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
       glassProbe = { rtc, cam: new THREE.CubeCamera(0.5, 900, rtc), env: null };
-      glassProbe.cam.position.set((bounds.minX + bounds.maxX) / 2, 6.5, (bounds.minZ + bounds.maxZ) / 2);
+      glassProbe.cam.position.set((bounds.minX + bounds.maxX) / 2, MAQ.probeY, (bounds.minZ + bounds.maxZ) / 2);
       glassProbe.cam.updateMatrixWorld(true);
     }
     const hidden = [building, lots && lots.group, highlight, ...MIR.active].filter((o) => o && o.visible);
@@ -1306,13 +1313,13 @@ function setupControls() {
   controls.dampingFactor = 0.07;
   controls.minDistance = 2.5;                    // assez près pour regarder à travers une fenêtre
   controls.zoomToCursor = true;                  // la molette rapproche de ce qui est visé, pas du centre
-  controls.maxDistance = 90;
-  controls.maxPolarAngle = Math.PI / 2 + 0.2;     // légère contre-plongée possible (vues piétonnes) ; le sol reste borné à part
+  controls.maxDistance = MAQ.maxDist;
+  controls.maxPolarAngle = MAQ.maxPolar;          // légère contre-plongée possible (vues piétonnes) ; le sol reste borné à part
   controls.rotateSpeed = 0.6;
   controls.zoomSpeed = 0.9;
   controls.panSpeed = 0.8;
-  controls.cursor.set((bounds.minX + bounds.maxX) / 2, 6, (bounds.minZ + bounds.maxZ) / 2);
-  controls.maxTargetRadius = 26;                 // limite du déplacement latéral (balcons et loggias compris)
+  controls.cursor.set((bounds.minX + bounds.maxX) / 2, MAQ.cursorY, (bounds.minZ + bounds.maxZ) / 2);
+  controls.maxTargetRadius = MAQ.targetRadius;                 // limite du déplacement latéral (balcons et loggias compris)
   controls.autoRotateSpeed = 0.55;
   let freeTimer = 0;
   controls.addEventListener('change', () => {
@@ -1408,8 +1415,8 @@ function flyTo(f, { duration } = {}) {
     return 1.6;
   }
   // cible dans les bornes de la boucle (0,5…16 m), pour arriver exactement où la caméra restera
-  if (f.tgt.y < 0.5 || f.tgt.y > 16) f = { ...f, tgt: f.tgt.clone().setY(THREE.MathUtils.clamp(f.tgt.y, 0.5, 16)) };
-  controls.maxDistance = Math.max(90, f.pos.distanceTo(f.tgt) + 1);
+  if (f.tgt.y < MAQ.targetY[0] || f.tgt.y > MAQ.targetY[1]) f = { ...f, tgt: f.tgt.clone().setY(THREE.MathUtils.clamp(f.tgt.y, MAQ.targetY[0], MAQ.targetY[1])) };
+  controls.maxDistance = Math.max(MAQ.maxDist, f.pos.distanceTo(f.tgt) + 1);
   // durée selon l'amplitude du mouvement
   const a = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
   const b = new THREE.Spherical().setFromVector3(f.pos.clone().sub(f.tgt));
@@ -1780,7 +1787,7 @@ function loop(now) {
   if (nav && nav.mode === 'walk' && (++liftTick % 10) === 0) updateLift();
   updateOutdoorWalk();
   if (cfg.pointer.dirty) updateHover();
-  controls.target.y = THREE.MathUtils.clamp(controls.target.y, 0.5, 16);
+  controls.target.y = THREE.MathUtils.clamp(controls.target.y, MAQ.targetY[0], MAQ.targetY[1]);
   if (controls.autoRotate) { invalidate(); if (!state.free) setFree(true); }
   // fondu de la mise en lumière d'étage
   if (Math.abs(state.levelDim - state.levelDimTarget) > 0.001) {
@@ -2742,7 +2749,7 @@ function onResize() {
   if (state.ready && !state.free && !state.anim && cfg.floor == null && (!nav || nav.mode === 'orbit')) {
     const f = framing(VIEWS[state.view]);
     camera.position.copy(f.pos); controls.target.copy(f.tgt); camera.fov = f.fov; camera.zoom = f.zoom || 1;
-    controls.maxDistance = Math.max(90, f.pos.distanceTo(f.tgt) + 1);
+    controls.maxDistance = Math.max(MAQ.maxDist, f.pos.distanceTo(f.tgt) + 1);
   }
   camera.updateProjectionMatrix();
   if (state.ready) controls.update();
@@ -2762,7 +2769,7 @@ function buildUI() {
     b.setAttribute('aria-pressed', String(i === state.view));
     b.setAttribute('aria-label', `Vue ${i + 1} : ${v.t}`);
     b.title = `${v.t} (${i + 1})`;
-    b.innerHTML = `<img src="../img/${v.id}-thumb.jpg" alt="" loading="lazy" decoding="async"><b>${String(i + 1).padStart(2, '0')}</b><span>${v.t}</span>`;
+    b.innerHTML = `<img src="${MAQ.thumbs}${v.id}-thumb.jpg" alt="" loading="lazy" decoding="async"><b>${String(i + 1).padStart(2, '0')}</b><span>${v.t}</span>`;
     b.addEventListener('click', () => goToView(i));
     ui.views.appendChild(b);
   });
@@ -2895,6 +2902,7 @@ function polyCentroid(P) {
 async function setupConfigurator(bud) {
   // données (source unique, aussi lue par le site)
   try {
+    if (!MAQ.lots) throw new Error('maquette sans logements');
     const r = await fetch('./lots.json', { cache: 'no-cache' });
     lotsData = await r.json();
   } catch (e) {
@@ -2902,7 +2910,7 @@ async function setupConfigurator(bud) {
     lotsData = { lots: [], zones: {}, statuts: {} };
   }
   try { (JSON.parse(localStorage.getItem('canopee-favs') || '[]') || []).forEach((id) => cfg.favs.add(String(id))); } catch (e) { /* stockage indisponible */ }
-  const mod = await tryImport('./lots.js');
+  const mod = MAQ.lots ? await tryImport('./lots.js') : null;
   lots = await tryCall(mod && mod.createLots, [THREE, M, bud, lotsData], 'createLots');
   if (!lots || !lots.group) lots = createLotsStub(bud, lotsData);
   lots.group.name = lots.group.name || 'lots';
@@ -3778,7 +3786,7 @@ function takeLift(k) {
 
 /* ----------------------------- navigation ----------------------------- */
 async function setupNavigation() {
-  const mod = await tryImport('./nav.js');
+  const mod = MAQ.nav ? await tryImport('./nav.js') : null;
   const fp = bounds;
   const sx0 = fp.minX, sx1 = fp.maxX, sz0 = fp.minZ, sz1 = fp.socleMaxZ ?? 0.4;
   // façade de la rue ouverte au droit de la porte du hall (l'intérieur relève de lots.colliders(0))

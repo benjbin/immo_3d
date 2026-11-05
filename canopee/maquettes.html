@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nos maquettes 3D — Canopée</title>
+<meta name="description" content="Les maquettes 3D temps réel de Canopée : parcourez la résidence de la rue jusqu'au toit-terrasse jardin.">
+<meta name="theme-color" content="#071633">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b214a'/%3E%3Cpath d='M9 25V10h14v15M9 15h14M9 20h14' stroke='%23145cff' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* identité Neokrome (voir index.html) */
+  --night:#071633; --nuit:#0b214a; --nuit-2:#102b5e;
+  --elec:#145cff; --elec-l:#7fa6ff;
+  --serif:Montserrat,system-ui,sans-serif;
+  --sans:Jost,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --pad:clamp(20px,5vw,72px);
+  --gutter:max(var(--pad), calc(50% - 700px + var(--pad)));
+  --ease:cubic-bezier(.2,.7,.1,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--night)}
+body{min-height:100vh;display:flex;flex-direction:column;overflow-x:clip;background:var(--night);color:#fff;font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:inherit}
+p{text-wrap:pretty}
+::selection{background:var(--elec);color:#fff}
+:focus-visible{outline:2px solid var(--elec-l);outline-offset:3px}
+.wrap{padding-inline:var(--gutter)}
+
+/* halo électrique en haut de page */
+body::before{content:"";position:fixed;left:50%;top:-40vw;width:130vw;height:80vw;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(20,92,255,.28),rgba(20,92,255,0));z-index:-1;pointer-events:none}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:14px 26px;border-radius:999px;font:600 14px/1 var(--serif);letter-spacing:.01em;text-decoration:none;transition:background .3s,color .3s,border-color .3s,box-shadow .4s}
+.btn svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.btn-elec{background:var(--elec);color:#fff}
+.btn-elec:hover{box-shadow:0 12px 44px rgba(20,92,255,.6);background:#2a6bff}
+.btn-light{background:#fff;color:var(--nuit)}
+.btn-ghost{border:1px solid rgba(255,255,255,.35);color:#fff}
+.btn-ghost:hover{background:#fff;color:var(--nuit);border-color:#fff}
+
+/* en-tête */
+.hdr{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-block:22px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.logo img{width:30px;height:34px;object-fit:contain}
+.logo b{font:800 22px/1 var(--serif);letter-spacing:-.02em}
+.logo span{font:500 9.5px/1 var(--serif);letter-spacing:.3em;text-transform:uppercase;opacity:.75;margin-top:3px}
+.hdr-a{display:flex;align-items:center;gap:10px}
+.back{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;font:600 13px/1 var(--serif);text-decoration:none;color:rgba(255,255,255,.8);transition:color .25s}
+.back:hover{color:#fff}
+.back svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hdr .btn{min-height:44px;padding:10px 20px;font-size:13px}
+
+/* intro */
+.intro{padding-block:clamp(56px,8vw,120px) clamp(36px,5vw,64px)}
+.eyebrow{display:flex;align-items:center;gap:12px;font:600 11px/1.2 var(--serif);letter-spacing:.26em;text-transform:uppercase;color:var(--elec-l)}
+.eyebrow::before{content:"";width:28px;height:1px;background:currentColor}
+h1{font:800 clamp(46px,7.2vw,112px)/.92 var(--serif);letter-spacing:-.035em;margin-top:22px}
+h1 em{font-style:normal;background:linear-gradient(180deg,#fff 10%,var(--elec-l) 55%,var(--elec) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{margin-top:26px;max-width:52ch;font-size:clamp(17px,1.3vw,19px);font-weight:300;color:rgba(255,255,255,.82)}
+
+/* liste des maquettes : pour en ajouter une, dupliquer un bloc <article class="card"> */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr));gap:clamp(20px,2.4vw,32px);padding-bottom:clamp(80px,10vw,150px)}
+.card{position:relative;display:flex;flex-direction:column;border-radius:28px;overflow:hidden;background:rgba(11,33,74,.7);border:1px solid rgba(127,166,255,.16);box-shadow:0 40px 100px rgba(0,0,0,.35);transition:border-color .4s,transform .6s var(--ease)}
+.card:hover{border-color:rgba(127,166,255,.4)}
+.card-img{position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--nuit-2)}
+.card-img img{width:100%;height:100%;object-fit:cover;transition:transform 1.2s var(--ease)}
+.card:hover .card-img img{transform:scale(1.04)}
+.tag{position:absolute;left:18px;top:18px;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:rgba(7,22,51,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font:600 10.5px/1 var(--serif);letter-spacing:.16em;text-transform:uppercase}
+.tag::before{content:"";width:7px;height:7px;border-radius:50%;background:#5fd394;box-shadow:0 0 0 4px rgba(95,211,148,.2)}
+.card-b{display:flex;flex-direction:column;gap:16px;padding:clamp(24px,2.6vw,40px);flex:1}
+.card-n{font:600 11px/1 var(--serif);letter-spacing:.22em;text-transform:uppercase;color:var(--elec-l)}
+.card h2{font:800 clamp(28px,2.6vw,40px)/1 var(--serif);letter-spacing:-.025em}
+.card p{color:rgba(255,255,255,.78);max-width:48ch}
+.facts{display:flex;flex-wrap:wrap;gap:8px;list-style:none}
+.facts li{padding:7px 13px;border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:13.5px;color:rgba(255,255,255,.85)}
+.card-a{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:auto;padding-top:8px}
+.hint{font-size:13px;color:rgba(255,255,255,.55)}
+/* zone cliquable étendue à toute la carte */
+.card .btn-elec::after{content:"";position:absolute;inset:0;border-radius:inherit}
+
+/* une seule maquette : carte en vedette, image et texte côte à côte */
+@media (min-width:980px){
+  .grid:has(> .card:only-child){grid-template-columns:1fr}
+  .card:only-child{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+  .card:only-child .card-img{aspect-ratio:auto;min-height:440px}
+  .card:only-child .card-b{justify-content:center}
+  .card:only-child .card-a{margin-top:12px}
+}
+
+.foot{margin-top:auto;padding-block:26px;border-top:1px solid rgba(255,255,255,.1);display:flex;justify-content:space-between;gap:10px 28px;flex-wrap:wrap;font-size:12.5px;color:rgba(255,255,255,.6)}
+
+@media (max-width:640px){
+  .hdr .btn{display:none}
+  .card-a .btn{width:100%}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr wrap">
+  <a class="logo" href="index.html" aria-label="Canopée, retour au site"><img src="logo/symbole-blanc.png" alt="" width="42" height="48"><b>Canopée</b><span>Résidence</span></a>
+  <div class="hdr-a">
+    <a class="back" href="index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>Retour au site</a>
+    <a class="btn btn-light" href="index.html#contact">Être rappelé</a>
+  </div>
+</header>
+
+<main>
+  <section class="intro wrap">
+    <p class="eyebrow">Maquettes 3D temps réel</p>
+    <h1>Nos <em>maquettes</em></h1>
+    <p class="lead">Parcourez la résidence comme si vous y étiez : de la rue jusqu'au jardin sur le toit, étage par étage, logement par logement.</p>
+  </section>
+
+  <section class="grid wrap" aria-label="Maquettes disponibles">
+    <article class="card">
+      <div class="card-img">
+        <img src="img/3d-poster.jpg" alt="Vue aérienne de la maquette 3D de Canopée : façade, balcons plantés et toit-terrasse jardin" width="2400" height="1350">
+        <span class="tag">Temps réel</span>
+      </div>
+      <div class="card-b">
+        <span class="card-n">Maquette 01</span>
+        <h2>Canopée, la résidence</h2>
+        <p>L'immeuble entier dans son quartier. Faites le tour depuis la rue, entrez à chaque étage et visitez les logements meublés jusqu'au toit-terrasse.</p>
+        <ul class="facts">
+          <li>6 logements</li>
+          <li>T3 et T4</li>
+          <li>Toit-terrasse jardin</li>
+        </ul>
+        <div class="card-a">
+          <a class="btn btn-elec" href="3d/index.html">Entrer dans la maquette <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <span class="hint">Ordinateur, tablette ou mobile</span>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-img">
+        <img src="img/tour-poster.jpg" alt="Maquette 3D de la tour Canopée : flèche de verre vrillée enlacée par un jardin en spirale" width="1440" height="810">
+        <span class="tag">Temps réel</span>
+      </div>
+      <div class="card-b">
+        <span class="card-n">Maquette 02</span>
+        <h2>Canopée, la tour</h2>
+        <p>Une flèche de verre de 150 m, vrillée sur elle-même. Tournez autour et suivez le jardin en spirale qui l'enlace jusqu'au sommet, à toute heure du jour.</p>
+        <ul class="facts">
+          <li>150 m</li>
+          <li>40 étages</li>
+          <li>Jardin en spirale</li>
+        </ul>
+        <div class="card-a">
+          <a class="btn btn-elec" href="3d/tour/index.html">Entrer dans la maquette <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <span class="hint">Ordinateur, tablette ou mobile</span>
+        </div>
+      </div>
+    </article>
+  </section>
+</main>
+
+<footer class="foot wrap">
+  <span>Visuels d'ambiance non contractuels</span>
+  <span>Maquette 3D et site : Neokrome</span>
+</footer>
+
+</body>
+</html>

@@ -23,6 +23,9 @@ export function createLandscape(THREE, M, bud = {}) {
     return out.set(Math.cos(a) * s, z, Math.sin(a) * s);
   };
 
+  // Site : 'residence' (jardin, rue et prairie de Canopée) ou 'tour' (parvis planté ; arbres et bosquets décrits par
+  // building.userData.trees). Les jardinières du bâtiment sont plantées dans les deux cas.
+  const RESIDENCE = (bud.site || 'residence') === 'residence';
   // Centre du bâtiment (repère du SPEC)
   const BC = { x: 0, z: -9.5 };
   // Emprise du bâtiment lue dans building.userData.bounds (socle) ; SX = facteur de largeur
@@ -305,11 +308,12 @@ export function createLandscape(THREE, M, bud = {}) {
       const dry = sstep(0.55, 0.8, fbm2(x / 23 + 1, z / 23 + 5, 3, 4)) * 0.35;
       // ombre portée diffuse et litière sous les arbres
       let sh = 1;
-      for (const t of trees) {
+      // tour : maillage du sol trop lâche au-delà de 100 m pour y marquer l'ombre des bosquets (traînées radiales)
+      if (RESIDENCE || d < 100) for (const t of trees) {
         const dd = (t.x - x) ** 2 + (t.z - z) ** 2, R = t.radius * 1.35;
         if (dd < R * R) sh *= 1 - (t.kind === 'bg' ? 0.45 : 0.32) * sstep(R, R * 0.25, Math.sqrt(dd));
       }
-      const f = sstep(28, 80, d);
+      const f = RESIDENCE ? sstep(28, 80, d) : 0;
       const under = (0.4 + 0.25 * fbm2(x / 5, z / 5, 3, 9));
       const m = meadowF(x, z);
       const lr = macro * (1 + dry * 0.35) * sh * lerp(1, 1.02, m), lg = macro * (0.92 + dry * 0.08) * sh * lerp(1, 0.86, m), lb = macro * (0.72 - dry * 0.3) * sh * lerp(1, 0.5, m);
@@ -338,7 +342,7 @@ export function createLandscape(THREE, M, bud = {}) {
   // Rue, bordures, trottoir, allée, marches
   // -------------------------------------------------------------------------
   const RX = 150;
-  {
+  if (RESIDENCE) {
     const road = new THREE.PlaneGeometry(2 * RX, 7.4); road.rotateX(-Math.PI / 2); road.translate(0, 0.01, 11.25);
     addMesh(worldUV(road), M.asphalt, { name: 'road' });
     // marquage pointillé central
@@ -556,6 +560,7 @@ export function createLandscape(THREE, M, bud = {}) {
     ['ash', 3.0, -40, 12.0], ['hornbeam', 28, -3, 11.5], ['linden', 20.0, -31, 11.5], ['oak', 24.5, -19.5, 10.0],
     ['ash', -7.5, -33, 11.5],
   ];
+  if (RESIDENCE) {
   MAIN.forEach(([s, x, z, h], k) => growTree(s, x, z, h, 1000 + k * 17));
   // Arbres d'alignement sur le trottoir
   growTree('young', -8 * SX, 6, 5.6, 501, 0, 'street');
@@ -563,10 +568,11 @@ export function createLandscape(THREE, M, bud = {}) {
   // petits arbres d'ornement dans les massifs avant (de part et d'autre, jamais devant la façade)
   growTree('birch', sMinX - 3.6, 1.9, 6.5, 503, 0, 'garden');
   growTree('young', sMaxX + 3.4, 1.6, 3.0, 504, 0, 'garden');   // jeune arbre bas : la façade droite reste lisible
+  }
 
   // Masses arbustives du jardin (bosquets de 1 à 3 m) : emplacements (géométrie construite avec les massifs)
   const massList = [];
-  {
+  if (RESIDENCE) {
     let placed = 0;
     for (let k = 0; k < 2500 && placed < 140; k++) {
       const a = rnd() * Math.PI * 2, d = rr(9, 34), x = BC.x + Math.cos(a) * d, z = BC.z + Math.sin(a) * d;
@@ -581,7 +587,7 @@ export function createLandscape(THREE, M, bud = {}) {
   }
 
   // Rideau d'arbres de fond (LOD simplifié)
-  {
+  if (RESIDENCE) {
     const pts = [];
     const ok = (x, z) => {
       if (z > 3 && z < 19) return false;                                 // rue et ses abords
@@ -619,10 +625,24 @@ export function createLandscape(THREE, M, bud = {}) {
     });
   }
 
+  // Tour : arbres du parvis (building.userData.trees) et bosquets du parc alentour, au-delà du parvis
+  if (!RESIDENCE) {
+    (bud.trees || []).forEach(([s, x, z, h], k) => growTree(s, x, z, h, 7000 + k * 17, 0, 'main'));
+    const R0 = bud.plazaR || 60, pts = [], species = ['oak', 'linden', 'ash', 'oak', 'hornbeam', 'birch'];
+    for (let tries = 0; pts.length < 520 && tries < 40000; tries++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rr((R0 + 14) ** 2, 300 ** 2)), x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const grove = sstep(0.4, 0.62, fbm2(x * 0.03 + 4, z * 0.03 + 8, 3, 33)) + sstep(200, 280, d) * 0.7;
+      if (rnd() > grove + 0.1) continue;
+      if (pts.some(([px, pz]) => (px - x) ** 2 + (pz - z) ** 2 < 42)) continue;
+      pts.push([x, z]);
+    }
+    pts.forEach(([x, z], k) => growTree(species[k % species.length], x, z, rr(12, 19), 9000 + k * 13, 1, 'bg'));
+  }
+
   buildGround();
 
   // Tapis herbacé de la prairie : texture détaillée, fondu tramé (alphaHash) vers la pelouse
-  if (M.meadowGround) {
+  if (RESIDENCE && M.meadowGround) {
     const A = new Acc(), N = 92, S0 = 92, up = new V3(0, 1, 0);
     const x0 = BC.x - S0 / 2, z0 = BC.z - S0 / 2;
     const inBuild = (x, z) => x > sMinX - 0.2 && x < sMaxX + 0.2 && z > bMinZ - 0.2 && z < frontZ + 0.2;
@@ -648,7 +668,7 @@ export function createLandscape(THREE, M, bud = {}) {
 
   // Lisière lointaine : anneau de houppiers peints qui ferme l'horizon (r = 145 m)
   {
-    const R0 = 145, H0 = 26, n = 160, rep = 20;
+    const R0 = RESIDENCE ? 145 : 600, H0 = RESIDENCE ? 26 : 30, n = 160, rep = RESIDENCE ? 20 : 70;
     const A = new Acc();
     for (let i = 0; i <= n; i++) {
       const a = i / n * Math.PI * 2, x = BC.x + Math.cos(a) * R0, z = BC.z + Math.sin(a) * R0;
@@ -670,7 +690,7 @@ export function createLandscape(THREE, M, bud = {}) {
   }
 
   // Fosses des arbres d'alignement
-  {
+  if (RESIDENCE) {
     const soilMat = M.soil.clone(); soilMat.polygonOffset = true; soilMat.polygonOffsetFactor = -1; soilMat.polygonOffsetUnits = -2;
     const pits = [], frames = [];
     for (const x of [-8 * SX, 8 * SX]) {
@@ -737,7 +757,7 @@ export function createLandscape(THREE, M, bud = {}) {
     [sMinX - 2.8, sMinX - 0.15, bMinZ - 0.6, frontZ + 0.1, 'x1'], [sMaxX + 0.15, sMaxX + 2.8, bMinZ - 0.6, frontZ + 0.1, 'x0'],
     [sMinX - 2.8, sMaxX + 2.8, bMinZ - 3.4, bMinZ - 0.15, 'z1'],
   ];
-  {
+  if (RESIDENCE) {
     const soilGeos = [];
     for (const [x0, x1, z0, z1, wall] of beds) {
       // contour irrégulier
@@ -779,7 +799,7 @@ export function createLandscape(THREE, M, bud = {}) {
   }
 
   // Prairie haute, vivaces et touffes autour du bâtiment ; gazon ras dans les clairières
-  {
+  if (RESIDENCE) {
     const inBuild = (x, z) => x > sMinX - 4.1 && x < sMaxX + 4.1 && z > bMinZ - 3.5 && z < 4.5;
     let nm = 0, nl = 0;
     for (let k = 0; k < 90000 && (nm < 16000 || nl < 3000); k++) {
