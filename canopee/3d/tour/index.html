@@ -475,9 +475,25 @@ body.immersive .dock .sun{display:block!important}
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
 </style>
+<!-- version des modules : changer v= à chaque mise en ligne pour que les navigateurs ne gardent pas l'ancien code -->
 <script type="importmap">{"imports":{
   "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "../viewer.js":"../viewer.js?v=20261105b",
+  "../materials.js":"../materials.js?v=20261105b",
+  "../landscape.js":"../landscape.js?v=20261105b",
+  "../building.js":"../building.js?v=20261105b",
+  "../interiors.js":"../interiors.js?v=20261105b",
+  "../decor.js":"../decor.js?v=20261105b",
+  "../decortex.js":"../decortex.js?v=20261105b",
+  "../furniture.js":"../furniture.js?v=20261105b",
+  "../models.js":"../models.js?v=20261105b",
+  "../lots.js":"../lots.js?v=20261105b",
+  "../cars.js":"../cars.js?v=20261105b",
+  "../nav.js":"../nav.js?v=20261105b",
+  "../texpool.js":"../texpool.js?v=20261105b",
+  "../texcache.js":"../texcache.js?v=20261105b",
+  "./building.js":"./building.js?v=20261105b"}}</script>
 </head>
 <body>
 <a class="skip" href="#lotsPanel">Aller à la liste des logements</a>
@@ -681,6 +697,6 @@ window.MAQUETTE = {
 /* la tour n'a ni logements ni étages en coupe, ni balade à pied */
 #navMode, #tLots, #tAvail, #minimap, #floors, #lotsPanel, [data-pane="floors"], [data-pane="lotsPanel"] { display: none !important; }
 </style>
-<script type="module" src="../viewer.js"></script>
+<script type="module" src="../viewer.js?v=20261105b"></script>
 </body>
 </html>

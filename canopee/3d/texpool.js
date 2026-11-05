@@ -30,7 +30,7 @@ export function startTexturePool() {
   try { n = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1)); } catch (e) { /* 1 worker */ }
   try {
     for (let i = 0; i < n; i++) {
-      const worker = new Worker(new URL('./texworker.js', import.meta.url), { type: 'module' });
+      const worker = new Worker(new URL('./texworker.js' + new URL(import.meta.url).search, import.meta.url), { type: 'module' });
       const w = { worker, task: null, alive: true };
       worker.onmessage = ({ data }) => {
         if (data.names) {
