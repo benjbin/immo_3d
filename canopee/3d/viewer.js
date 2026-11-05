@@ -12,6 +12,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { startTexturePool } from './texpool.js';
 
 /* ------------------------------------------------------------------ */
 /* Ombres douces « de ciel » (PCSS) pour les projecteurs des baies     */
@@ -520,6 +521,8 @@ start().catch((e) => {
 });
 
 async function start() {
+  // textures procédurales calculées en parallèle (workers) pendant l'initialisation du rendu
+  const texPool = startTexturePool();
   progress(0.03, 'Initialisation du rendu…');
   await nextFrame();
 
@@ -573,6 +576,7 @@ async function start() {
   progress(0.25, 'Matériaux procéduraux…');
   await nextFrame();
 
+  await texPool.ready('mat:');
   const FM = createFallbackMaterials();
   M = await tryCall(matMod && matMod.createMaterials, [THREE, renderer], 'createMaterials');
   if (!M || typeof M !== 'object') M = FM;
@@ -597,6 +601,7 @@ async function start() {
 
   progress(0.68, 'Logements et navigation…');
   await nextFrame();
+  await texPool.ready('deco:');
   await setupConfigurator(bud);
 
   progress(0.74, 'Lumière du jour…');
@@ -608,6 +613,11 @@ async function start() {
   setupControls();
   await setupNavigation();
   setupInteriorLighting();
+  // environnement provisoire (même format que le définitif) puis compilation parallèle de la scène et des ciels :
+  // la sonde de reflets des vitrages (applyHour) rend jardin et rue avec des programmes déjà prêts
+  envRT = pmrem.fromScene(skyEnvScene, 0, 1, 3000);
+  scene.environment = envRT.texture;
+  await Promise.all([compileForComposer(scene), compileForComposer(skyScene, camera, skyScene), compileForComposer(skyEnvScene, camera, skyEnvScene)]);
   applyHour(state.hour, true);
   onResize();
 
@@ -627,7 +637,7 @@ async function start() {
   }
   camera.fov = f0.fov; camera.zoom = f0.zoom || 1; camera.updateProjectionMatrix();
   controls.update();
-  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compilation au premier rendu */ }
+  await compileForComposer(scene);
   await precompileSections();
 
   progress(0.94, 'Premier rendu…');
@@ -692,7 +702,7 @@ function setupModels() {
     // même environnement « pièce » que les autres matériaux d'intérieur (sinon recompilation à la permutation)
     const cur = (interiorMaterials()[0] || {}).envMap || null;
     obj.traverse((o) => { if (o.isMesh && o.material.envMap !== cur) o.material.envMap = cur; });
-    if (renderer.compileAsync) await renderer.compileAsync(obj, camera, scene);
+    await compileForComposer(obj, camera, scene);
   };
   Mo.hooks.onSwap = () => { IN.envMats = null; lampMats = null; renderer.shadowMap.needsUpdate = true; invalidate(300); };
   Mo.arm();
@@ -3001,15 +3011,64 @@ function setSections(on) {
 }
 async function precompileSections() {
   setSections(true);
-  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compilé à la volée */ }
+  await compileForComposer(scene);
   // variante « visite » : sources intérieures allumées (évite un à-coup à l'entrée dans un logement)
   const inL = [...IN.sky, ...(IN.bounce || [])];
   if (inL.length) {
     inL.forEach((L) => { L.visible = true; });
-    try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compilé à la volée */ }
+    await compileForComposer(scene);
     inL.forEach((L) => { L.visible = false; });
   }
   setSections(false);
+}
+// Compilation parallèle (KHR_parallel_shader_compile) des variantes réellement utilisées. Deux écarts de
+// renderer.compile() avec le rendu réel faisaient compiler des variantes jamais utilisées, les bonnes se
+// compilant ensuite une à une, bloquantes, au 1er rendu (≈ 8 s à la première visite) :
+// - l'image est rendue dans la cible HalfFloat du composer (sortie linéaire, sans tone mapping), pas à l'écran ;
+// - compile() ne fixe pas l'état de découpe de chaque matériau : il garde celui du dernier objet rendu. On compile
+//   donc par lots de même découpe (CLIP de l'enveloppe et du jardin, aucune pour les logements…), l'état étant
+//   positionné avant chaque lot par un rendu 1×1 d'un objet découpé de la même façon.
+const clipProbe = { rt: null, scene: null, cam: null, mat: null };
+function setClipState(planes, inter) {
+  if (!clipProbe.rt) {
+    clipProbe.rt = new THREE.WebGLRenderTarget(1, 1);
+    clipProbe.mat = new THREE.MeshBasicMaterial();
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(), clipProbe.mat); m.frustumCulled = false;
+    clipProbe.scene = new THREE.Scene(); clipProbe.scene.add(m);
+    clipProbe.cam = new THREE.OrthographicCamera();
+  }
+  clipProbe.mat.clippingPlanes = planes; clipProbe.mat.clipIntersection = inter;
+  const prev = renderer.getRenderTarget();
+  withoutShadowPass(() => { renderer.setRenderTarget(clipProbe.rt); renderer.render(clipProbe.scene, clipProbe.cam); });
+  renderer.setRenderTarget(prev);
+}
+async function compileForComposer(obj, cam = camera, target = null) {
+  if (!renderer.compileAsync) return;
+  const groups = new Map();
+  obj.traverse((o) => {
+    const mt = Array.isArray(o.material) ? o.material[0] : o.material; if (!mt) return;
+    const cp = renderer.localClippingEnabled && mt.clippingPlanes && mt.clippingPlanes.length ? mt.clippingPlanes : null;
+    const key = cp ? cp.length + (mt.clipIntersection ? 'i' : 'u') : '0';
+    const g = groups.get(key) || { planes: cp, inter: !!(cp && mt.clipIntersection), objs: new Set() };
+    g.objs.add(o); groups.set(key, g);
+  });
+  const prev = renderer.getRenderTarget(), pending = [], saved = new Map();
+  try {
+    for (const g of groups.values()) {
+      // hors lot : matériau retiré le temps de la compilation (compile() ignore les objets sans matériau)
+      obj.traverse((o) => { if (o.material && !g.objs.has(o)) { saved.set(o, o.material); o.material = null; } });
+      try {
+        setClipState(g.planes, g.inter);
+        renderer.setRenderTarget(composer ? composer.readBuffer : null);
+        pending.push(renderer.compileAsync(obj, cam, target));
+      } finally {
+        for (const [o, m] of saved) o.material = m;
+        saved.clear();
+        renderer.setRenderTarget(prev);
+      }
+    }
+  } catch (e) { /* compilé à la volée */ }
+  try { await Promise.all(pending); } catch (e) { /* compilé à la volée */ }
 }
 const CUT_TOP = () => bounds.height + 1.6;
 // Ombres et coupe. Vue plongeante sur un étage coupé (plan, « maison de poupée » de l'expérience) : comme sur

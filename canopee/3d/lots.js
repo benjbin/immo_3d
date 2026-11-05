@@ -1089,11 +1089,28 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const _cam = new THREE.Vector3(), _size = new THREE.Vector2();
   const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const _p = new THREE.Vector3(), _n = new THREE.Vector3();
+  // occlusion au pied des murs : murs rangés dans une grille de 1 m (emprise élargie de SEG_R). Au-delà de SEG_R,
+  // l'assombrissement (0,32·e^(−d/0,28) < 0,0015) est invisible : seuls les murs proches sont testés, au lieu de
+  // tous les murs de l'étage pour chaque sommet de sol
+  const SEG_R = 1.5, segGrids = new WeakMap();
+  function segGrid(segs) {
+    let G = segGrids.get(segs);
+    if (G && G.n === segs.length) return G;
+    G = { n: segs.length, cells: new Map() };
+    for (const s of segs) {
+      const x0 = Math.floor(Math.min(s.a[0], s.b[0]) - SEG_R), x1 = Math.floor(Math.max(s.a[0], s.b[0]) + SEG_R);
+      const z0 = Math.floor(Math.min(s.a[1], s.b[1]) - SEG_R), z1 = Math.floor(Math.max(s.a[1], s.b[1]) + SEG_R);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) { const k = x * 4096 + z; let c = G.cells.get(k); if (!c) G.cells.set(k, c = []); c.push(s); }
+    }
+    segGrids.set(segs, G);
+    return G;
+  }
+  const NO_SEGS = [];
   // éclairage baké : ambiance (occlusion près du sol, du plafond et des murs) + spots chauds
   function bake(g, P) {
     const pos = g.attributes.position, nor = g.attributes.normal, col = new Float32Array(pos.count * 3), H = P.H || 2.6;
     const tn = g.attributes.tint ? g.attributes.tint.array : new Float32Array(pos.count * 3).fill(1);
-    const segs = P.colliders;
+    const grid = segGrid(P.colliders);
     for (let i = 0; i < pos.count; i++) {
       _p.fromBufferAttribute(pos, i); _n.fromBufferAttribute(nor, i);
       const y = _p.y - P.fy;
@@ -1101,7 +1118,11 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       // cage d'escalier (ouverte sur plusieurs niveaux) et tout ce qui dépasse la tranche de l'étage : pas d'occlusion
       // bakée (sol / plafond de l'étage) — elle laissait des bandes sombres horizontales au droit des dalles
       if (y < -0.02 || y > H + 0.02 || (STAIR && _p.x > STAIR.xW - 0.06 && _p.x < STAIR.xE + 0.06 && _p.z > STAIR.nS - 0.06 && _p.z < STAIR.nN + 0.06)) occ = 1;
-      if (_n.y > 0.5 && y < 0.05) { let d = 9; for (const s of segs) d = Math.min(d, segDist(_p.x, _p.z, s)); occ *= 1 - 0.32 * Math.exp(-d / 0.28); }
+      if (_n.y > 0.5 && y < 0.05) {
+        let d = 9; const near = grid.cells.get(Math.floor(_p.x) * 4096 + Math.floor(_p.z)) || NO_SEGS;
+        for (const s of near) d = Math.min(d, segDist(_p.x, _p.z, s));
+        occ *= 1 - 0.32 * Math.exp(-d / 0.28);
+      }
       // matériaux éclairés : la couleur de sommet ne porte que l'occlusion (et la teinte de l'objet)
       const a = occ, ti = i * 3;
       col[ti] = a * tn[ti]; col[ti + 1] = a * tn[ti + 1]; col[ti + 2] = a * tn[ti + 2];

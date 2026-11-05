@@ -60,6 +60,10 @@ export const TILE = {
 // ---------------------------------------------------------------------------
 // Aléatoire reproductible et bruit
 // ---------------------------------------------------------------------------
+import { take } from './texcache.js';
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -165,7 +169,11 @@ function grayData(v) {
   for (let i = 0; i < v.length; i++) { const g = clamp01(v[i]) * 255; out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = g; out[i * 4 + 3] = 255; }
   return out;
 }
-function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+// canvas 2D ; dans un worker (tâches de texpool.js), OffscreenCanvas
+function makeCanvas(w, h) {
+  if (typeof document === 'undefined') return new OffscreenCanvas(w, h);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; return c;
+}
 function canvasRGBA(w, h, data) { const c = makeCanvas(w, h); c.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0); return c; }
 
 // Petit tampon couleur RGBA.
@@ -179,7 +187,8 @@ class Buf {
 // - couleur « poussée » sous les zones transparentes (pas de liseré sombre) ;
 // - alpha des mips ajusté pour conserver la couverture (les feuilles ne fondent pas au loin).
 // ---------------------------------------------------------------------------
-function cardTexture(THREE, w, h, draw, aniso) {
+// cardData : pixels de la carte (dessin, mipmaps) ; cardFromData : la DataTexture
+function cardData(w, h, draw) {
   const cv = makeCanvas(w, h), g = cv.getContext('2d');
   draw(g, w, h);
   const src = g.getImageData(0, 0, w, h).data;
@@ -249,6 +258,9 @@ function cardTexture(THREE, w, h, draw, aniso) {
     }
     return { data, width: L.w, height: L.h };
   });
+  return { w, h, mipmaps };
+}
+function cardFromData(THREE, { w, h, mipmaps }, aniso) {
   const tex = new THREE.DataTexture(mipmaps[0].data, w, h, THREE.RGBAFormat);
   tex.mipmaps = mipmaps;
   tex.generateMipmaps = false;
@@ -713,6 +725,428 @@ function detailTexture(THREE, S, h, v, ns, aniso) {
 }
 
 // ---------------------------------------------------------------------------
+// Pixels des textures, par tâches nommées. texpool.js les fait calculer en parallèle par des workers dès
+// l'ouverture de la maquette ; createMaterials reprend leurs résultats (take) ou, à défaut, exécute la tâche
+// sur place. Même code dans les deux cas : textures identiques au bit près.
+// ---------------------------------------------------------------------------
+// cartes d'un matériau PBR sous forme de pixels RGBA (couleur, rugosité, normales) : ce que pbrSet met en canvas
+function pbrData(w, h, col, rough, hgt, ns) {
+  return { w, h, col: col.d, rough: rough ? grayData(rough) : null, nrm: hgt ? normalData(hgt, w, h, ns) : null };
+}
+function woodData(S, tile, boardW, gapW, cuts, baseHex, darkHex, lightHex, seed) {
+  const grain = fbm(S, S, { px: 1, py: 64, oct: 4, seed }), fine = fbm(S, S, { px: 4, py: 256, oct: 2, seed: seed + 1 }), lo = fbm(S, S, { px: 2, oct: 3, seed: seed + 2 });
+  const r = mulberry32(seed), nb = Math.round(tile / boardW);
+  const boards = Array.from({ length: nb }, () => ({ shift: [r() * S | 0, r() * S | 0], tint: [0.88 + r() * 0.24, 0.88 + r() * 0.24], cut: r() * tile }));
+  const base = hex(baseHex), dark = hex(darkHex), light = hex(lightHex), gapC = hex('#24190f');
+  const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+  for (let y = 0, i = 0; y < S; y++) {
+    const v = (y + 0.5) / S * tile, b = Math.min(nb - 1, Math.floor(v / boardW)), lv = v - b * boardW;
+    const dv = Math.min(lv, boardW - lv), B = boards[b];
+    for (let x = 0; x < S; x++, i++) {
+      const u = (x + 0.5) / S * tile;
+      let piece = 0, du = 1;
+      if (cuts) {
+        const c1 = B.cut, c2 = (B.cut + tile / 2) % tile;
+        const inA = c1 < c2 ? (u >= c1 && u < c2) : (u >= c1 || u < c2);
+        piece = inA ? 0 : 1;
+        du = Math.min(Math.abs(u - c1), Math.abs(u - c2), tile - Math.abs(u - c1), tile - Math.abs(u - c2));
+      }
+      const gap = Math.max(1 - sstep(gapW * 0.35, gapW * 0.7, dv), 1 - sstep(0.001, 0.003, du));
+      const gx = (x + B.shift[piece]) % S, gr = grain[y * S + gx], fn = fine[y * S + gx];
+      const t = Math.pow(gr, 1.4);
+      let c = mixc(dark, light, t); c = mixc(c, base, 0.45);
+      const k = B.tint[piece] * (0.92 + 0.16 * fn) * (1 + 0.08 * (lo[i] - 0.5)) * (0.8 + 0.2 * sstep(0, gapW * 1.6, dv));
+      col.set(i, mixc(c.map(q => q * k), gapC, gap));
+      rough[i] = 0.6 + 0.12 * gr + 0.3 * gap;
+      hgt[i] = (1 - gap) * (0.85 + 0.15 * sstep(0, gapW * 1.5, dv)) + 0.04 * fn + 0.03 * gr;
+    }
+  }
+  return pbrData(S, S, col, rough, hgt, 3);
+}
+function tilesData({ S = 512, tile = 1.2, nx = 2, ny = 2, base, jointC, joint = 0.002, rough = 0.45, glossVar = 0.06, stone = 0.05, wavy = 0, tintVar = 0.03, seed, ns = 3, hueVar = 0 }) {
+  const st = fbm(S, S, { px: 8, oct: 5, seed }), hi = fbm(S, S, { px: 64, oct: 2, seed: seed + 1 }), wv = fbm(S, S, { px: nx * 2, py: ny * 2, oct: 3, seed: seed + 2 });
+  const r = mulberry32(seed + 3), n = nx * ny;
+  const T = Array.from({ length: n }, () => ({ k: 1 + (r() - 0.5) * 2 * tintVar, h: (r() - 0.5) * hueVar, sx: r() * S | 0, sy: r() * S | 0, g: (r() - 0.5) * glossVar }));
+  const B = hex(base), J = hex(jointC), col = new Buf(S, S), rg = new Float32Array(S * S), hgt = new Float32Array(S * S);
+  const tw = tile / nx, th = tile / ny;
+  for (let y = 0, i = 0; y < S; y++) {
+    const v = (y + 0.5) / S * tile, ty = Math.floor(v / th), lv = v - ty * th;
+    for (let x = 0; x < S; x++, i++) {
+      const u = (x + 0.5) / S * tile, tx = Math.floor(u / tw), lu = u - tx * tw, P = T[(ty * nx + tx) % n];
+      const d = Math.min(lu, tw - lu, lv, th - lv), jt = 1 - sstep(joint * 0.35, joint * 0.75, d), bev = sstep(joint * 0.5, joint * 2.5, d);
+      const j = ((y + P.sy) % S) * S + ((x + P.sx) % S);
+      const kk = P.k * (1 + stone * (st[j] - 0.5) + 0.02 * (hi[j] - 0.5));
+      const c = [B[0] * kk * (1 + P.h), B[1] * kk, B[2] * kk * (1 - P.h)];
+      col.set(i, mixc(c, J, jt));
+      rg[i] = clamp01(rough + P.g + 0.04 * (hi[j] - 0.5) + 0.35 * jt);
+      hgt[i] = bev * (1 - 0.4 * jt) + wavy * (wv[i] - 0.5) * bev + 0.01 * hi[j];
+    }
+  }
+  return pbrData(S, S, col, rg, hgt, ns);
+}
+export const TEX_TASKS = {
+  'mat:leafA': () => cardData(512, 512, (g, w, h) => drawTwig(g, w, h, 'A', 201)),
+  'mat:leafB': () => cardData(512, 512, (g, w, h) => drawTwig(g, w, h, 'B', 202)),
+  'mat:leafC': () => cardData(512, 512, (g, w, h) => drawTwig(g, w, h, 'C', 203)),
+  'mat:leafClump': () => cardData(512, 512, (g, w, h) => drawClump(g, w, h, 204)),
+  'mat:leafTropical': () => cardData(256, 1024, (g, w, h) => drawStrelitzia(g, w, h, 211)),
+  'mat:leafPalm': () => cardData(512, 1024, (g, w, h) => drawPalm(g, w, h, 212)),
+  'mat:leafTrail': () => cardData(256, 1024, (g, w, h) => drawTrail(g, w, h, 213)),
+  'mat:grassBlade': () => cardData(512, 512, (g, w, h) => drawBlades(g, w, h, 214)),
+  'mat:grassPlume': () => cardData(512, 1024, (g, w, h) => drawPlumes(g, w, h, 215)),
+  'mat:flowerLav': () => cardData(512, 512, (g, w, h) => drawLavender(g, w, h, 216)),
+  'mat:flowerWhite': () => cardData(512, 512, (g, w, h) => drawWhiteFlowers(g, w, h, 217)),
+  'mat:sedum': () => cardData(512, 512, (g, w, h) => drawSedum(g, w, h, 218)),
+  'mat:forestEdge': () => cardData(1024, 384, (g, w, h) => drawTreeLine(g, w, h, 219)),
+  'mat:grass': () => {
+    const S = 1024, lo = fbm(S, S, { px: 2, oct: 4, seed: 141 }), mid = fbm(S, S, { px: 8, oct: 3, seed: 142 });
+    const dark = hex('#2f3c14'), midc = hex('#55651f'), dry = hex('#7d7b34'), col = new Buf(S, S);
+    for (let i = 0; i < S * S; i++) {
+      let c = mixc(dark, midc, mid[i]); c = mixc(c, dry, sstep(0.62, 0.9, lo[i]) * 0.5);
+      col.set(i, c, 0.9 + 0.2 * lo[i]);
+    }
+    const cv = canvasRGBA(S, S, col.d), g = cv.getContext('2d'), r = mulberry32(143);
+    const buckets = Array.from({ length: 14 }, (_, k) => ({ p: new Path2D(), c: hsl(66 + r() * 24, 45 + r() * 25, 14 + k * 2.5), w: 1 + r() * 0.9 }));
+    for (let n = 0; n < 70000; n++) {
+      const b = buckets[(r() * 14) | 0];
+      const x = r() * S, y = r() * S, a = r() * Math.PI * 2, L = 5 + r() * 12;
+      b.p.moveTo(x, y); b.p.quadraticCurveTo(x + Math.cos(a) * L * 0.5 + (r() - 0.5) * 3, y + Math.sin(a) * L * 0.5, x + Math.cos(a) * L, y + Math.sin(a) * L);
+    }
+    g.lineCap = 'round';
+    for (const b of buckets) {
+      g.strokeStyle = b.c; g.lineWidth = b.w; g.globalAlpha = 0.85;
+      for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) { g.setTransform(1, 0, 0, 1, ox, oy); g.stroke(b.p); }
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
+    const d = g.getImageData(0, 0, S, S).data, rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) { const l = (d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11) / 255; hgt[i] = l; rough[i] = 0.92 - 0.25 * l; }
+    return { w: S, h: S, col: d, rough: grayData(rough), nrm: normalData(hgt, S, S, 3) };
+  },
+  'mat:meadow': () => {
+    const S = 1024, cv = makeCanvas(S, S), g = cv.getContext('2d');
+    drawMeadowGround(g, S, 231);
+    const d = g.getImageData(0, 0, S, S).data, hgt = new Float32Array(S * S), rough = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) { const l = (d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11) / 255; hgt[i] = l; rough[i] = 0.95 - 0.2 * l; }
+    return { w: S, h: S, col: d, rough: grayData(rough), nrm: normalData(hgt, S, S, 4) };
+  },
+  'mat:enduit': () => {
+    const S = 512, lo = fbm(S, S, { px: 2, oct: 4, seed: 1 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 2 }), hi = fbm(S, S, { px: 128, oct: 2, seed: 3 });
+    const base = hex('#efeee9'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      col.set(i, base, 1 + 0.035 * (lo[i] - 0.5) + 0.03 * (hi[i] - 0.5) + 0.015 * (mid[i] - 0.5));
+      rough[i] = 0.88 + 0.1 * (hi[i] - 0.5);
+      hgt[i] = 0.35 * mid[i] + 0.65 * hi[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 1.6);
+  },
+  'mat:bardage': () => {
+    const S = 512, lo = fbm(S, S, { px: 2, oct: 4, seed: 4 }), hi = fbm(S, S, { px: 128, oct: 2, seed: 5 }), streak = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 6 });
+    // teinte légèrement chaude : le reflet du ciel bleu suffit à la refroidir
+    const base = hex('#4a4947'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    const tint = [0.03, -0.035];
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const u = (x + 0.5) / S * TILE.cladding, panel = u < 1.2 ? 0 : 1, lu = u - panel * 1.2;
+      const d = Math.min(lu, 1.2 - lu), groove = 1 - sstep(0.002, 0.007, d);
+      const k = (1 + tint[panel] + 0.05 * (lo[i] - 0.5) + 0.025 * (hi[i] - 0.5) + 0.03 * (streak[i] - 0.5)) * (1 - 0.55 * groove);
+      col.set(i, base, k);
+      rough[i] = 0.6 + 0.08 * (lo[i] - 0.5) + 0.25 * groove;
+      hgt[i] = (1 - groove) + 0.015 * hi[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 3.5);
+  },
+  'mat:rives': () => {
+    const S = 256, lo = fbm(S, S, { px: 2, oct: 4, seed: 7 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 8 });
+    const base = hex('#f4f3ef'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      col.set(i, base, 1 + 0.025 * (lo[i] - 0.5) + 0.012 * (hi[i] - 0.5));
+      rough[i] = 0.5 + 0.1 * (lo[i] - 0.5); hgt[i] = hi[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 0.8);
+  },
+  'mat:garage': () => {
+    const S = 256, lo = fbm(S, S, { px: 2, oct: 3, seed: 71 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 72 }), brush = fbm(S, S, { px: 1, py: 128, oct: 2, seed: 73 });
+    const base = hex('#2b2e31'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) {
+      const v = (y + 0.5) / S * TILE.garage, lv = v % 0.5, d = Math.min(lv, 0.5 - lv);
+      const groove = 1 - sstep(0.002, 0.012, d), lip = sstep(0.012, 0.018, d) * (1 - sstep(0.018, 0.03, d));
+      for (let x = 0; x < S; x++, i++) {
+        col.set(i, base, (1 + 0.04 * (lo[i] - 0.5) + 0.02 * (brush[i] - 0.5)) * (1 - 0.5 * groove) * (1 + 0.08 * lip));
+        rough[i] = 0.48 + 0.08 * (hi[i] - 0.5) + 0.15 * groove;
+        hgt[i] = 1 - groove * 0.9 + 0.1 * lip + 0.01 * hi[i];
+      }
+    }
+    return pbrData(S, S, col, rough, hgt, 6);
+  },
+  'mat:door': () => {
+    const S = 256, lo = fbm(S, S, { px: 2, oct: 3, seed: 81 }), brush = fbm(S, S, { px: 1, py: 128, oct: 2, seed: 82 });
+    const base = hex('#2a2d30'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      col.set(i, base, 1 + 0.03 * (lo[i] - 0.5) + 0.02 * (brush[i] - 0.5));
+      rough[i] = 0.42 + 0.1 * (brush[i] - 0.5); hgt[i] = brush[i] * 0.3;
+    }
+    return pbrData(S, S, col, rough, hgt, 0.6);
+  },
+  'mat:paver': () => {
+    const S = 512, tile = TILE.paver, lo = fbm(S, S, { px: 2, oct: 4, seed: 101 }), hi = fbm(S, S, { px: 64, oct: 3, seed: 102 }), wn = white(S * S, 103);
+    const r = mulberry32(104), tints = Array.from({ length: 64 }, () => [(r() - 0.5) * 2, (r() - 0.5) * 2]);
+    const base = hex('#b9b8b3'), jointC = hex('#7b766c'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) {
+      const v = (y + 0.5) / S * tile, row = Math.floor(v / 0.3), lv = v - row * 0.3;
+      for (let x = 0; x < S; x++, i++) {
+        const u = ((x + 0.5) / S * tile + (row & 1) * 0.3) % tile, c = Math.floor(u / 0.6), lu = u - c * 0.6;
+        const d = Math.min(lu, 0.6 - lu, lv, 0.3 - lv), joint = 1 - sstep(0.003, 0.005, d), bevel = sstep(0.004, 0.012, d);
+        const [t1, t2] = tints[(row * 4 + c) & 63];
+        const spk = wn[i] > 0.97 ? -0.12 : wn[i] < 0.03 ? 0.08 : 0;
+        const k = 1 + 0.06 * t1 + 0.05 * (lo[i] - 0.5) + 0.06 * (hi[i] - 0.5) + spk;
+        const sc = [base[0] * k * (1 + 0.015 * t2), base[1] * k, base[2] * k * (1 - 0.015 * t2)];
+        col.set(i, mixc(sc.map(q => q * (0.88 + 0.12 * bevel)), jointC, joint));
+        rough[i] = 0.78 + 0.08 * (hi[i] - 0.5) + 0.15 * joint;
+        hgt[i] = bevel * (0.88 + 0.12 * hi[i]);
+      }
+    }
+    return pbrData(S, S, col, rough, hgt, 4);
+  },
+  'mat:sidewalk': () => {
+    const S = 512, tile = TILE.sidewalk, lo = fbm(S, S, { px: 2, oct: 4, seed: 111 }), stain = fbm(S, S, { px: 4, oct: 4, seed: 112 }), broom = fbm(S, S, { px: 2, py: 128, oct: 2, seed: 113 }), agg = fbm(S, S, { px: 128, oct: 2, seed: 114 });
+    const r = mulberry32(115), tints = [r() - 0.5, r() - 0.5, r() - 0.5, r() - 0.5];
+    const base = hex('#cfcdc6'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) {
+      const v = (y + 0.5) / S * tile, sv = v < 1.5 ? 0 : 1, lv = v - sv * 1.5;
+      for (let x = 0; x < S; x++, i++) {
+        const u = (x + 0.5) / S * tile, su = u < 1.5 ? 0 : 1, lu = u - su * 1.5;
+        const d = Math.min(lu, 1.5 - lu, lv, 1.5 - lv), joint = 1 - sstep(0.003, 0.007, d);
+        const st = sstep(0.3, 0.12, stain[i]);
+        const k = (1 + 0.05 * tints[sv * 2 + su] + 0.05 * (lo[i] - 0.5) + 0.03 * (broom[i] - 0.5) + 0.06 * (agg[i] - 0.5) - 0.1 * st) * (1 - 0.4 * joint);
+        col.set(i, base, k);
+        rough[i] = 0.84 + 0.06 * (agg[i] - 0.5) - 0.1 * st + 0.1 * joint;
+        hgt[i] = (1 - joint) * 0.8 + 0.1 * broom[i] + 0.1 * agg[i];
+      }
+    }
+    return pbrData(S, S, col, rough, hgt, 2.5);
+  },
+  'mat:asphalt': () => {
+    const S = 1024, tile = TILE.asphalt, C = 128, cs = S / C;           // 128 cellules par tuile (≈ 1,6 cm)
+    const lo = fbm(S, S, { px: 2, oct: 4, seed: 123 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 124 });
+    const hsh = (x, y, k) => { let n = (x * 374761393 + y * 668265263 + k * 1442695041) | 0; n = (n ^ (n >>> 13)) * 1274126177; n = n ^ (n >>> 16); return (n >>> 0) / 4294967296; };
+    const base = hex('#4b4e52'), light = hex('#9a9b99'), warm = hex('#8a8178'), dark = hex('#2e3033');
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    // granulat de chaque cellule (position dans la cellule, rayon, teinte) calculé une fois, pas 9 fois par texel
+    const CX = new Float64Array(C * C), CY = new Float64Array(C * C), CR = new Float64Array(C * C), CV = new Float64Array(C * C);
+    for (let wy = 0; wy < C; wy++) for (let wx = 0; wx < C; wx++) {
+      const k = wy * C + wx;
+      CX[k] = 0.15 + 0.7 * hsh(wx, wy, 1); CY[k] = 0.15 + 0.7 * hsh(wx, wy, 2); CR[k] = 0.28 + 0.3 * hsh(wx, wy, 3); CV[k] = hsh(wx, wy, 4);
+    }
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const gx = x / cs, gy = y / cs, ix = Math.floor(gx), iy = Math.floor(gy);
+      let best = 9, b2 = 9, bv = 0, br = 1;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const cx = ix + dx, cy = iy + dy, wx = ((cx % C) + C) % C, wy = ((cy % C) + C) % C, k = wy * C + wx;
+        const px = cx + CX[k], py = cy + CY[k];
+        const r = CR[k], d = Math.hypot(gx - px, gy - py) / r;
+        if (d < best) { b2 = best; best = d; bv = CV[k]; br = r; } else if (d < b2) b2 = d;
+      }
+      const i = y * S + x;
+      const stone = 1 - sstep(0.75, 1.0, best);                           // granulat (bord adouci)
+      const sp = hsh(x, y, 9) - 0.5;                                        // grain fin du liant
+      // granulats surtout gris sombre (basalte, calcaire patiné), quelques éclats clairs (15 %) : enrobé, pas gravier
+      const sc = bv < 0.15 ? mixc(base, light, 0.6 + 2 * bv) : bv < 0.6 ? mixc(dark, base, (bv - 0.15) / 0.45 * 1.3) : mixc(base, warm, (bv - 0.6) * 0.9);
+      let c = mixc(base, sc, stone * 0.6);
+      c = mixc(c, dark, sstep(0.0, 0.5, 1 - b2 + best) * 0.25 * (1 - stone));   // creux entre granulats
+      col.set(i, c, 1 + 0.06 * (lo[i] - 0.5) + 0.06 * (mid[i] - 0.5) + 0.06 * sp);
+      rough[i] = 0.92 - 0.14 * stone * (bv > 0.4 ? 1 : 0.5) + 0.03 * sp;
+      hgt[i] = stone * (0.6 + 0.4 * Math.sqrt(Math.max(0, 1 - best * best))) + 0.08 * sp;
+    }
+    return pbrData(S, S, col, rough, hgt, 1.6);
+  },
+  'mat:curb': () => {
+    const S = 256, tile = TILE.curb, lo = fbm(S, S, { px: 2, oct: 4, seed: 131 }), agg = fbm(S, S, { px: 64, oct: 2, seed: 132 });
+    const base = hex('#bdbbb5'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const u = (x + 0.5) / S * tile, lu = u % 1, d = Math.min(lu, 1 - lu), joint = 1 - sstep(0.003, 0.008, d);
+      col.set(i, base, (1 + 0.06 * (lo[i] - 0.5) + 0.06 * (agg[i] - 0.5)) * (1 - 0.45 * joint));
+      rough[i] = 0.85 + 0.06 * (agg[i] - 0.5); hgt[i] = (1 - joint) * 0.8 + 0.2 * agg[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 2);
+  },
+  'mat:bark': () => {
+    const S = 512, f = fbm(S, S, { px: 16, py: 2, oct: 4, seed: 161 }), cr = fbm(S, S, { px: 4, py: 32, oct: 3, seed: 162 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 163 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 164 });
+    const dk = hex('#2b241e'), md = hex('#5d554c'), lt = hex('#8f877c'), li = hex('#8b9473');
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      const ridge = Math.pow(1 - Math.abs(2 * f[i] - 1), 0.7), crack = 1 - sstep(0.04, 0.12, Math.abs(cr[i] - 0.5));
+      const h = clamp01(ridge * (0.75 + 0.25 * hi[i]) - 0.35 * crack * ridge);
+      let c = h < 0.5 ? mixc(dk, md, h * 2) : mixc(md, lt, (h - 0.5) * 2);
+      c = mixc(c, li, sstep(0.62, 0.8, lo[i]) * 0.45 * h);
+      col.set(i, c);
+      rough[i] = 0.93 - 0.06 * h; hgt[i] = h;
+    }
+    return pbrData(S, S, col, rough, hgt, 7);
+  },
+  'mat:planter': () => {
+    const S = 256, lo = fbm(S, S, { px: 2, oct: 4, seed: 171 }), hi = fbm(S, S, { px: 128, oct: 1, seed: 172 });
+    const base = hex('#2f3236'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) { col.set(i, base, 1 + 0.06 * (lo[i] - 0.5) + 0.04 * (hi[i] - 0.5)); rough[i] = 0.6 + 0.1 * (lo[i] - 0.5); hgt[i] = hi[i]; }
+    return pbrData(S, S, col, rough, hgt, 0.35);
+  },
+  'mat:greenRoof': () => {
+    const S = 512, a = fbm(S, S, { px: 4, oct: 5, seed: 181 }), b = fbm(S, S, { px: 4, oct: 4, seed: 182 }), hi = fbm(S, S, { px: 64, oct: 3, seed: 183 }), dots = fbm(S, S, { px: 128, oct: 1, seed: 184 });
+    const green = hex('#56732f'), olive = hex('#7b8236'), ocre = hex('#b08b45'), rust = hex('#93512f'), dark = hex('#2f3c1c');
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) {
+      let c = mixc(green, olive, sstep(0.4, 0.52, a[i]));
+      c = mixc(c, mixc(ocre, rust, sstep(0.4, 0.62, b[i])), sstep(0.58, 0.7, a[i]));
+      c = mixc(c, dark, sstep(0.3, 0.12, dots[i]) * 0.7);
+      col.set(i, c, 0.72 + 0.5 * hi[i]);
+      rough[i] = 0.9; hgt[i] = 0.55 * hi[i] + 0.25 * a[i] + 0.2 * dots[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 5);
+  },
+  'mat:fabric': () => {
+    const S = 256, slubU = fbm(S, S, { px: 1, py: 32, oct: 3, seed: 191 }), slubV = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 192 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 193 });
+    const base = hex('#d9d0bf'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), th = S / 64;
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const tx = x / th, ty = y / th, over = ((Math.floor(tx) + Math.floor(ty)) & 1) === 0;
+      const hw = Math.sin(Math.PI * (tx % 1)) * (0.8 + 0.4 * slubU[i]), hf = Math.sin(Math.PI * (ty % 1)) * (0.8 + 0.4 * slubV[i]);
+      const h = over ? 0.55 + 0.45 * hw : 0.55 + 0.45 * hf;
+      col.set(i, base, 0.86 + 0.14 * h + 0.05 * (lo[i] - 0.5) + 0.04 * ((over ? slubU[i] : slubV[i]) - 0.5));
+      rough[i] = 0.95; hgt[i] = h;
+    }
+    return pbrData(S, S, col, rough, hgt, 1.6);
+  },
+  'mat:oakParquet': () => {
+    const W = 1024, H = 2048, TU = 2.28, TV = 2.4, PW = 0.19, NC = Math.round(TU / PW);
+    const fib = fbm(W, H, { px: 256, py: 8, oct: 3, seed: 401 });      // fibres fines
+    const ray = fbm(W, H, { px: 64, py: 4, oct: 3, seed: 402 });       // veinage (lignes ondulées)
+    // bruits basse fréquence calculés au quart de la résolution (chargement plus rapide)
+    const WL = W >> 2, HL = H >> 2;
+    const lo = fbm(WL, HL, { px: 2, py: 4, oct: 4, seed: 403 });       // nuances larges
+    const knot = fbm(WL, HL, { px: 16, py: 32, oct: 2, seed: 404 });   // petites taches / nœuds
+    const smudge = fbm(WL, HL, { px: 4, py: 8, oct: 4, seed: 405 });   // usure du vernis (rugosité)
+    const r = mulberry32(406);
+    const cols = Array.from({ length: NC }, () => {
+      const two = r() < 0.75, L1 = two ? 0.85 + r() * 0.7 : TV, o = r() * TV;
+      const cuts = two ? [o, (o + L1) % TV] : [o];
+      const planks = cuts.map(() => ({ tint: 0.9 + r() * 0.2, warm: (r() - 0.5) * 0.06, sx: r() * W | 0, sy: r() * H | 0, freq: 5 + r() * 9, ph: r(), rough: (r() - 0.5) * 0.08, rift: r() }));
+      return { cuts, planks };
+    });
+    const early = hex('#c6ab8a'), late = hex('#977b5e'), gap = hex('#4d3c2e');
+    const col = new Buf(W, H), rough = new Float32Array(W * H), hgt = new Float32Array(W * H);
+    for (let y = 0, i = 0; y < H; y++) {
+      const v = (y + 0.5) / H * TV;
+      for (let x = 0; x < W; x++, i++) {
+        const u = (x + 0.5) / W * TU, c = Math.min(NC - 1, Math.floor(u / PW)), lu = u - c * PW, C = cols[c];
+        // lame courante (entre deux coupes, périodique)
+        let pk = 0, dv = 9;
+        if (C.cuts.length === 2) {
+          const [a, b] = C.cuts, inA = a < b ? (v >= a && v < b) : (v >= a || v < b);
+          pk = inA ? 0 : 1;
+        }
+        for (const cu of C.cuts) { const d = Math.abs(v - cu); dv = Math.min(dv, d, TV - d); }
+        const P = C.planks[pk];
+        const du = Math.min(lu, PW - lu);
+        const jy = (y + P.sy) % H, jx = (x + P.sx) % W, j = jy * W + jx, jl = (jy >> 2) * WL + (jx >> 2), il = (y >> 2) * WL + (x >> 2);
+        const t = lu / PW;
+        // veinage : lignes de croissance ondulées (débit sur dosse / faux quartier)
+        const phase = t * P.freq + 2.2 * ray[j] + P.ph + (P.rift > 0.6 ? 0.35 * Math.sin(v * 2.1 + P.ph * 6) : 0);
+        const ln = 0.5 + 0.5 * Math.sin(phase * 6.2832);
+        const l2 = ln * ln, lw = l2 * l2 * l2 * ln * (0.55 + 0.45 * fib[j]);
+        const f = fib[j] - 0.5;
+        const kn = sstep(0.8, 0.95, knot[jl]) * 0.5;
+        const tt = clamp01(0.62 * lw + 0.35 * f + 0.25 * kn + 0.15 * (lo[jl] - 0.5));
+        const k = P.tint * (1 + 0.07 * (lo[il] - 0.5));
+        // micro-chanfrein (1,5 mm) sur les rives longues, joint fin en bout
+        const bev = 1 - sstep(0.0002, 0.0019, du), endj = 1 - sstep(0.0002, 0.0011, dv);
+        const e = (bev > endj ? bev : endj) * 0.75, ke = 1 - e, o4 = i * 4, d = col.d;
+        d[o4] = (early[0] + (late[0] - early[0]) * tt) * k * (1 + P.warm) * ke + gap[0] * e;
+        d[o4 + 1] = (early[1] + (late[1] - early[1]) * tt) * k * ke + gap[1] * e;
+        d[o4 + 2] = (early[2] + (late[2] - early[2]) * tt) * k * (1 - P.warm * 1.5) * ke + gap[2] * e;
+        d[o4 + 3] = 255;
+        const edge = e / 0.75;
+        rough[i] = clamp01(0.47 + P.rough + 0.12 * lw + 0.06 * (smudge[il] - 0.5) + 0.3 * edge);
+        hgt[i] = (1 - 0.8 * Math.max(Math.sqrt(bev), endj)) + 0.035 * lw - 0.02 * f;
+      }
+    }
+    return pbrData(W, H, col, rough, hgt, 2.2);
+  },
+  'mat:wallPaint': () => {
+    const S = 512, peel = fbm(S, S, { px: 64, oct: 3, seed: 411 }), roll = fbm(S, S, { px: 4, py: 16, oct: 3, seed: 412 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 413 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) {
+      col.set(i, w, 0.985 + 0.012 * (lo[i] - 0.5) + 0.006 * (roll[i] - 0.5));
+      rough[i] = 0.9 + 0.05 * (peel[i] - 0.5) - 0.03 * (roll[i] - 0.5);
+      hgt[i] = 0.7 * peel[i] + 0.3 * roll[i];
+    }
+    return pbrData(S, S, col, rough, hgt, 0.9);
+  },
+  'mat:linen': () => {
+    const S = 256, slubU = fbm(S, S, { px: 1, py: 32, oct: 3, seed: 481 }), slubV = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 482 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 483 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), th = S / 48, w = [255, 255, 255];
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const tx = x / th, ty = y / th, over = ((Math.floor(tx) + Math.floor(ty)) & 1) === 0;
+      const hw = Math.sin(Math.PI * (tx % 1)) * (0.8 + 0.4 * slubU[i]), hf = Math.sin(Math.PI * (ty % 1)) * (0.8 + 0.4 * slubV[i]);
+      const h = over ? 0.55 + 0.45 * hw : 0.55 + 0.45 * hf;
+      col.set(i, w, 0.8 + 0.17 * h + 0.04 * (lo[i] - 0.5) + 0.05 * ((over ? slubU[i] : slubV[i]) - 0.5));
+      rough[i] = 0.92 + 0.06 * (1 - h); hgt[i] = h;
+    }
+    return pbrData(S, S, col, rough, hgt, 1.4);
+  },
+  'mat:boucle': () => {
+    const S = 512, r = mulberry32(491), hgt = new Float32Array(S * S), n = fbm(S, S, { px: 8, oct: 3, seed: 492 });
+    for (let k = 0; k < 9000; k++) {
+      const cx = r() * S, cy = r() * S, R = 2.5 + r() * 3.5, R2 = R * R, a = 0.6 + r() * 0.4;
+      for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
+        const d2 = (x - cx) ** 2 + (y - cy) ** 2; if (d2 > R2) continue;
+        const i = ((y + S) % S) * S + ((x + S) % S), ring = Math.sqrt(d2) / R;
+        hgt[i] = Math.max(hgt[i], a * (1 - Math.pow(Math.abs(ring - 0.6) / 0.4, 2)));
+      }
+    }
+    const col = new Buf(S, S), rough = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.74 + 0.24 * hgt[i] + 0.04 * (n[i] - 0.5)); rough[i] = 1; }
+    return pbrData(S, S, col, rough, hgt, 3);
+  },
+  'mat:rugWool': () => {
+    const S = 512, a = fbm(S, S, { px: 2, oct: 4, seed: 501 }), hi = fbm(S, S, { px: 128, py: 64, oct: 2, seed: 502 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255], p = S / 96;
+    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
+      const loop = Math.abs(Math.sin(Math.PI * x / p + ((y / p | 0) & 1) * 1.57)) * Math.abs(Math.sin(Math.PI * y / p));
+      const h = 0.5 * loop + 0.5 * hi[i];
+      col.set(i, w, 0.78 + 0.18 * h + 0.06 * (a[i] - 0.5)); rough[i] = 1; hgt[i] = h;
+    }
+    return pbrData(S, S, col, rough, hgt, 2.5);
+  },
+  'mat:leather': () => {
+    const S = 512, c1 = fbm(S, S, { px: 32, oct: 2, seed: 511 }), c2 = fbm(S, S, { px: 96, oct: 2, seed: 512 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 513 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) {
+      const cell = 1 - Math.abs(2 * c1[i] - 1), fine = 1 - Math.abs(2 * c2[i] - 1), h = 0.6 * Math.pow(cell, 0.5) + 0.4 * fine;
+      col.set(i, w, 0.82 + 0.12 * h + 0.1 * (lo[i] - 0.5)); rough[i] = 0.42 + 0.18 * (1 - h) + 0.06 * (lo[i] - 0.5); hgt[i] = h;
+    }
+    return pbrData(S, S, col, rough, hgt, 1.6);
+  },
+  'mat:metal': () => {
+    const S = 256, br = fbm(S, S, { px: 2, py: 256, oct: 2, seed: 521 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 522 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.97 + 0.03 * br[i]); rough[i] = 0.3 + 0.06 * br[i] + 0.03 * (lo[i] - 0.5); hgt[i] = br[i]; }
+    return pbrData(S, S, col, rough, hgt, 0.6);
+  },
+  'mat:stoneware': () => {
+    const S = 256, wn = white(S * S, 531), lo = fbm(S, S, { px: 4, oct: 3, seed: 532 });
+    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
+    for (let i = 0; i < S * S; i++) { const sp = wn[i] > 0.985 ? 0.55 : 1; col.set(i, w, (0.92 + 0.06 * lo[i]) * sp); rough[i] = 0.7 + 0.08 * lo[i]; hgt[i] = lo[i] * 0.5 + (sp < 1 ? -0.2 : 0); }
+    return pbrData(S, S, col, rough, hgt, 1);
+  },
+  'mat:soilBase': () => {
+    const S = 512, lo = fbm(S, S, { px: 4, oct: 4, seed: 151 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 152 });
+    const a = hex('#33271b'), b = hex('#57432e'), col = new Buf(S, S);
+    for (let i = 0; i < S * S; i++) col.set(i, mixc(a, b, mid[i] * 0.7 + lo[i] * 0.3));
+    return { w: S, h: S, col: col.d, lo };
+  },
+  'mat:woodSoffit': () => woodData(512, TILE.soffit, 0.1, 0.008, false, '#9a6a42', '#6e4728', '#b98654', 51),
+  'mat:deck': () => woodData(512, TILE.deck, 0.14, 0.007, true, '#8a5a3b', '#5c3a24', '#a87452', 61),
+  'mat:tileFloor': () => tilesData({ S: 1024, tile: 1.2, nx: 2, ny: 2, base: '#d2ccc2', jointC: '#a8a196', rough: 0.5, stone: 0.07, seed: 421 }),
+};
+
+// ---------------------------------------------------------------------------
 // Fabrique principale
 // ---------------------------------------------------------------------------
 export function createMaterials(THREE, renderer) {
@@ -737,37 +1171,26 @@ export function createMaterials(THREE, renderer) {
     normalMap: hgt ? tex(canvasRGBA(w, h, normalData(hgt, w, h, ns)), tile) : null,
   });
   const std = (set, p) => new THREE.MeshStandardMaterial({ ...set, roughness: 1, metalness: 0, ...p });
+  // textures calculées par tâches (TEX_TASKS) : mêmes cartes que pbrSet, à partir des pixels déjà prêts
+  const pbrFromData = (R, tile) => ({
+    map: tex(canvasRGBA(R.w, R.h, R.col), tile, true),
+    roughnessMap: R.rough ? tex(canvasRGBA(R.w, R.h, R.rough), tile) : null,
+    normalMap: R.nrm ? tex(canvasRGBA(R.w, R.h, R.nrm), tile) : null,
+  });
+  const pbrOf = (name, tile) => pbrFromData(take(name, TEX_TASKS[name]), tile);
+  const cardOf = (name) => cardFromData(THREE, take(name, TEX_TASKS[name]), aniso);
 
   const M = {};
 
   // --- Enduit blanc cassé ---------------------------------------------------
   {
-    const S = 512, lo = fbm(S, S, { px: 2, oct: 4, seed: 1 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 2 }), hi = fbm(S, S, { px: 128, oct: 2, seed: 3 });
-    const base = hex('#efeee9'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      col.set(i, base, 1 + 0.035 * (lo[i] - 0.5) + 0.03 * (hi[i] - 0.5) + 0.015 * (mid[i] - 0.5));
-      rough[i] = 0.88 + 0.1 * (hi[i] - 0.5);
-      hgt[i] = 0.35 * mid[i] + 0.65 * hi[i];
-    }
-    M.renderWhite = std(pbrSet(S, S, TILE.render, col, rough, hgt, 1.6), { name: 'renderWhite', normalScale: new THREE.Vector2(0.6, 0.6) });
+    M.renderWhite = std(pbrOf('mat:enduit', TILE.render), { name: 'renderWhite', normalScale: new THREE.Vector2(0.6, 0.6) });
   }
 
   lap('Enduit');
   // --- Bardage anthracite (joints verticaux tous les 1,2 m) ------------------
   {
-    const S = 512, lo = fbm(S, S, { px: 2, oct: 4, seed: 4 }), hi = fbm(S, S, { px: 128, oct: 2, seed: 5 }), streak = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 6 });
-    // teinte légèrement chaude : le reflet du ciel bleu suffit à la refroidir
-    const base = hex('#4a4947'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    const tint = [0.03, -0.035];
-    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
-      const u = (x + 0.5) / S * TILE.cladding, panel = u < 1.2 ? 0 : 1, lu = u - panel * 1.2;
-      const d = Math.min(lu, 1.2 - lu), groove = 1 - sstep(0.002, 0.007, d);
-      const k = (1 + tint[panel] + 0.05 * (lo[i] - 0.5) + 0.025 * (hi[i] - 0.5) + 0.03 * (streak[i] - 0.5)) * (1 - 0.55 * groove);
-      col.set(i, base, k);
-      rough[i] = 0.6 + 0.08 * (lo[i] - 0.5) + 0.25 * groove;
-      hgt[i] = (1 - groove) + 0.015 * hi[i];
-    }
-    M.cladding = std(pbrSet(S, S, TILE.cladding, col, rough, hgt, 3.5), { name: 'cladding' });
+    M.cladding = std(pbrOf('mat:bardage', TILE.cladding), { name: 'cladding' });
     M.cladding.envMapIntensity = 0.7; // plus haut, le bardage vire au bleu marine sous le ciel
     M.cladding.userData.fixedEnv = true;
   }
@@ -775,77 +1198,24 @@ export function createMaterials(THREE, renderer) {
   lap('Bardage');
   // --- Rives de dalles : béton lissé peint ------------------------------------
   {
-    const S = 256, lo = fbm(S, S, { px: 2, oct: 4, seed: 7 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 8 });
-    const base = hex('#f4f3ef'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      col.set(i, base, 1 + 0.025 * (lo[i] - 0.5) + 0.012 * (hi[i] - 0.5));
-      rough[i] = 0.5 + 0.1 * (lo[i] - 0.5); hgt[i] = hi[i];
-    }
-    M.slabWhite = std(pbrSet(S, S, TILE.slab, col, rough, hgt, 0.8), { name: 'slabWhite' });
+    M.slabWhite = std(pbrOf('mat:rives', TILE.slab), { name: 'slabWhite' });
   }
 
   lap('Rives');
   // --- Bois : lames (sous-face et terrasse) ----------------------------------
-  const woodSet = (S, tile, boardW, gapW, cuts, baseHex, darkHex, lightHex, seed) => {
-    const grain = fbm(S, S, { px: 1, py: 64, oct: 4, seed }), fine = fbm(S, S, { px: 4, py: 256, oct: 2, seed: seed + 1 }), lo = fbm(S, S, { px: 2, oct: 3, seed: seed + 2 });
-    const r = mulberry32(seed), nb = Math.round(tile / boardW);
-    const boards = Array.from({ length: nb }, () => ({ shift: [r() * S | 0, r() * S | 0], tint: [0.88 + r() * 0.24, 0.88 + r() * 0.24], cut: r() * tile }));
-    const base = hex(baseHex), dark = hex(darkHex), light = hex(lightHex), gapC = hex('#24190f');
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0, i = 0; y < S; y++) {
-      const v = (y + 0.5) / S * tile, b = Math.min(nb - 1, Math.floor(v / boardW)), lv = v - b * boardW;
-      const dv = Math.min(lv, boardW - lv), B = boards[b];
-      for (let x = 0; x < S; x++, i++) {
-        const u = (x + 0.5) / S * tile;
-        let piece = 0, du = 1;
-        if (cuts) {
-          const c1 = B.cut, c2 = (B.cut + tile / 2) % tile;
-          const inA = c1 < c2 ? (u >= c1 && u < c2) : (u >= c1 || u < c2);
-          piece = inA ? 0 : 1;
-          du = Math.min(Math.abs(u - c1), Math.abs(u - c2), tile - Math.abs(u - c1), tile - Math.abs(u - c2));
-        }
-        const gap = Math.max(1 - sstep(gapW * 0.35, gapW * 0.7, dv), 1 - sstep(0.001, 0.003, du));
-        const gx = (x + B.shift[piece]) % S, gr = grain[y * S + gx], fn = fine[y * S + gx];
-        const t = Math.pow(gr, 1.4);
-        let c = mixc(dark, light, t); c = mixc(c, base, 0.45);
-        const k = B.tint[piece] * (0.92 + 0.16 * fn) * (1 + 0.08 * (lo[i] - 0.5)) * (0.8 + 0.2 * sstep(0, gapW * 1.6, dv));
-        col.set(i, mixc(c.map(q => q * k), gapC, gap));
-        rough[i] = 0.6 + 0.12 * gr + 0.3 * gap;
-        hgt[i] = (1 - gap) * (0.85 + 0.15 * sstep(0, gapW * 1.5, dv)) + 0.04 * fn + 0.03 * gr;
-      }
-    }
-    return pbrSet(S, S, tile, col, rough, hgt, 3);
-  };
-  M.woodSoffit = std(woodSet(512, TILE.soffit, 0.1, 0.008, false, '#9a6a42', '#6e4728', '#b98654', 51), { name: 'woodSoffit' });
-  M.deck = std(woodSet(512, TILE.deck, 0.14, 0.007, true, '#8a5a3b', '#5c3a24', '#a87452', 61), { name: 'deck' });
+  M.woodSoffit = std(pbrOf('mat:woodSoffit', TILE.soffit), { name: 'woodSoffit' });
+  M.deck = std(pbrOf('mat:deck', TILE.deck), { name: 'deck' });
 
   lap('Bois');
   // --- Porte sectionnelle (rainures tous les 0,5 m) ---------------------------
   {
-    const S = 256, lo = fbm(S, S, { px: 2, oct: 3, seed: 71 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 72 }), brush = fbm(S, S, { px: 1, py: 128, oct: 2, seed: 73 });
-    const base = hex('#2b2e31'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0, i = 0; y < S; y++) {
-      const v = (y + 0.5) / S * TILE.garage, lv = v % 0.5, d = Math.min(lv, 0.5 - lv);
-      const groove = 1 - sstep(0.002, 0.012, d), lip = sstep(0.012, 0.018, d) * (1 - sstep(0.018, 0.03, d));
-      for (let x = 0; x < S; x++, i++) {
-        col.set(i, base, (1 + 0.04 * (lo[i] - 0.5) + 0.02 * (brush[i] - 0.5)) * (1 - 0.5 * groove) * (1 + 0.08 * lip));
-        rough[i] = 0.48 + 0.08 * (hi[i] - 0.5) + 0.15 * groove;
-        hgt[i] = 1 - groove * 0.9 + 0.1 * lip + 0.01 * hi[i];
-      }
-    }
-    M.garageDoor = std(pbrSet(S, S, TILE.garage, col, rough, hgt, 6), { name: 'garageDoor', metalness: 0.35 });
+    M.garageDoor = std(pbrOf('mat:garage', TILE.garage), { name: 'garageDoor', metalness: 0.35 });
   }
 
   lap('Porte');
   // --- Porte d'entrée ------------------------------------------------------------
   {
-    const S = 256, lo = fbm(S, S, { px: 2, oct: 3, seed: 81 }), brush = fbm(S, S, { px: 1, py: 128, oct: 2, seed: 82 });
-    const base = hex('#2a2d30'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      col.set(i, base, 1 + 0.03 * (lo[i] - 0.5) + 0.02 * (brush[i] - 0.5));
-      rough[i] = 0.42 + 0.1 * (brush[i] - 0.5); hgt[i] = brush[i] * 0.3;
-    }
-    M.doorDark = std(pbrSet(S, S, TILE.door, col, rough, hgt, 0.6), { name: 'doorDark', metalness: 0.3 });
+    M.doorDark = std(pbrOf('mat:door', TILE.door), { name: 'doorDark', metalness: 0.3 });
   }
 
   lap('Porte');
@@ -958,45 +1328,13 @@ export function createMaterials(THREE, renderer) {
   lap('Intérieur');
   // --- Pavés de l'allée ---------------------------------------------------------------
   {
-    const S = 512, tile = TILE.paver, lo = fbm(S, S, { px: 2, oct: 4, seed: 101 }), hi = fbm(S, S, { px: 64, oct: 3, seed: 102 }), wn = white(S * S, 103);
-    const r = mulberry32(104), tints = Array.from({ length: 64 }, () => [(r() - 0.5) * 2, (r() - 0.5) * 2]);
-    const base = hex('#b9b8b3'), jointC = hex('#7b766c'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0, i = 0; y < S; y++) {
-      const v = (y + 0.5) / S * tile, row = Math.floor(v / 0.3), lv = v - row * 0.3;
-      for (let x = 0; x < S; x++, i++) {
-        const u = ((x + 0.5) / S * tile + (row & 1) * 0.3) % tile, c = Math.floor(u / 0.6), lu = u - c * 0.6;
-        const d = Math.min(lu, 0.6 - lu, lv, 0.3 - lv), joint = 1 - sstep(0.003, 0.005, d), bevel = sstep(0.004, 0.012, d);
-        const [t1, t2] = tints[(row * 4 + c) & 63];
-        const spk = wn[i] > 0.97 ? -0.12 : wn[i] < 0.03 ? 0.08 : 0;
-        const k = 1 + 0.06 * t1 + 0.05 * (lo[i] - 0.5) + 0.06 * (hi[i] - 0.5) + spk;
-        const sc = [base[0] * k * (1 + 0.015 * t2), base[1] * k, base[2] * k * (1 - 0.015 * t2)];
-        col.set(i, mixc(sc.map(q => q * (0.88 + 0.12 * bevel)), jointC, joint));
-        rough[i] = 0.78 + 0.08 * (hi[i] - 0.5) + 0.15 * joint;
-        hgt[i] = bevel * (0.88 + 0.12 * hi[i]);
-      }
-    }
-    M.paver = std(pbrSet(S, S, tile, col, rough, hgt, 4), { name: 'paver' });
+    M.paver = std(pbrOf('mat:paver', TILE.paver), { name: 'paver' });
   }
 
   lap('Pavés');
   // --- Trottoir : dalles béton 1,5 m ------------------------------------------------
   {
-    const S = 512, tile = TILE.sidewalk, lo = fbm(S, S, { px: 2, oct: 4, seed: 111 }), stain = fbm(S, S, { px: 4, oct: 4, seed: 112 }), broom = fbm(S, S, { px: 2, py: 128, oct: 2, seed: 113 }), agg = fbm(S, S, { px: 128, oct: 2, seed: 114 });
-    const r = mulberry32(115), tints = [r() - 0.5, r() - 0.5, r() - 0.5, r() - 0.5];
-    const base = hex('#cfcdc6'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0, i = 0; y < S; y++) {
-      const v = (y + 0.5) / S * tile, sv = v < 1.5 ? 0 : 1, lv = v - sv * 1.5;
-      for (let x = 0; x < S; x++, i++) {
-        const u = (x + 0.5) / S * tile, su = u < 1.5 ? 0 : 1, lu = u - su * 1.5;
-        const d = Math.min(lu, 1.5 - lu, lv, 1.5 - lv), joint = 1 - sstep(0.003, 0.007, d);
-        const st = sstep(0.3, 0.12, stain[i]);
-        const k = (1 + 0.05 * tints[sv * 2 + su] + 0.05 * (lo[i] - 0.5) + 0.03 * (broom[i] - 0.5) + 0.06 * (agg[i] - 0.5) - 0.1 * st) * (1 - 0.4 * joint);
-        col.set(i, base, k);
-        rough[i] = 0.84 + 0.06 * (agg[i] - 0.5) - 0.1 * st + 0.1 * joint;
-        hgt[i] = (1 - joint) * 0.8 + 0.1 * broom[i] + 0.1 * agg[i];
-      }
-    }
-    M.sidewalk = std(pbrSet(S, S, tile, col, rough, hgt, 2.5), { name: 'sidewalk' });
+    M.sidewalk = std(pbrOf('mat:sidewalk', TILE.sidewalk), { name: 'sidewalk' });
   }
 
   lap('Trottoir');
@@ -1005,96 +1343,39 @@ export function createMaterials(THREE, renderer) {
   // par texel et nuances de chaussée à grande échelle ; avant : seuils sur un bruit de valeur à 4 texels par cellule,
   // dont la grille alignée donnait des pavés pixelisés au ras du sol
   {
-    const S = 1024, tile = TILE.asphalt, C = 128, cs = S / C;           // 128 cellules par tuile (≈ 1,6 cm)
-    const lo = fbm(S, S, { px: 2, oct: 4, seed: 123 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 124 });
-    const hsh = (x, y, k) => { let n = (x * 374761393 + y * 668265263 + k * 1442695041) | 0; n = (n ^ (n >>> 13)) * 1274126177; n = n ^ (n >>> 16); return (n >>> 0) / 4294967296; };
-    const base = hex('#4b4e52'), light = hex('#9a9b99'), warm = hex('#8a8178'), dark = hex('#2e3033');
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      const gx = x / cs, gy = y / cs, ix = Math.floor(gx), iy = Math.floor(gy);
-      let best = 9, b2 = 9, bv = 0, br = 1;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const cx = ix + dx, cy = iy + dy, wx = ((cx % C) + C) % C, wy = ((cy % C) + C) % C;
-        const px = cx + 0.15 + 0.7 * hsh(wx, wy, 1), py = cy + 0.15 + 0.7 * hsh(wx, wy, 2);
-        const r = 0.28 + 0.3 * hsh(wx, wy, 3), d = Math.hypot(gx - px, gy - py) / r;
-        if (d < best) { b2 = best; best = d; bv = hsh(wx, wy, 4); br = r; } else if (d < b2) b2 = d;
-      }
-      const i = y * S + x;
-      const stone = 1 - sstep(0.75, 1.0, best);                           // granulat (bord adouci)
-      const sp = hsh(x, y, 9) - 0.5;                                        // grain fin du liant
-      // granulats surtout gris sombre (basalte, calcaire patiné), quelques éclats clairs (15 %) : enrobé, pas gravier
-      const sc = bv < 0.15 ? mixc(base, light, 0.6 + 2 * bv) : bv < 0.6 ? mixc(dark, base, (bv - 0.15) / 0.45 * 1.3) : mixc(base, warm, (bv - 0.6) * 0.9);
-      let c = mixc(base, sc, stone * 0.6);
-      c = mixc(c, dark, sstep(0.0, 0.5, 1 - b2 + best) * 0.25 * (1 - stone));   // creux entre granulats
-      col.set(i, c, 1 + 0.06 * (lo[i] - 0.5) + 0.06 * (mid[i] - 0.5) + 0.06 * sp);
-      rough[i] = 0.92 - 0.14 * stone * (bv > 0.4 ? 1 : 0.5) + 0.03 * sp;
-      hgt[i] = stone * (0.6 + 0.4 * Math.sqrt(Math.max(0, 1 - best * best))) + 0.08 * sp;
-    }
-    M.asphalt = std(pbrSet(S, S, tile, col, rough, hgt, 1.6), { name: 'asphalt', normalScale: new THREE.Vector2(0.7, 0.7) });
+    M.asphalt = std(pbrOf('mat:asphalt', TILE.asphalt), { name: 'asphalt', normalScale: new THREE.Vector2(0.7, 0.7) });
   }
 
   lap('Enrobé');
   // --- Bordure béton ------------------------------------------------------------------------
   {
-    const S = 256, tile = TILE.curb, lo = fbm(S, S, { px: 2, oct: 4, seed: 131 }), agg = fbm(S, S, { px: 64, oct: 2, seed: 132 });
-    const base = hex('#bdbbb5'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
-      const u = (x + 0.5) / S * tile, lu = u % 1, d = Math.min(lu, 1 - lu), joint = 1 - sstep(0.003, 0.008, d);
-      col.set(i, base, (1 + 0.06 * (lo[i] - 0.5) + 0.06 * (agg[i] - 0.5)) * (1 - 0.45 * joint));
-      rough[i] = 0.85 + 0.06 * (agg[i] - 0.5); hgt[i] = (1 - joint) * 0.8 + 0.2 * agg[i];
-    }
-    M.curb = std(pbrSet(S, S, tile, col, rough, hgt, 2), { name: 'curb' });
+    M.curb = std(pbrOf('mat:curb', TILE.curb), { name: 'curb' });
   }
 
   lap('Bordure');
   // --- Pelouse (fond bruité + milliers de brins dessinés) ------------------------------
   {
-    const S = 1024, lo = fbm(S, S, { px: 2, oct: 4, seed: 141 }), mid = fbm(S, S, { px: 8, oct: 3, seed: 142 });
-    const dark = hex('#2f3c14'), midc = hex('#55651f'), dry = hex('#7d7b34'), col = new Buf(S, S);
-    for (let i = 0; i < S * S; i++) {
-      let c = mixc(dark, midc, mid[i]); c = mixc(c, dry, sstep(0.62, 0.9, lo[i]) * 0.5);
-      col.set(i, c, 0.9 + 0.2 * lo[i]);
-    }
-    const cv = canvasRGBA(S, S, col.d), g = cv.getContext('2d'), r = mulberry32(143);
-    const buckets = Array.from({ length: 14 }, (_, k) => ({ p: new Path2D(), c: hsl(66 + r() * 24, 45 + r() * 25, 14 + k * 2.5), w: 1 + r() * 0.9 }));
-    for (let n = 0; n < 70000; n++) {
-      const b = buckets[(r() * 14) | 0];
-      const x = r() * S, y = r() * S, a = r() * Math.PI * 2, L = 5 + r() * 12;
-      b.p.moveTo(x, y); b.p.quadraticCurveTo(x + Math.cos(a) * L * 0.5 + (r() - 0.5) * 3, y + Math.sin(a) * L * 0.5, x + Math.cos(a) * L, y + Math.sin(a) * L);
-    }
-    g.lineCap = 'round';
-    for (const b of buckets) {
-      g.strokeStyle = b.c; g.lineWidth = b.w; g.globalAlpha = 0.85;
-      for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) { g.setTransform(1, 0, 0, 1, ox, oy); g.stroke(b.p); }
-    }
-    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
-    const d = g.getImageData(0, 0, S, S).data, rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) { const l = (d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11) / 255; hgt[i] = l; rough[i] = 0.92 - 0.25 * l; }
+    const S = 1024, R = take('mat:grass', TEX_TASKS['mat:grass']);
     M.grass = new THREE.MeshStandardMaterial({
-      name: 'grass', map: tex(cv, TILE.grass, true), roughnessMap: tex(canvasRGBA(S, S, grayData(rough)), TILE.grass),
-      normalMap: tex(canvasRGBA(S, S, normalData(hgt, S, S, 3)), TILE.grass), roughness: 1, metalness: 0,
+      name: 'grass', map: tex(canvasRGBA(S, S, R.col), TILE.grass, true), roughnessMap: tex(canvasRGBA(S, S, R.rough), TILE.grass),
+      normalMap: tex(canvasRGBA(S, S, R.nrm), TILE.grass), roughness: 1, metalness: 0,
     });
   }
 
   lap('Pelouse');
   // --- Sol de prairie (tapis herbacé détaillé, 3 m par répétition) ----------------------
   {
-    const S = 1024, cv = makeCanvas(S, S), g = cv.getContext('2d');
-    drawMeadowGround(g, S, 231);
-    const d = g.getImageData(0, 0, S, S).data, hgt = new Float32Array(S * S), rough = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) { const l = (d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11) / 255; hgt[i] = l; rough[i] = 0.95 - 0.2 * l; }
+    const S = 1024, R = take('mat:meadow', TEX_TASKS['mat:meadow']);
     M.meadowGround = new THREE.MeshStandardMaterial({
-      name: 'meadowGround', map: tex(cv, 3.0, true), roughnessMap: tex(canvasRGBA(S, S, grayData(rough)), 3.0),
-      normalMap: tex(canvasRGBA(S, S, normalData(hgt, S, S, 4)), 3.0), roughness: 1, metalness: 0,
+      name: 'meadowGround', map: tex(canvasRGBA(S, S, R.col), 3.0, true), roughnessMap: tex(canvasRGBA(S, S, R.rough), 3.0),
+      normalMap: tex(canvasRGBA(S, S, R.nrm), 3.0), roughness: 1, metalness: 0,
     });
   }
   lap('meadowGround');
   // --- Terre de massif (mottes + paillis) -------------------------------------------------
   {
-    const S = 512, lo = fbm(S, S, { px: 4, oct: 4, seed: 151 }), mid = fbm(S, S, { px: 16, oct: 3, seed: 152 });
-    const a = hex('#33271b'), b = hex('#57432e'), col = new Buf(S, S);
-    for (let i = 0; i < S * S; i++) col.set(i, mixc(a, b, mid[i] * 0.7 + lo[i] * 0.3));
-    const cv = canvasRGBA(S, S, col.d), g = cv.getContext('2d'), r = mulberry32(153);
+    const S = 512, SB = take('mat:soilBase', TEX_TASKS['mat:soilBase']), lo = SB.lo;
+    const cv = canvasRGBA(S, S, SB.col), g = cv.getContext('2d'), r = mulberry32(153);
     const buckets = ['#6b5038', '#3a2b1d', '#7a5d40', '#2b2017', '#8a8070'].map((c, k) => ({ p: new Path2D(), c, w: k === 4 ? 2.5 : 2 + r() * 2 }));
     for (let n = 0; n < 5000; n++) {
       const b = buckets[n % 37 === 0 ? 4 : (r() * 4) | 0], x = r() * S, y = r() * S, a2 = r() * 6.3, L = buckets.indexOf(b) === 4 ? 1 : 4 + r() * 10;
@@ -1111,58 +1392,25 @@ export function createMaterials(THREE, renderer) {
   lap('Terre');
   // --- Écorce (sillons verticaux, plaques, lichens) -----------------------------------------
   {
-    const S = 512, f = fbm(S, S, { px: 16, py: 2, oct: 4, seed: 161 }), cr = fbm(S, S, { px: 4, py: 32, oct: 3, seed: 162 }), hi = fbm(S, S, { px: 64, oct: 2, seed: 163 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 164 });
-    const dk = hex('#2b241e'), md = hex('#5d554c'), lt = hex('#8f877c'), li = hex('#8b9473');
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      const ridge = Math.pow(1 - Math.abs(2 * f[i] - 1), 0.7), crack = 1 - sstep(0.04, 0.12, Math.abs(cr[i] - 0.5));
-      const h = clamp01(ridge * (0.75 + 0.25 * hi[i]) - 0.35 * crack * ridge);
-      let c = h < 0.5 ? mixc(dk, md, h * 2) : mixc(md, lt, (h - 0.5) * 2);
-      c = mixc(c, li, sstep(0.62, 0.8, lo[i]) * 0.45 * h);
-      col.set(i, c);
-      rough[i] = 0.93 - 0.06 * h; hgt[i] = h;
-    }
-    M.bark = std(pbrSet(S, S, TILE.bark, col, rough, hgt, 7), { name: 'bark' });
+    M.bark = std(pbrOf('mat:bark', TILE.bark), { name: 'bark' });
   }
 
   lap('Écorce');
   // --- Bac de jardinière -------------------------------------------------------------------
   {
-    const S = 256, lo = fbm(S, S, { px: 2, oct: 4, seed: 171 }), hi = fbm(S, S, { px: 128, oct: 1, seed: 172 });
-    const base = hex('#2f3236'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) { col.set(i, base, 1 + 0.06 * (lo[i] - 0.5) + 0.04 * (hi[i] - 0.5)); rough[i] = 0.6 + 0.1 * (lo[i] - 0.5); hgt[i] = hi[i]; }
-    M.planter = std(pbrSet(S, S, TILE.planter, col, rough, hgt, 0.35), { name: 'planter' });
+    M.planter = std(pbrOf('mat:planter', TILE.planter), { name: 'planter' });
   }
 
   lap('Bac');
   // --- Toiture végétalisée : mosaïque vert / olive / ocre / rouille ---------------------------
   {
-    const S = 512, a = fbm(S, S, { px: 4, oct: 5, seed: 181 }), b = fbm(S, S, { px: 4, oct: 4, seed: 182 }), hi = fbm(S, S, { px: 64, oct: 3, seed: 183 }), dots = fbm(S, S, { px: 128, oct: 1, seed: 184 });
-    const green = hex('#56732f'), olive = hex('#7b8236'), ocre = hex('#b08b45'), rust = hex('#93512f'), dark = hex('#2f3c1c');
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    for (let i = 0; i < S * S; i++) {
-      let c = mixc(green, olive, sstep(0.4, 0.52, a[i]));
-      c = mixc(c, mixc(ocre, rust, sstep(0.4, 0.62, b[i])), sstep(0.58, 0.7, a[i]));
-      c = mixc(c, dark, sstep(0.3, 0.12, dots[i]) * 0.7);
-      col.set(i, c, 0.72 + 0.5 * hi[i]);
-      rough[i] = 0.9; hgt[i] = 0.55 * hi[i] + 0.25 * a[i] + 0.2 * dots[i];
-    }
-    M.greenRoof = std(pbrSet(S, S, TILE.greenRoof, col, rough, hgt, 5), { name: 'greenRoof' });
+    M.greenRoof = std(pbrOf('mat:greenRoof', TILE.greenRoof), { name: 'greenRoof' });
   }
 
   lap('Toiture');
   // --- Lin écru des coussins ---------------------------------------------------------------
   {
-    const S = 256, slubU = fbm(S, S, { px: 1, py: 32, oct: 3, seed: 191 }), slubV = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 192 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 193 });
-    const base = hex('#d9d0bf'), col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), th = S / 64;
-    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
-      const tx = x / th, ty = y / th, over = ((Math.floor(tx) + Math.floor(ty)) & 1) === 0;
-      const hw = Math.sin(Math.PI * (tx % 1)) * (0.8 + 0.4 * slubU[i]), hf = Math.sin(Math.PI * (ty % 1)) * (0.8 + 0.4 * slubV[i]);
-      const h = over ? 0.55 + 0.45 * hw : 0.55 + 0.45 * hf;
-      col.set(i, base, 0.86 + 0.14 * h + 0.05 * (lo[i] - 0.5) + 0.04 * ((over ? slubU[i] : slubV[i]) - 0.5));
-      rough[i] = 0.95; hgt[i] = h;
-    }
-    M.fabric = std(pbrSet(S, S, TILE.fabric, col, rough, hgt, 1.6), { name: 'fabric' });
+    M.fabric = std(pbrOf('mat:fabric', TILE.fabric), { name: 'fabric' });
   }
 
   lap('Lin');
@@ -1170,35 +1418,35 @@ export function createMaterials(THREE, renderer) {
   const foliage = (name, tex, p = {}, f = {}) => patchFoliage(THREE, new THREE.MeshStandardMaterial({
     name, map: tex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: p.roughness ?? 0.75, metalness: 0, envMapIntensity: p.env ?? 0.7, color: p.color ?? 0xffffff,
   }), f);
-  M.leafA = foliage('leafA', cardTexture(THREE, 512, 512, (g, w, h) => drawTwig(g, w, h, 'A', 201), aniso));
+  M.leafA = foliage('leafA', cardOf('mat:leafA'));
   lap('leafA');
-  M.leafB = foliage('leafB', cardTexture(THREE, 512, 512, (g, w, h) => drawTwig(g, w, h, 'B', 202), aniso));
+  M.leafB = foliage('leafB', cardOf('mat:leafB'));
   lap('leafB');
-  M.leafC = foliage('leafC', cardTexture(THREE, 512, 512, (g, w, h) => drawTwig(g, w, h, 'C', 203), aniso));
+  M.leafC = foliage('leafC', cardOf('mat:leafC'));
   lap('leafC');
-  M.leafClump = foliage('leafClump', cardTexture(THREE, 512, 512, (g, w, h) => drawClump(g, w, h, 204), aniso));
+  M.leafClump = foliage('leafClump', cardOf('mat:leafClump'));
   lap('leafClump');
   // Feuillages complémentaires utilisés par landscape.js
-  M.leafTropical = foliage('leafTropical', cardTexture(THREE, 256, 1024, (g, w, h) => drawStrelitzia(g, w, h, 211), aniso), { roughness: 0.6, env: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.6 });
+  M.leafTropical = foliage('leafTropical', cardOf('mat:leafTropical'), { roughness: 0.6, env: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.6 });
   lap('leafTropical');
-  M.leafPalm = foliage('leafPalm', cardTexture(THREE, 512, 1024, (g, w, h) => drawPalm(g, w, h, 212), aniso), { roughness: 0.65, env: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.7 });
+  M.leafPalm = foliage('leafPalm', cardOf('mat:leafPalm'), { roughness: 0.65, env: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.7 });
   lap('leafPalm');
-  M.leafTrail = foliage('leafTrail', cardTexture(THREE, 256, 1024, (g, w, h) => drawTrail(g, w, h, 213), aniso), { roughness: 0.55 }, { crown: 0, wrap: 0.5, trans: 0.5 });
+  M.leafTrail = foliage('leafTrail', cardOf('mat:leafTrail'), { roughness: 0.55 }, { crown: 0, wrap: 0.5, trans: 0.5 });
   lap('leafTrail');
-  M.grassBlade = foliage('grassBlade', cardTexture(THREE, 512, 512, (g, w, h) => drawBlades(g, w, h, 214), aniso), { roughness: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.8 });
+  M.grassBlade = foliage('grassBlade', cardOf('mat:grassBlade'), { roughness: 0.8 }, { crown: 0, wrap: 0.6, trans: 0.8 });
   lap('grassBlade');
-  M.grassPlume = foliage('grassPlume', cardTexture(THREE, 512, 1024, (g, w, h) => drawPlumes(g, w, h, 215), aniso), { roughness: 0.85 }, { crown: 0, wrap: 0.6, trans: 0.9 });
+  M.grassPlume = foliage('grassPlume', cardOf('mat:grassPlume'), { roughness: 0.85 }, { crown: 0, wrap: 0.6, trans: 0.9 });
   lap('grassPlume');
-  M.flowerLav = foliage('flowerLav', cardTexture(THREE, 512, 512, (g, w, h) => drawLavender(g, w, h, 216), aniso), { roughness: 0.8 }, { crown: 0, wrap: 0.5, trans: 0.4 });
+  M.flowerLav = foliage('flowerLav', cardOf('mat:flowerLav'), { roughness: 0.8 }, { crown: 0, wrap: 0.5, trans: 0.4 });
   lap('flowerLav');
-  M.flowerWhite = foliage('flowerWhite', cardTexture(THREE, 512, 512, (g, w, h) => drawWhiteFlowers(g, w, h, 217), aniso), { roughness: 0.75 }, { crown: 0, wrap: 0.5, trans: 0.5 });
+  M.flowerWhite = foliage('flowerWhite', cardOf('mat:flowerWhite'), { roughness: 0.75 }, { crown: 0, wrap: 0.5, trans: 0.5 });
   lap('flowerWhite');
-  M.sedum = foliage('sedum', cardTexture(THREE, 512, 512, (g, w, h) => drawSedum(g, w, h, 218), aniso), { roughness: 0.8 }, { crown: 0, wrap: 0.3, trans: 0.3 });
+  M.sedum = foliage('sedum', cardOf('mat:sedum'), { roughness: 0.8 }, { crown: 0, wrap: 0.3, trans: 0.3 });
   lap('sedum');
 
   lap('Feuillages');
   {
-    const t = cardTexture(THREE, 1024, 384, (g, w, h) => drawTreeLine(g, w, h, 219), aniso);
+    const t = cardOf('mat:forestEdge');
     t.wrapS = THREE.RepeatWrapping;
     M.forestEdge = foliage('forestEdge', t, { roughness: 0.9, env: 0.6 }, { crown: 0, wrap: 0.5, trans: 0.2 });
   }
@@ -1210,7 +1458,7 @@ export function createMaterials(THREE, renderer) {
   M.marking = new THREE.MeshStandardMaterial({ name: 'marking', color: 0xe9e8e2, roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
   // --- Intérieurs : sols, murs, plafonds, carrelages, palette de décoration --------------
-  interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap });
+  interiorMaterials(THREE, M, { tex, pbrSet, pbrOf, pbrFromData, std, aniso, lap });
   lap('Intérieurs');
 
   // Métadonnées non énumérables (Object.values(M) ne contient que des matériaux)
@@ -1222,7 +1470,7 @@ export function createMaterials(THREE, renderer) {
 // Intérieurs (passe « intérieurs photoréalistes ») — voir le bloc de documentation
 // en tête de fichier pour la liste des matériaux exportés.
 // ===========================================================================
-function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }) {
+function interiorMaterials(THREE, M, { tex, pbrSet, pbrOf, pbrFromData, std, aniso, lap = () => {} }) {
   let PAINT_DETAIL = null;
   const V2 = (x, y = x) => new THREE.Vector2(x, y);
   const mark = (m, kind) => { m.userData.interior = kind || true; return m; };
@@ -1236,59 +1484,8 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   // ---- Parquet chêne naturel, lames 19 cm × 0,9–2,4 m, micro-chanfreins, vernis mat satiné ----
   // Lames orientées selon v (direction -z du monde avec les UV « boîte » de lots.js).
   {
-    const W = 1024, H = 2048, TU = 2.28, TV = 2.4, PW = 0.19, NC = Math.round(TU / PW);
-    const fib = fbm(W, H, { px: 256, py: 8, oct: 3, seed: 401 });      // fibres fines
-    const ray = fbm(W, H, { px: 64, py: 4, oct: 3, seed: 402 });       // veinage (lignes ondulées)
-    // bruits basse fréquence calculés au quart de la résolution (chargement plus rapide)
-    const WL = W >> 2, HL = H >> 2;
-    const lo = fbm(WL, HL, { px: 2, py: 4, oct: 4, seed: 403 });       // nuances larges
-    const knot = fbm(WL, HL, { px: 16, py: 32, oct: 2, seed: 404 });   // petites taches / nœuds
-    const smudge = fbm(WL, HL, { px: 4, py: 8, oct: 4, seed: 405 });   // usure du vernis (rugosité)
-    const r = mulberry32(406);
-    const cols = Array.from({ length: NC }, () => {
-      const two = r() < 0.75, L1 = two ? 0.85 + r() * 0.7 : TV, o = r() * TV;
-      const cuts = two ? [o, (o + L1) % TV] : [o];
-      const planks = cuts.map(() => ({ tint: 0.9 + r() * 0.2, warm: (r() - 0.5) * 0.06, sx: r() * W | 0, sy: r() * H | 0, freq: 5 + r() * 9, ph: r(), rough: (r() - 0.5) * 0.08, rift: r() }));
-      return { cuts, planks };
-    });
-    const early = hex('#c6ab8a'), late = hex('#977b5e'), gap = hex('#4d3c2e');
-    const col = new Buf(W, H), rough = new Float32Array(W * H), hgt = new Float32Array(W * H);
-    for (let y = 0, i = 0; y < H; y++) {
-      const v = (y + 0.5) / H * TV;
-      for (let x = 0; x < W; x++, i++) {
-        const u = (x + 0.5) / W * TU, c = Math.min(NC - 1, Math.floor(u / PW)), lu = u - c * PW, C = cols[c];
-        // lame courante (entre deux coupes, périodique)
-        let pk = 0, dv = 9;
-        if (C.cuts.length === 2) {
-          const [a, b] = C.cuts, inA = a < b ? (v >= a && v < b) : (v >= a || v < b);
-          pk = inA ? 0 : 1;
-        }
-        for (const cu of C.cuts) { const d = Math.abs(v - cu); dv = Math.min(dv, d, TV - d); }
-        const P = C.planks[pk];
-        const du = Math.min(lu, PW - lu);
-        const jy = (y + P.sy) % H, jx = (x + P.sx) % W, j = jy * W + jx, jl = (jy >> 2) * WL + (jx >> 2), il = (y >> 2) * WL + (x >> 2);
-        const t = lu / PW;
-        // veinage : lignes de croissance ondulées (débit sur dosse / faux quartier)
-        const phase = t * P.freq + 2.2 * ray[j] + P.ph + (P.rift > 0.6 ? 0.35 * Math.sin(v * 2.1 + P.ph * 6) : 0);
-        const ln = 0.5 + 0.5 * Math.sin(phase * 6.2832);
-        const l2 = ln * ln, lw = l2 * l2 * l2 * ln * (0.55 + 0.45 * fib[j]);
-        const f = fib[j] - 0.5;
-        const kn = sstep(0.8, 0.95, knot[jl]) * 0.5;
-        const tt = clamp01(0.62 * lw + 0.35 * f + 0.25 * kn + 0.15 * (lo[jl] - 0.5));
-        const k = P.tint * (1 + 0.07 * (lo[il] - 0.5));
-        // micro-chanfrein (1,5 mm) sur les rives longues, joint fin en bout
-        const bev = 1 - sstep(0.0002, 0.0019, du), endj = 1 - sstep(0.0002, 0.0011, dv);
-        const e = (bev > endj ? bev : endj) * 0.75, ke = 1 - e, o4 = i * 4, d = col.d;
-        d[o4] = (early[0] + (late[0] - early[0]) * tt) * k * (1 + P.warm) * ke + gap[0] * e;
-        d[o4 + 1] = (early[1] + (late[1] - early[1]) * tt) * k * ke + gap[1] * e;
-        d[o4 + 2] = (early[2] + (late[2] - early[2]) * tt) * k * (1 - P.warm * 1.5) * ke + gap[2] * e;
-        d[o4 + 3] = 255;
-        const edge = e / 0.75;
-        rough[i] = clamp01(0.47 + P.rough + 0.12 * lw + 0.06 * (smudge[il] - 0.5) + 0.3 * edge);
-        hgt[i] = (1 - 0.8 * Math.max(Math.sqrt(bev), endj)) + 0.035 * lw - 0.02 * f;
-      }
-    }
-    const set = pbrSet(W, H, [TU, TV], col, rough, hgt, 2.2);
+    const TU = 2.28, TV = 2.4;
+    const set = pbrOf('mat:oakParquet', [TU, TV]);
     M.oakParquet = mark(std(set, { name: 'oakParquet', normalScale: V2(0.55), envMapIntensity: 0.9 }), 'floor');
     // variante plus claire (chêne blanchi) et plus foncée (chêne fumé), mêmes textures
     M.oakParquetLight = mark(std(set, { name: 'oakParquetLight', color: new THREE.Color('#fff6ea'), normalScale: V2(0.55), envMapIntensity: 0.9 }), 'floor');
@@ -1307,14 +1504,7 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   lap('int:parquet');
   // ---- Peinture murale mate (texture neutre partagée : la couleur vient de .color) ----
   {
-    const S = 512, peel = fbm(S, S, { px: 64, oct: 3, seed: 411 }), roll = fbm(S, S, { px: 4, py: 16, oct: 3, seed: 412 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 413 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
-    for (let i = 0; i < S * S; i++) {
-      col.set(i, w, 0.985 + 0.012 * (lo[i] - 0.5) + 0.006 * (roll[i] - 0.5));
-      rough[i] = 0.9 + 0.05 * (peel[i] - 0.5) - 0.03 * (roll[i] - 0.5);
-      hgt[i] = 0.7 * peel[i] + 0.3 * roll[i];
-    }
-    const set = pbrSet(S, S, 1.5, col, rough, hgt, 0.9);
+    const set = pbrOf('mat:wallPaint', 1.5);
     const paint = (name, c, kind = 'wall', p = {}) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.35), envMapIntensity: 0.6, ...p }), kind);
     M.wallPaint = paint('wallPaint', '#ece9e3');           // blanc chaud (murs)
     M.ceilingPaint = paint('ceilingPaint', '#f3f2ee', 'ceiling', { normalScale: V2(0.2) });
@@ -1336,29 +1526,9 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
 
   lap('int:peinture');
   // ---- Carrelages ----
-  const tiles = (name, { S = 512, tile = 1.2, nx = 2, ny = 2, base, jointC, joint = 0.002, rough = 0.45, glossVar = 0.06, stone = 0.05, wavy = 0, tintVar = 0.03, seed, ns = 3, hueVar = 0 }) => {
-    const st = fbm(S, S, { px: 8, oct: 5, seed }), hi = fbm(S, S, { px: 64, oct: 2, seed: seed + 1 }), wv = fbm(S, S, { px: nx * 2, py: ny * 2, oct: 3, seed: seed + 2 });
-    const r = mulberry32(seed + 3), n = nx * ny;
-    const T = Array.from({ length: n }, () => ({ k: 1 + (r() - 0.5) * 2 * tintVar, h: (r() - 0.5) * hueVar, sx: r() * S | 0, sy: r() * S | 0, g: (r() - 0.5) * glossVar }));
-    const B = hex(base), J = hex(jointC), col = new Buf(S, S), rg = new Float32Array(S * S), hgt = new Float32Array(S * S);
-    const tw = tile / nx, th = tile / ny;
-    for (let y = 0, i = 0; y < S; y++) {
-      const v = (y + 0.5) / S * tile, ty = Math.floor(v / th), lv = v - ty * th;
-      for (let x = 0; x < S; x++, i++) {
-        const u = (x + 0.5) / S * tile, tx = Math.floor(u / tw), lu = u - tx * tw, P = T[(ty * nx + tx) % n];
-        const d = Math.min(lu, tw - lu, lv, th - lv), jt = 1 - sstep(joint * 0.35, joint * 0.75, d), bev = sstep(joint * 0.5, joint * 2.5, d);
-        const j = ((y + P.sy) % S) * S + ((x + P.sx) % S);
-        const kk = P.k * (1 + stone * (st[j] - 0.5) + 0.02 * (hi[j] - 0.5));
-        const c = [B[0] * kk * (1 + P.h), B[1] * kk, B[2] * kk * (1 - P.h)];
-        col.set(i, mixc(c, J, jt));
-        rg[i] = clamp01(rough + P.g + 0.04 * (hi[j] - 0.5) + 0.35 * jt);
-        hgt[i] = bev * (1 - 0.4 * jt) + wavy * (wv[i] - 0.5) * bev + 0.01 * hi[j];
-      }
-    }
-    return pbrSet(S, S, tile, col, rg, hgt, ns);
-  };
+  const tiles = (name, o) => pbrFromData(tilesData(o), o.tile ?? 1.2);
   // grès cérame effet pierre 60 × 60, gris chaud, finition adoucie
-  M.tileFloor = mark(std(tiles('tileFloor', { S: 1024, tile: 1.2, nx: 2, ny: 2, base: '#d2ccc2', jointC: '#a8a196', rough: 0.5, stone: 0.07, seed: 421 }), { name: 'tileFloor', normalScale: V2(0.6), envMapIntensity: 0.8 }), 'floor');
+  M.tileFloor = mark(std(pbrOf('mat:tileFloor', 1.2), { name: 'tileFloor', normalScale: V2(0.6), envMapIntensity: 0.8 }), 'floor');
   // grand format mural 60 × 120 (pose verticale), blanc cassé satiné
   lazy(['tileWall'], () => { M.tileWall = mark(std(tiles('tileWall', { S: 512, tile: 1.2, nx: 2, ny: 1, base: '#e6e2db', jointC: '#c2bcb2', rough: 0.32, stone: 0.04, seed: 431 }), { name: 'tileWall', normalScale: V2(0.5), envMapIntensity: 0.8 }), 'wall'); });
   // zellige 10 × 10 émaillé (crédence de cuisine, douche) : nuances et surface ondulée
@@ -1401,16 +1571,7 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   // ---- Textiles ----
   {
     // lin : armure toile neutre (teinte par .color)
-    const S = 256, slubU = fbm(S, S, { px: 1, py: 32, oct: 3, seed: 481 }), slubV = fbm(S, S, { px: 32, py: 1, oct: 3, seed: 482 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 483 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), th = S / 48, w = [255, 255, 255];
-    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
-      const tx = x / th, ty = y / th, over = ((Math.floor(tx) + Math.floor(ty)) & 1) === 0;
-      const hw = Math.sin(Math.PI * (tx % 1)) * (0.8 + 0.4 * slubU[i]), hf = Math.sin(Math.PI * (ty % 1)) * (0.8 + 0.4 * slubV[i]);
-      const h = over ? 0.55 + 0.45 * hw : 0.55 + 0.45 * hf;
-      col.set(i, w, 0.8 + 0.17 * h + 0.04 * (lo[i] - 0.5) + 0.05 * ((over ? slubU[i] : slubV[i]) - 0.5));
-      rough[i] = 0.92 + 0.06 * (1 - h); hgt[i] = h;
-    }
-    const set = pbrSet(S, S, 0.2, col, rough, hgt, 1.4);
+    const set = pbrOf('mat:linen', 0.2);
     const linen = (name, c) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.6), envMapIntensity: 0.5 }), 'fabric');
     M.linenNatural = linen('linenNatural', '#d6ccbb');
     M.linenWhite = linen('linenWhite', '#f1eee8');
@@ -1429,45 +1590,21 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   {
   lap('int:lin');
     // bouclé : boucles serrées (hauteur = petites bosses aléatoires)
-    const S = 512, r = mulberry32(491), hgt = new Float32Array(S * S), n = fbm(S, S, { px: 8, oct: 3, seed: 492 });
-    for (let k = 0; k < 9000; k++) {
-      const cx = r() * S, cy = r() * S, R = 2.5 + r() * 3.5, R2 = R * R, a = 0.6 + r() * 0.4;
-      for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
-        const d2 = (x - cx) ** 2 + (y - cy) ** 2; if (d2 > R2) continue;
-        const i = ((y + S) % S) * S + ((x + S) % S), ring = Math.sqrt(d2) / R;
-        hgt[i] = Math.max(hgt[i], a * (1 - Math.pow(Math.abs(ring - 0.6) / 0.4, 2)));
-      }
-    }
-    const col = new Buf(S, S), rough = new Float32Array(S * S), w = [255, 255, 255];
-    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.74 + 0.24 * hgt[i] + 0.04 * (n[i] - 0.5)); rough[i] = 1; }
-    const set = pbrSet(S, S, 0.25, col, rough, hgt, 3);
+    const set = pbrOf('mat:boucle', 0.25);
     M.boucle = mark(std(set, { name: 'boucle', color: new THREE.Color('#efe9de'), normalScale: V2(1), envMapIntensity: 0.4 }), 'fabric');
     M.boucleOat = mark(std(set, { name: 'boucleOat', color: new THREE.Color('#d9ccb7'), normalScale: V2(1), envMapIntensity: 0.4 }), 'fabric');
   }
   {
   lap('int:boucle');
     // laine tissée (tapis) : boucles en rangs + chiné
-    const S = 512, a = fbm(S, S, { px: 2, oct: 4, seed: 501 }), hi = fbm(S, S, { px: 128, py: 64, oct: 2, seed: 502 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255], p = S / 96;
-    for (let y = 0, i = 0; y < S; y++) for (let x = 0; x < S; x++, i++) {
-      const loop = Math.abs(Math.sin(Math.PI * x / p + ((y / p | 0) & 1) * 1.57)) * Math.abs(Math.sin(Math.PI * y / p));
-      const h = 0.5 * loop + 0.5 * hi[i];
-      col.set(i, w, 0.78 + 0.18 * h + 0.06 * (a[i] - 0.5)); rough[i] = 1; hgt[i] = h;
-    }
-    const set = pbrSet(S, S, 0.5, col, rough, hgt, 2.5);
+    const set = pbrOf('mat:rugWool', 0.5);
     M.rugWool = mark(std(set, { name: 'rugWool', color: new THREE.Color('#d8d0c3'), normalScale: V2(1), envMapIntensity: 0.3 }), 'fabric');
     M.rugWoolGrey = mark(std(set, { name: 'rugWoolGrey', color: new THREE.Color('#a7a49e'), normalScale: V2(1), envMapIntensity: 0.3 }), 'fabric');
   }
   {
   lap('int:laine');
     // cuir pleine fleur (grain « pebble »)
-    const S = 512, c1 = fbm(S, S, { px: 32, oct: 2, seed: 511 }), c2 = fbm(S, S, { px: 96, oct: 2, seed: 512 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 513 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
-    for (let i = 0; i < S * S; i++) {
-      const cell = 1 - Math.abs(2 * c1[i] - 1), fine = 1 - Math.abs(2 * c2[i] - 1), h = 0.6 * Math.pow(cell, 0.5) + 0.4 * fine;
-      col.set(i, w, 0.82 + 0.12 * h + 0.1 * (lo[i] - 0.5)); rough[i] = 0.42 + 0.18 * (1 - h) + 0.06 * (lo[i] - 0.5); hgt[i] = h;
-    }
-    const set = pbrSet(S, S, 0.3, col, rough, hgt, 1.6);
+    const set = pbrOf('mat:leather', 0.3);
     M.leatherCognac = mark(std(set, { name: 'leatherCognac', color: new THREE.Color('#9a5e3a'), normalScale: V2(0.6) }), 'leather');
     M.leatherBlack = mark(std(set, { name: 'leatherBlack', color: new THREE.Color('#2a2624'), normalScale: V2(0.6) }), 'leather');
     M.leatherCream = mark(std(set, { name: 'leatherCream', color: new THREE.Color('#e3d8c6'), normalScale: V2(0.6) }), 'leather');
@@ -1476,10 +1613,7 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   lap('int:cuir');
   // ---- Métaux ----
   {
-    const S = 256, br = fbm(S, S, { px: 2, py: 256, oct: 2, seed: 521 }), lo = fbm(S, S, { px: 2, oct: 3, seed: 522 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
-    for (let i = 0; i < S * S; i++) { col.set(i, w, 0.97 + 0.03 * br[i]); rough[i] = 0.3 + 0.06 * br[i] + 0.03 * (lo[i] - 0.5); hgt[i] = br[i]; }
-    const set = pbrSet(S, S, 0.25, col, rough, hgt, 0.6);
+    const set = pbrOf('mat:metal', 0.25);
     M.brassBrushed = mark(std(set, { name: 'brassBrushed', color: new THREE.Color('#d4b27a'), metalness: 1, normalScale: V2(0.3) }), 'metal');
     M.steelBrushed = mark(std(set, { name: 'steelBrushed', color: new THREE.Color('#c9cacb'), metalness: 1, normalScale: V2(0.3) }), 'metal');
   }
@@ -1491,10 +1625,7 @@ function interiorMaterials(THREE, M, { tex, pbrSet, std, aniso, lap = () => {} }
   // ---- Céramique, verre, pierre ----
   M.ceramicWhite = mark(new THREE.MeshStandardMaterial({ name: 'ceramicWhite', color: 0xf3f1ec, roughness: 0.1, metalness: 0 }), 'ceramic');
   {
-    const S = 256, wn = white(S * S, 531), lo = fbm(S, S, { px: 4, oct: 3, seed: 532 });
-    const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
-    for (let i = 0; i < S * S; i++) { const sp = wn[i] > 0.985 ? 0.55 : 1; col.set(i, w, (0.92 + 0.06 * lo[i]) * sp); rough[i] = 0.7 + 0.08 * lo[i]; hgt[i] = lo[i] * 0.5 + (sp < 1 ? -0.2 : 0); }
-    const set = pbrSet(S, S, 0.25, col, rough, hgt, 1);
+    const set = pbrOf('mat:stoneware', 0.25);
     M.stoneware = mark(std(set, { name: 'stoneware', color: new THREE.Color('#dcd4c6'), normalScale: V2(0.4) }), 'ceramic');
     M.stonewareDark = mark(std(set, { name: 'stonewareDark', color: new THREE.Color('#57514b'), normalScale: V2(0.4) }), 'ceramic');
     M.terracotta = mark(std(set, { name: 'terracotta', color: new THREE.Color('#b8704d'), normalScale: V2(0.4) }), 'ceramic');
