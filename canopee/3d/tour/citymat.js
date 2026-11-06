@@ -7,6 +7,8 @@
 // Canvas « data » partagé : R = relief (bumpMap), G = rugosité (roughnessMap), B = métal (metalnessMap).
 import { mulberry32, fbm2 } from '../materials.js';
 
+const RD = 0.6;   // profondeur de relief des façades (m) : hauteur 0 du canal R
+
 export function cityMaterials(THREE) {
   const t0 = performance.now();
   // ---------- outils ----------
@@ -15,7 +17,11 @@ export function cityMaterials(THREE) {
   const hx = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
   const rgb = (c, k = 1, a = 1) => `rgba(${cl(c[0] * k)},${cl(c[1] * k)},${cl(c[2] * k)},${a})`;
   const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-  const dat = (h, r, m = 0) => `rgb(${cl(h * 255)},${cl(r * 255)},${cl(m * 255)})`;
+  // R = hauteur pour le relief (parallaxe) : 1 = plan de la façade (nez de dalle, appuis, corniches), 0 = RD m en retrait.
+  // dz(z) : z en mètres (négatif = en retrait) ; dat(h) : ancienne échelle de bump (mur 0,8, vitre 0,22) → mur à −14 cm,
+  // vitrage à −37 cm, tableau −32 cm, menuiserie −21 cm, appui −6 cm
+  const dz = (z, r, m = 0) => `rgb(${cl((1 + z / RD) * 255)},${cl(r * 255)},${cl(m * 255)})`;
+  const dat = (h, r, m = 0) => dz(-0.14 + (h - 0.8) * 0.4, r, m);
   const pick = (r, a) => a[r() * a.length | 0];
   const R = (g, s, x, y, w, h) => { g.fillStyle = s; g.fillRect(x, y, w, h); };
 
@@ -55,10 +61,15 @@ export function cityMaterials(THREE) {
   };
   const tex = (g, L, srgb) => { const t = new THREE.CanvasTexture(g.canvas); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
     if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(1 / L.tw, 1 / L.th); return t; };
-  const material = (name, L, { bump = 0.6, emis = true, env = 1 } = {}) => {
+  // rel : relief en parallaxe (façades) — { cell: [largeur, hauteur de cellule (m)], par: [modulo u, modulo v] (cellules
+  // permutées par immeuble en gardant ce modulo ; 0 = pas de permutation) } ; sans rel : bumpMap classique (toits)
+  const material = (name, L, { bump = 0.6, emis = true, env = 1, rel = null } = {}) => {
     const dt = tex(L.d, L, false);
-    return new THREE.MeshStandardMaterial({ name, map: tex(L.c, L, true), roughnessMap: dt, metalnessMap: dt, bumpMap: dt, bumpScale: bump, roughness: 1, metalness: 1, envMapIntensity: env,
+    const m = new THREE.MeshStandardMaterial({ name, map: tex(L.c, L, true), roughnessMap: dt, metalnessMap: dt, ...(rel ? {} : { bumpMap: dt, bumpScale: bump * 1.5 }), roughness: 1, metalness: 1, envMapIntensity: env,
       ...(emis ? { emissive: 0xffffff, emissiveMap: tex(L.e, L, true), emissiveIntensity: 0 } : {}) });
+    if (rel) { const [cw, ch] = rel.cell || [L.tw, L.th], nu = Math.round(L.tw / cw), nv = Math.round(L.th / ch), [pu, pv] = rel.par || [0, 0];
+      m.userData.rel = { tile: [L.tw, L.th, nu, nv], par: [pu || nu, pv || nv], depth: rel.depth || RD }; }
+    return m;
   };
 
   // ---------- briques foraines : motif tuilable (nx × ny briques), couleur et data ----------
@@ -72,10 +83,10 @@ export function cityMaterials(THREE) {
     for (const [k, base] of [['c', L.c], ['d', L.d]]) {
       const sx = base.canvas.width / L.tw, sy = base.canvas.height / L.th, w = Math.max(2, Math.round(pw * sx)), h = Math.max(2, Math.round(ph * sy));
       const g = cv(w, h).getContext('2d'); g.setTransform(w / pw, 0, 0, h / ph, 0, 0);
-      R(g, k === 'c' ? mortar : dat(0.5, 0.95), 0, 0, pw, ph);
+      R(g, k === 'c' ? mortar : dz(-0.152, 0.95), 0, 0, pw, ph);                       // joints creux de 1,2 cm
       for (let j = 0; j < ny; j++) { const off = (j % 2) * bl / 2;
         for (let i = -1; i < nx; i++) { const q = cols[j * nx + ((i % nx) + nx) % nx];
-          R(g, k === 'c' ? q[0] : dat(q[1], q[2]), i * bl + off + jv / 2, j * ch + ch * jh / 2, bl - jv, ch * (1 - jh)); } }
+          R(g, k === 'c' ? q[0] : dz(-0.14 + 0.03 * (q[1] - 0.89), q[2]), i * bl + off + jv / 2, j * ch + ch * jh / 2, bl - jv, ch * (1 - jh)); } }
       const p = base.createPattern(g.canvas, 'repeat'); p.setTransform(new DOMMatrix([pw / w, 0, 0, ph / h, 0, 0])); out[k] = p;
     }
     out.fill = (x, y, w, h) => { R(L.c, out.c, x, y, w, h); R(L.d, out.d, x, y, w, h); R(L.e, '#000', x, y, w, h); };
@@ -108,20 +119,20 @@ export function cityMaterials(THREE) {
     const cur = o.curtain ?? r() < 0.35;
     if (cur) { if (r() < 0.65) R(g, `rgba(228,222,208,${0.3 + 0.25 * r()})`, x, y, w, h * (0.55 + 0.45 * r()));   // voilage
       else { const cc = pick(r, ['rgba(150,118,96,.7)', 'rgba(120,128,120,.7)', 'rgba(200,188,165,.7)', 'rgba(110,70,62,.7)']); R(g, cc, x, y, w * 0.24, h); R(g, cc, x + w * 0.76, y, w * 0.24, h); } }
-    R(L.d, dat(0.22, 0.05 + 0.07 * r(), (o.metal ?? 0.32) * (0.65 + 0.6 * r())), x, y, w, h);
+    R(L.d, dz(o.z ?? -0.372, 0.05 + 0.07 * r(), (o.metal ?? 0.32) * (0.65 + 0.6 * r())), x, y, w, h);
     const lit = r() < (o.lit ?? 0.3);
     if (lit) lightUp(L, x, y, w, h, r, { curtain: cur && r() < 0.7, col: o.col, I: o.I });
     return { lit, cur };
   };
   const reveal = (L, x, y, w, h, d = 0.05) => { R(L.c, 'rgba(20,12,8,.35)', x - d, y - d * 0.5, w + 2 * d, h + d * 1.5); R(L.d, dat(0.35, 0.85), x - d, y - d * 0.5, w + 2 * d, h + d * 1.5); };
   // menuiserie : cadre, montant central, petits bois, imposte
-  const frame = (L, x, y, w, h, col, { t = 0.06, mid = true, bars = 0, tr = 0, mullions = 0 } = {}) => {
+  const frame = (L, x, y, w, h, col, { t = 0.06, mid = true, bars = 0, tr = 0, mullions = 0, z = -0.25 } = {}) => {
     const q = [[x, y, w, t], [x, y + h - t, w, t], [x, y, t, h], [x + w - t, y, t, h]];
     if (mid) q.push([x + w / 2 - t * 0.7, y, t * 1.4, h - tr]);
     for (let k = 1; k <= mullions; k++) q.push([x + w * k / (mullions + 1) - t / 2, y, t, h]);
     for (let k = 1; k <= bars; k++) q.push([x, y + (h - tr) * k / (bars + 1) - 0.015, w, 0.03]);
     if (tr) q.push([x, y + h - tr - t, w, t]);
-    for (const [a, b, c, d] of q) all(L, col, dat(0.62, 0.55), a, b, c, d);
+    for (const [a, b, c, d] of q) all(L, col, dz(z, 0.55), a, b, c, d);
   };
   // persiennes toulousaines (bois peint, lames)
   const shutter = (L, x, y, w, h, col, r, slits) => {
@@ -133,10 +144,11 @@ export function cityMaterials(THREE) {
     if (slits) { L.e.fillStyle = rgb(pick(r, WARM), 0.35); for (let yy = y + 0.07; yy < y + h - 0.06; yy += 0.07) L.e.fillRect(x + 0.05, yy, w - 0.1, 0.012); }
   };
   // garde-corps en fer forgé (balconnet), barreaux et volutes
-  const rail = (L, x, y, w, h = 0.95, fancy = true) => {
-    for (const [g, col] of [[L.c, '#2a2725'], [L.d, dat(0.95, 0.45, 0.55)], [L.e, '#000']]) {
+  const rail = (L, x, y, w, h = 0.95, fancy = true, z = -0.05) => {
+    for (const [g, col] of [[L.c, '#2a2725'], [L.d, dz(z, 0.45, 0.55)], [L.e, '#000']]) {
       R(g, col, x - 0.05, y + h - 0.045, w + 0.1, 0.045); R(g, col, x - 0.03, y + 0.05, w + 0.06, 0.03);
-      for (let xx = x; xx <= x + w + 1e-3; xx += 0.11) R(g, col, xx, y + 0.05, 0.016, h - 0.05);
+      for (let xx = x; xx <= x + w + 1e-3; xx += 0.11) R(g, col, xx - (g === L.d ? 0.007 : 0), y + 0.05, g === L.d ? 0.03 : 0.016, h - 0.05);   // relief : barreaux élargis au texel
+      if (g === L.d) continue;
       if (fancy) { g.strokeStyle = col; g.lineWidth = 0.014; R(g, col, x, y + h * 0.72, w, 0.016);
         for (let xx = x + 0.055; xx < x + w - 0.05; xx += 0.22) { g.beginPath(); g.arc(xx + 0.055, y + h * 0.36, 0.05, 0, 6.283); g.stroke(); } }
     }
@@ -153,14 +165,14 @@ export function cityMaterials(THREE) {
     const bp = brickPat(L, { bl: o.bl, ch: fh / o.courses, nx: o.bnx, ny: o.courses, pal: o.pal, mortar: o.mortar, seed: o.seed + 1 });
     if (o.render) {                                                        // enduit, bandeaux d'étage et chaînes en brique
       all(L, rgb(hx(o.render)), dat(0.8, 0.9), 0, 0, tw, th);
-      grime(L.c, L, 0, 0.22, 1); grime(L.c, L, 1, 0.14, 2);
+      grime(L.c, L, 1, 0.07, 4);                                           // grain fin seulement : les taches larges viennent du shader (cellules permutées)
       for (let f = 0; f < nf; f++) { const y = f * fh;
         bp.fill(0, y - 0.04, tw, 0.36); if (f === 0) bp.fill(0, th - 0.04, tw, 0.04);
         R(L.c, '#ebe0cc', 0, y + 0.32, tw, 0.06); R(L.d, dat(1, 0.8), 0, y + 0.32, tw, 0.06);           // moulure
         const s = L.c.createLinearGradient(0, y - 0.04, 0, y - 0.2); s.addColorStop(0, 'rgba(40,25,15,.35)'); s.addColorStop(1, 'rgba(40,25,15,0)'); L.c.fillStyle = s; L.c.fillRect(0, y - 0.2, tw, 0.16);
       }
       for (const x of [0, tw / 2 - 0.26, tw - 0.26]) bp.fill(x, 0, x === 0 ? 0.26 : x === tw - 0.26 ? 0.26 : 0.52, th);
-    } else { bp.fill(0, 0, tw, th); grime(L.c, L, 0, 0.2, 1); grime(L.c, L, 2, 0.12, 2); grime(L.c, L, 1, 0.12, 1, 'soft-light'); }
+    } else { bp.fill(0, 0, tw, th); grime(L.c, L, 1, 0.1, 4); grime(L.c, L, 1, 0.1, 4, 'soft-light'); }
     for (let f = 0; f < nf; f++) for (let i = 0; i < nb; i++) {
       const w = o.ww, h = o.wh - (f === nf - 1 && o.attic ? 0.4 : 0), x = i * bay + (bay - w) / 2, y = f * fh + o.sill;
       // encadrement
@@ -172,7 +184,7 @@ export function cityMaterials(THREE) {
         R(L.c, o.mortar, x - p, y + h + 0.02, w + 2 * p, 0.26); for (let xx = x - p; xx < x + w + p - 0.02; xx += 0.075) R(L.c, brickCol(r, o.pal), xx + 0.006, y + h + 0.03, 0.063, 0.24); }   // plate-bande en briques posées de chant
       // appui
       const sill = o.surround === 'stone' ? '#e6dac4' : '#d9cbb3';
-      all(L, sill, dat(1, 0.8), x - 0.12, y - 0.09, w + 0.24, 0.09); streak(L, x - 0.05, y - 0.09, w + 0.1, 0.9 + 0.8 * r(), o.render ? 0.16 : 0.12);
+      all(L, sill, dz(-0.02, 0.8), x - 0.12, y - 0.09, w + 0.24, 0.09); streak(L, x - 0.05, y - 0.09, w + 0.1, 0.9 + 0.8 * r(), o.render ? 0.16 : 0.12);
       reveal(L, x, y, w, h);
       const sh = r(), shut = sh < o.pShut, closed = shut && r() < 0.32, half = shut && !closed && r() < 0.15;
       const gx = glass(L, x + 0.03, y + 0.03, w - 0.06, h - 0.06, r, { lit: closed ? 0.3 : 0.3 });
@@ -184,33 +196,33 @@ export function cityMaterials(THREE) {
         else { shutter(L, x - sw - 0.02, y, sw, h, sc, r); shutter(L, x + w + 0.02, y, sw, h, sc, r); } }
     }
     grain(L.c, 0.22);
-    return { L, mat: material(name, L, { bump: 0.5 }) };
+    return { L, mat: material(name, L, { bump: 0.5, rel: { cell: [bay, fh], par: [2, 1] } }) };
   };
 
   // ---------- 3. enduit clair des années 1960–80 : coffres de volets roulants, loggias ----------
   const modern = (name, o) => {
     const bay = 3, nb = 4, fh = 2.9, nf = 5, tw = bay * nb, th = fh * nf, L = layer(tw, th), r = mulberry32(o.seed), base = hx(o.render);
-    all(L, rgb(base), dat(0.8, 0.9), 0, 0, tw, th); grime(L.c, L, 0, 0.16, 1); grime(L.c, L, 1, 0.1, 2);
+    all(L, rgb(base), dat(0.8, 0.9), 0, 0, tw, th); grime(L.c, L, 1, 0.06, 5);
     const fr = '#ece9e2';
     for (let f = 0; f < nf; f++) for (let i = 0; i < nb; i++) {
       const t = o.cols[i], x0 = i * bay, y0 = f * fh;
       if (t === 'loggia') {
         const lx = x0 + 0.15, lw = bay - 0.3, ly = y0 + 0.18;
-        all(L, rgb(base, 0.62), dat(0.3, 0.9), lx, ly, lw, fh - 0.18);                                    // fond de loggia à l'ombre
+        all(L, rgb(base, 0.8), dz(-0.6, 0.9), lx, ly, lw, fh - 0.18);                                    // fond de loggia à l'ombre
         const s = L.c.createLinearGradient(0, y0 + fh, 0, y0 + fh - 0.9); s.addColorStop(0, 'rgba(0,0,0,.35)'); s.addColorStop(1, 'rgba(0,0,0,0)'); L.c.fillStyle = s; L.c.fillRect(lx, y0 + fh - 0.9, lw, 0.9);
-        glass(L, lx + 0.3, ly + 0.02, 1.5, 2.2, r, { b: 0.7 }); frame(L, lx + 0.3, ly + 0.02, 1.5, 2.2, fr, { t: 0.07 });
-        if (r() < 0.6) { const p = 0.5 + 0.5 * r(); all(L, '#d8d6d0', dat(0.5, 0.6), lx + 0.33, ly + 2.2 - 2.2 * p * 0.4, 1.44, 2.2 * p * 0.4); }   // store roulant mi-descendu
-        glass(L, lx + 2.05, ly + 0.95, 0.5, 1.2, r, { b: 0.7 }); frame(L, lx + 2.05, ly + 0.95, 0.5, 1.2, fr, { mid: false });
+        glass(L, lx + 0.3, ly + 0.02, 1.5, 2.2, r, { b: 0.7, z: -0.6 }); frame(L, lx + 0.3, ly + 0.02, 1.5, 2.2, fr, { t: 0.07, z: -0.55 });
+        if (r() < 0.6) { const p = 0.5 + 0.5 * r(); all(L, '#d8d6d0', dz(-0.57, 0.6), lx + 0.33, ly + 2.2 - 2.2 * p * 0.4, 1.44, 2.2 * p * 0.4); }   // store roulant mi-descendu
+        glass(L, lx + 2.05, ly + 0.95, 0.5, 1.2, r, { b: 0.7, z: -0.6 }); frame(L, lx + 2.05, ly + 0.95, 0.5, 1.2, fr, { mid: false, z: -0.55 });
         if (r() < 0.5) R(L.c, pick(r, ['rgba(70,90,70,.8)', 'rgba(140,70,50,.75)', 'rgba(90,80,70,.8)']), lx + 2.0 + 0.4 * r(), ly, 0.35, 0.5 + 0.4 * r());   // plantes, linge
-        all(L, '#ece8df', dat(1, 0.85), x0 + 0.05, y0, bay - 0.1, 0.18);                                   // nez de dalle
+        all(L, '#ece8df', dz(0, 0.85), x0 + 0.05, y0, bay - 0.1, 0.18);                                   // nez de dalle
         const kind = o.railKind ?? (r() * 3 | 0);
-        if (kind === 0) rail(L, x0 + 0.1, y0 + 0.18, bay - 0.2, 1.0, false);
-        else if (kind === 1) { all(L, o.panel || 'rgba(205,212,214,.85)', dat(0.9, 0.3, 0.2), x0 + 0.1, y0 + 0.18, bay - 0.2, 0.95); all(L, '#9aa0a3', dat(1, 0.4, 0.7), x0 + 0.1, y0 + 1.1, bay - 0.2, 0.04); }
-        else all(L, rgb(base, 0.96), dat(0.95, 0.9), x0 + 0.1, y0 + 0.18, bay - 0.2, 0.9);                  // allège maçonnée
+        if (kind === 0) rail(L, x0 + 0.1, y0 + 0.18, bay - 0.2, 1.0, false, -0.02);
+        else if (kind === 1) { all(L, o.panel || 'rgba(205,212,214,.85)', dz(-0.03, 0.3, 0.2), x0 + 0.1, y0 + 0.18, bay - 0.2, 0.95); all(L, '#9aa0a3', dz(-0.01, 0.4, 0.7), x0 + 0.1, y0 + 1.1, bay - 0.2, 0.04); }
+        else all(L, rgb(base, 0.96), dz(-0.02, 0.9), x0 + 0.1, y0 + 0.18, bay - 0.2, 0.9);                  // allège maçonnée
         streak(L, x0 + 0.1, y0, bay - 0.2, 0.7, 0.14, '70,70,70');
       } else {
         const small = t === 'small', w = small ? 0.6 : 1.4, h = small ? 0.65 : 1.45, x = x0 + (bay - w) / 2, y = y0 + (small ? 1.55 : 0.92);
-        all(L, '#cfccc5', dat(1, 0.75), x - 0.05, y - 0.06, w + 0.1, 0.06); streak(L, x, y - 0.06, w, 1.2 + r(), 0.18, '80,78,74');
+        all(L, '#cfccc5', dz(-0.04, 0.75), x - 0.05, y - 0.06, w + 0.1, 0.06); streak(L, x, y - 0.06, w, 1.2 + r(), 0.18, '80,78,74');
         reveal(L, x, y, w, h + 0.24, 0.04);
         const gx = glass(L, x + 0.03, y + 0.03, w - 0.06, h - 0.06, r, { curtain: small ? true : undefined, b: small ? 1.6 : 1 });
         if (small) R(L.c, 'rgba(225,228,226,.55)', x, y, w, h);                                             // verre dépoli
@@ -225,14 +237,14 @@ export function cityMaterials(THREE) {
     // joints de dilatation et ligne de dalle légère
     for (let f = 0; f < nf; f++) R(L.c, 'rgba(0,0,0,.05)', 0, f * fh, tw, 0.04);
     grain(L.c, 0.2);
-    return { L, mat: material(name, L, { bump: 0.4 }) };
+    return { L, mat: material(name, L, { bump: 0.4, rel: { cell: [bay, fh], par: [nb, 1] } }) };
   };
 
   // ---------- 4. logements contemporains en brique (années 2000) ----------
   const contemp = (name, o) => {
     const bay = 3.6, nb = 4, fh = 3, nf = 4, tw = bay * nb, th = fh * nf, L = layer(tw, th), r = mulberry32(o.seed);
     const bp = brickPat(L, { bl: 0.24, ch: fh / 48, nx: 30, ny: 48, pal: o.pal, mortar: o.mortar, seed: o.seed + 1, jh: 0.18, jv: 0.012 });
-    bp.fill(0, 0, tw, th); grime(L.c, L, 0, 0.1, 1); grime(L.c, L, 2, 0.08, 1, 'soft-light');
+    bp.fill(0, 0, tw, th); grime(L.c, L, 1, 0.06, 4);
     const anth = '#3d4246';
     for (let f = 0; f < nf; f++) for (let i = 0; i < nb; i++) {
       const w = 1.9, h = 2.4, x = i * bay + (bay - w) / 2 + ((f + i) % 2 ? 0.32 : -0.32), y = f * fh + 0.12;
@@ -244,13 +256,13 @@ export function cityMaterials(THREE) {
       frame(L, x, y, w, h, anth, { t: 0.05, mid: false, mullions: 1 });
       if (r() < 0.25) { const p = 0.3 + 0.6 * r(); all(L, '#9a9c9b', dat(0.6, 0.6, 0.3), x + 0.05, y + h - h * p, w - 0.1, h * p - 0.05);
         L.c.fillStyle = 'rgba(0,0,0,.12)'; for (let yy = y + h - h * p; yy < y + h - 0.05; yy += 0.06) L.c.fillRect(x + 0.05, yy, w - 0.1, 0.012); }   // brise-soleil orientable
-      if (balc) { all(L, '#e6e3dc', dat(1, 0.8), x - 0.5, y - 0.12, w + 1, 0.2); streak(L, x - 0.5, y - 0.12, w + 1, 0.5, 0.12, '60,60,60');
-        all(L, 'rgba(150,158,160,.55)', dat(0.95, 0.35, 0.5), x - 0.5, y + 0.08, w + 1, 1.0); all(L, anth, dat(1, 0.4, 0.7), x - 0.5, y + 1.05, w + 1, 0.05); }   // balcon : nez de dalle, tôle perforée
+      if (balc) { all(L, '#e6e3dc', dz(0, 0.8), x - 0.5, y - 0.12, w + 1, 0.2); streak(L, x - 0.5, y - 0.12, w + 1, 0.5, 0.12, '60,60,60');
+        all(L, 'rgba(150,158,160,.55)', dz(-0.02, 0.35, 0.5), x - 0.5, y + 0.08, w + 1, 1.0); all(L, anth, dz(0, 0.4, 0.7), x - 0.5, y + 1.05, w + 1, 0.05); }   // balcon : nez de dalle, tôle perforée
       else rail(L, x + 0.04, y, w - 0.08, 1.0, false);
       all(L, '#a9a6a0', dat(1, 0.7), x - 0.04, y - 0.05, w + 0.08, 0.05);
     }
     grain(L.c, 0.18);
-    return { L, mat: material(name, L, { bump: 0.4 }) };
+    return { L, mat: material(name, L, { bump: 0.4, rel: { cell: [bay, fh], par: [2, 2] } }) };
   };
 
   // ---------- 5–6. murs-rideaux de bureaux, béton à fenêtres en bandeau ----------
@@ -260,7 +272,7 @@ export function cityMaterials(THREE) {
     for (let k = 0; k < n; k++) {
       if (--run <= 0) { on = r() < o.lit; run = 2 + (r() * 5 | 0); }
       const x = x0 + k * pw, c = pick(r, OFFICE), I = 0.45 + 0.4 * r();
-      glass(L, x, y, pw, h, r, { b: o.b, tint: o.tint, metal: o.metal, lit: on ? 1 : 0, curtain: false, col: c, I });
+      glass(L, x, y, pw, h, r, { b: o.b, tint: o.tint, metal: o.metal, lit: on ? 1 : 0, curtain: false, col: c, I, z: o.z });
       if (on) { const gr = L.e.createLinearGradient(0, y + h, 0, y + h - 0.5); gr.addColorStop(0, rgb(c, 0.9 * I)); gr.addColorStop(1, rgb(c, 0)); L.e.fillStyle = gr; L.e.fillRect(x, y + h - 0.5, pw, 0.5); }   // luminaires
       if (r() < o.blind) { const p = 0.2 + 0.75 * r(), bh = h * p; R(L.c, 'rgba(196,198,194,.88)', x, y + h - bh, pw, bh);
         L.c.fillStyle = 'rgba(0,0,0,.1)'; for (let yy = y + h - bh; yy < y + h; yy += 0.05) L.c.fillRect(x, yy, pw, 0.015);
@@ -271,31 +283,31 @@ export function cityMaterials(THREE) {
     const pw = 1.35, np = 8, fh = 3.6, nf = 4, tw = pw * np, th = fh * nf, L = layer(tw, th), r = mulberry32(o.seed), sp = 0.95;
     for (let f = 0; f < nf; f++) {
       const y = f * fh;
-      all(L, o.spandrel, dat(0.5, 0.25, 0.65), 0, y, tw, sp);                                              // allège en verre émaillé
+      all(L, o.spandrel, dz(-0.17, 0.25, 0.65), 0, y, tw, sp);                                              // allège en verre émaillé
       for (let k = 0; k < np; k++) R(L.c, `rgba(255,255,255,${0.02 + 0.05 * r()})`, k * pw, y, pw, sp);
-      panes(L, r, y + sp, fh - sp, 0, pw, np, { lit: 0.4, blind: 0.3, b: o.b, tint: o.tint, metal: 0.62 });
+      panes(L, r, y + sp, fh - sp, 0, pw, np, { lit: 0.4, blind: 0.3, b: o.b, tint: o.tint, metal: 0.62, z: -0.18 });
       all(L, '#a7aeb4', dat(0.9, 0.32, 0.85), 0, y + sp - 0.04, tw, 0.08); all(L, '#9aa1a7', dat(0.9, 0.32, 0.85), 0, y - 0.03, tw, 0.06);   // traverses
     }
-    for (let k = 0; k <= np; k++) all(L, '#b3b9be', dat(1, 0.3, 0.85), k * pw - 0.035, 0, 0.07, th);        // montants tous les 1,35 m
+    for (let k = 0; k <= np; k++) all(L, '#b3b9be', dz(0, 0.3, 0.85), k * pw - 0.035, 0, 0.07, th);        // montants tous les 1,35 m
     grain(L.c, 0.08);
-    return { L, mat: material(name, L, { bump: 0.25, env: 1.15 }) };
+    return { L, mat: material(name, L, { bump: 0.25, env: 1.15, rel: { cell: [tw / 2, fh], par: [1, 1] } }) };
   };
   const concrete = (name, o) => {
     const fh = 4, nf = 4, tw = 12, th = fh * nf, L = layer(tw, th), r = mulberry32(o.seed), pw = 1.5, base = hx(o.col);
-    all(L, rgb(base), dat(0.85, 0.9), 0, 0, tw, th); grime(L.c, L, 0, 0.25, 1); grime(L.c, L, 1, 0.18, 2); grime(L.c, L, 2, 0.15, 1, 'soft-light');
+    all(L, rgb(base), dat(0.85, 0.9), 0, 0, tw, th); grime(L.c, L, 1, 0.12, 4); grime(L.c, L, 1, 0.1, 4, 'soft-light');
     for (let f = 0; f < nf; f++) { const y = f * fh;
-      for (let x = 0; x < tw; x += 3) { R(L.c, 'rgba(0,0,0,.18)', x, y, 0.025, fh); R(L.d, dat(0.4, 0.95), x, y, 0.03, fh); }   // joints de panneaux
-      R(L.c, 'rgba(0,0,0,.2)', 0, y, tw, 0.025); R(L.d, dat(0.4, 0.95), 0, y, tw, 0.03);
+      for (let x = 0; x < tw; x += 3) { R(L.c, 'rgba(0,0,0,.18)', x, y, 0.025, fh); R(L.d, dz(-0.17, 0.95), x, y, 0.03, fh); }   // joints de panneaux
+      R(L.c, 'rgba(0,0,0,.2)', 0, y, tw, 0.025); R(L.d, dz(-0.17, 0.95), 0, y, tw, 0.03);
       for (let k = 0; k < 14; k++) streak(L, r() * tw, y + 1.05, 0.08 + 0.3 * r(), 0.6 + 1.6 * r(), 0.08 + 0.12 * r(), '50,50,48');   // coulures
       const wy = y + 1.15, wh = 1.75;
-      all(L, '#7d7f7f', dat(0.9, 0.6, 0.4), 0, wy - 0.1, tw, 0.1);                                         // appui filant
+      all(L, '#7d7f7f', dz(0, 0.6, 0.4), 0, wy - 0.1, tw, 0.1);                                         // appui filant
       panes(L, r, wy, wh, 0, pw, tw / pw, { lit: 0.35, blind: 0.4, b: 0.85, tint: [0.95, 1.02, 1], metal: 0.4 });
       R(L.c, 'rgba(0,0,0,.25)', 0, wy + wh, tw, 0.08);
       for (let k = 0; k <= tw / pw; k++) all(L, '#5d6266', dat(0.8, 0.4, 0.7), k * pw - 0.035, wy, 0.07, wh);
       all(L, '#5d6266', dat(0.8, 0.4, 0.7), 0, wy, tw, 0.05); all(L, '#5d6266', dat(0.8, 0.4, 0.7), 0, wy + wh - 0.05, tw, 0.05);
     }
     grain(L.c, 0.3);
-    return { L, mat: material(name, L, { bump: 0.5 }) };
+    return { L, mat: material(name, L, { bump: 0.5, rel: { cell: [3, fh], par: [1, 1] } }) };
   };
 
   // ---------- rez-de-chaussée (bande de 4,5 m, v = 0 au sol) ----------
@@ -337,7 +349,7 @@ export function cityMaterials(THREE) {
       glass(L, x + 0.12, 2.8, w - 0.24, 0.45, r, { lit: open ? 0.8 : 0, curtain: false });                 // imposte
       frame(L, x + 0.12, 2.8, w - 0.24, 0.45, fc, { t: 0.05, mid: false, mullions: 3 });
       const sc = hx(pick(r, ['#e7dcc4', '#2f3b36', '#4b2f2e', '#e1d2b0', '#36404c']));
-      all(L, rgb(sc), dat(0.98, 0.5, 0.2), x - 0.05, 3.3, w + 0.1, 0.55);                                  // bandeau d'enseigne
+      all(L, rgb(sc), dz(0, 0.5, 0.2), x - 0.05, 3.3, w + 0.1, 0.55);                                  // bandeau d'enseigne
       const tc = sc[0] > 150 ? '#3a3330' : '#e8d9b5';
       text(L.c, L, sign, x + w / 2, 3.58, 0.3, tc, w - 0.5);
       if (open || r() < 0.5) text(L.e, L, sign, x + w / 2, 3.58, 0.3, sign === 'PHARMACIE' ? '#3cff7a' : '#ffd9a0', w - 0.5);
@@ -345,11 +357,11 @@ export function cityMaterials(THREE) {
       if (r() < 0.4) { const ac = pick(r, ['#7b2e2a', '#2d4a3a', '#c9b48a', '#38485a']);                   // lambrequin de store banne
         for (let xx = x; xx < x + w; xx += 0.3) R(L.c, ac, xx, 2.95, 0.3, 0.3);
         L.c.fillStyle = 'rgba(255,255,255,.16)'; for (let xx = x; xx < x + w; xx += 0.6) L.c.fillRect(xx, 2.95, 0.3, 0.3);
-        R(L.d, dat(0.95, 0.9), x, 2.95, w, 0.3); R(L.e, '#000', x, 2.95, w, 0.3); }
+        R(L.d, dz(0, 0.9), x, 2.95, w, 0.3); R(L.e, '#000', x, 2.95, w, 0.3); }
     }
     R(L.c, 'rgba(0,0,0,.2)', 0, 3.85, tw, 0.06);
     grain(L.c, 0.2);
-    return material('city:rdc-vitrines', L, { bump: 0.4 });
+    return material('city:rdc-vitrines', L, { bump: 0.4, rel: {} });
   };
   const arcade = () => {
     const tw = 12, L = layer(tw, GH, 1024, 256), r = mulberry32(601);
@@ -377,12 +389,12 @@ export function cityMaterials(THREE) {
     text(L.c, L, pick(r, ['ATELIER', 'ÉPICERIE', 'GALERIE']), 2.0, 4.05, 0.26, 'rgba(235,225,200,.75)');
     R(L.c, 'rgba(0,0,0,.18)', 0, 4.35, tw, 0.05);
     grain(L.c, 0.22);
-    return material('city:rdc-arcades', L, { bump: 0.5 });
+    return material('city:rdc-arcades', L, { bump: 0.5, rel: {} });
   };
   const hall = () => {
     const tw = 12, L = layer(tw, GH, 1024, 256), r = mulberry32(701), base = hx('#d8d0c2');
     all(L, rgb(base), dat(0.85, 0.88), 0, 0, tw, GH); grime(L.c, L, 0, 0.2, 1); grime(L.c, L, 1, 0.1, 2);
-    for (let y = 0.9; y < 4.2; y += 0.45) { R(L.c, 'rgba(60,50,40,.28)', 0, y, tw, 0.03); R(L.c, 'rgba(255,255,255,.18)', 0, y - 0.025, tw, 0.02); R(L.d, dat(0.45, 0.95), 0, y, tw, 0.03); }   // bossages
+    for (let y = 0.9; y < 4.2; y += 0.45) { R(L.c, 'rgba(60,50,40,.28)', 0, y, tw, 0.03); R(L.c, 'rgba(255,255,255,.18)', 0, y - 0.025, tw, 0.02); R(L.d, dz(-0.19, 0.95), 0, y, tw, 0.03); }   // bossages
     all(L, '#bdb3a2', dat(0.95, 0.85), 0, 0, tw, 0.85); R(L.c, 'rgba(0,0,0,.15)', 0, 0.85, tw, 0.03);   // soubassement
     for (const x of [0.9, 3.2, 9.4]) {                                      // fenêtres barreaudées
       const w = 1.1, h = 1.85, y = 1.2;
@@ -405,7 +417,7 @@ export function cityMaterials(THREE) {
     for (const x of [0.6, 2.9, 9.1]) { streak(L, x, 3.3, 1.6, 0.7, 0.12); }
     R(L.c, 'rgba(0,0,0,.2)', 0, 4.25, tw, 0.05);
     grain(L.c, 0.2);
-    return material('city:rdc-hall', L, { bump: 0.5 });
+    return material('city:rdc-hall', L, { bump: 0.5, rel: {} });
   };
 
   // ---------- toitures (uv = x, z en mètres) ----------
@@ -456,7 +468,7 @@ export function cityMaterials(THREE) {
     grime(L.c, L, 2, 0.18, 1, 'multiply');
     for (let k = 0; k < 10; k++) streak(L, r() * tw, th * r(), 0.1 + 0.4 * r(), 1 + 2 * r(), 0.12, '40,30,25');
     grain(L.c, 0.25);
-    return material('city:pignon', L, { bump: 0.5, emis: false });
+    return material('city:pignon', L, { bump: 0.5, emis: false, rel: {} });
   };
 
   // ---------- monuments : gare Matabiau (pierre et brique, 1905), pavillon de l'horloge, médiathèque, arche ----------
@@ -464,7 +476,7 @@ export function cityMaterials(THREE) {
   const archP = (g, x, y, w, hs) => { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + hs); g.arc(x + w / 2, y + hs, w / 2, Math.PI, 0, true); g.lineTo(x + w, y); g.closePath(); };
   const inArch = (L, x, y, w, hs, fn) => { for (const g of [L.c, L.d, L.e]) { g.save(); archP(g, x, y, w, hs); g.clip(); } fn(); for (const g of [L.c, L.d, L.e]) g.restore(); };
   const bossage = (L, x, y, w, h, step = 0.45) => { all(L, STONE, dat(0.9, 0.82), x, y, w, h); grime(L.c, L, 0, 0.12, 1);
-    for (let yy = y + step; yy < y + h; yy += step) { R(L.c, 'rgba(70,55,40,.32)', x, yy, w, 0.035); R(L.c, 'rgba(255,255,255,.2)', x, yy - 0.03, w, 0.025); R(L.d, dat(0.4, 0.95), x, yy, w, 0.035); } };
+    for (let yy = y + step; yy < y + h; yy += step) { R(L.c, 'rgba(70,55,40,.32)', x, yy, w, 0.035); R(L.c, 'rgba(255,255,255,.2)', x, yy - 0.03, w, 0.025); R(L.d, dz(-0.18, 0.95), x, yy, w, 0.035); } };
   const cornice = (L, x, y, w, h) => { all(L, '#e6dbc5', dat(1, 0.78), x, y, w, h); R(L.c, 'rgba(60,45,30,.35)', x, y, w, 0.06);
     for (let xx = x + 0.05; xx < x + w; xx += 0.22) R(L.c, 'rgba(60,45,30,.25)', xx, y + h * 0.35, 0.1, h * 0.25);                 // denticules
     const s = L.c.createLinearGradient(0, y, 0, y - 0.5); s.addColorStop(0, 'rgba(30,20,10,.35)'); s.addColorStop(1, 'rgba(30,20,10,0)'); L.c.fillStyle = s; L.c.fillRect(x, y - 0.5, w, 0.5); };
@@ -499,7 +511,7 @@ export function cityMaterials(THREE) {
     for (let x = 0.3; x < tw - 0.2; x += 0.32) { R(L.c, 'rgba(60,45,30,.45)', x + 0.1, 12.5, 0.12, 0.75); R(L.e, '#000', x, 12.5, 0.3, 0.75); }
     all(L, '#e6dbc5', dat(1, 0.8), 0, 13.3, tw, 0.2);
     grain(L.c, 0.18);
-    return material('city:gare', L, { bump: 0.5 });
+    return material('city:gare', L, { bump: 0.5, rel: {} });
   };
   const horloge = () => {                                                  // façade du pavillon central (18 × 21 m), cadran éclairé la nuit
     const tw = 18, th = 21, L = layer(tw, th, 1024, 1024), r = mulberry32(1401);
@@ -523,7 +535,7 @@ export function cityMaterials(THREE) {
       g.lineWidth = 0.1; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.sin(1.05) * 1.95, cy + Math.cos(1.05) * 1.95); g.stroke(); }
     cornice(L, 3.8, 19.8, 10.4, 0.7); all(L, '#e6dbc5', dat(1, 0.8), 0, 20.5, tw, 0.5);
     grain(L.c, 0.16);
-    return material('city:gare-horloge', L, { bump: 0.45 });
+    return material('city:gare-horloge', L, { bump: 0.45, rel: {} });
   };
   const verriere = () => {                                                 // mur-rideau de la médiathèque : grands vitrages, raidisseurs fins
     const tw = 6, th = 6, L = layer(tw, th, 512, 512), r = mulberry32(1501);
@@ -535,7 +547,7 @@ export function cityMaterials(THREE) {
     for (let x = 0; x <= tw; x += 1.5) all(L, '#c9ced2', dat(0.9, 0.3, 0.85), x - 0.03, 0, 0.06, th);
     for (let y = 0; y <= th; y += 2) all(L, '#c9ced2', dat(0.9, 0.3, 0.85), 0, y - 0.04, tw, y % 6 ? 0.06 : 0.14);
     grain(L.c, 0.06);
-    return material('city:verriere', L, { bump: 0.2, env: 1.2 });
+    return material('city:verriere', L, { bump: 0.2, env: 1.2, rel: {} });
   };
   const pierreBureaux = () => {                                             // béton blanc de l'arche Marengo : fenêtres verticales régulières
     const tw = 3, th = 3.5, L = layer(tw, th, 256, 256), r = mulberry32(1601);
@@ -544,7 +556,7 @@ export function cityMaterials(THREE) {
     reveal(L, 0.95, 0.8, 1.1, 2.2, 0.08); glass(L, 0.95, 0.8, 1.1, 2.2, r, { lit: 0.5, curtain: false, col: OFFICE[0], b: 0.9, metal: 0.5 });
     frame(L, 0.95, 0.8, 1.1, 2.2, '#9aa0a4', { t: 0.05, mid: false });
     grain(L.c, 0.1);
-    return material('city:arche', L, { bump: 0.3 });
+    return material('city:arche', L, { bump: 0.3, rel: {} });
   };
   const vegetal = () => {                                                  // toiture végétalisée : sédums, bordure de gravier
     const t = 8, L = layer(t, t, 512, 512), r = mulberry32(1701);
@@ -572,7 +584,7 @@ export function cityMaterials(THREE) {
   const bet = concrete('city:beton', { seed: 601, col: '#a6a49e' });
   // variantes : volets lie-de-vin / bruns, enduit ocre à volets gris
   const SHUT_WINE = ['#7a3b33', '#8a4a3c', '#6b3a32', '#91574a'].map(hx), SHUT_GREY = ['#c9c6bd', '#b7b8b3', '#d8d3c6', '#a9aeb0'].map(hx);
-  const briqueC = classic('city:brique-volets', { bay: 3.3, fh: 3.3, nb: 4, nf: 4, courses: 74, bl: 0.41, bnx: 16, seed: 121, ww: 1.15, wh: 2.45, sill: 0.15,
+  const briqueC = classic('city:brique-volets', { bay: 3.3, fh: 3.3, nb: 4, nf: 4, courses: 74, bl: 0.4125, bnx: 16, seed: 121, ww: 1.15, wh: 2.45, sill: 0.15,
     surround: 'brick', pShut: 0.8, pRail: 0.5, shutCols: [...SHUT_WINE, ...SHUT_FADED], mortar: '#d3baa0', pal: PAL_TLS });
   const enduitOcre = classic('city:enduit-ocre', { bay: 3.2, fh: 3.2, nb: 4, nf: 4, courses: 70, bl: 0.4, bnx: 16, seed: 271, ww: 1.1, wh: 2.3, sill: 0.4,
     render: '#d9b183', pShut: 0.85, pRail: 0.35, shutCols: [...SHUT_GREY, ...SHUT_GREEN], mortar: '#d8c2a2', pal: PAL_PINK });
@@ -604,5 +616,138 @@ export function cityMaterials(THREE) {
     for (const m of shops) m.emissiveIntensity = 1.1 * k;
     land.gare.emissiveIntensity = 1.1 * k; land.horloge.emissiveIntensity = 1.3 * k; land.verriere.emissiveIntensity = 0.5 * dusk + 0.6 * night; land.arche.emissiveIntensity = kb;
   };
-  return { facades, shops, roofs, blank, land, setLight, genMs };
+  // bruit RVB tuilable partagé par le relief (taches larges, moyennes, coulures)
+  const relNoise = (() => { const c = cv(128, 128), g = c.getContext('2d'), im = g.createImageData(128, 128), ch = [NZ[2], NZ[1], NZ[0]].map((n) => n.getContext('2d').getImageData(0, 0, 128, 128).data);
+    for (let i = 0; i < 128 * 128; i++) { for (let k = 0; k < 3; k++) im.data[i * 4 + k] = ch[k][i * 4]; im.data[i * 4 + 3] = 255; } g.putImageData(im, 0, 0); return c; })();
+  return { facades, shops, roofs, blank, land, setLight, genMs, relief: makeRelief(THREE, relNoise) };
+}
+
+// ---------- relief des façades : parallaxe à occlusion (POM) sur la carte de hauteur (canal R) ----------
+// Un seul programme pour toutes les façades (mêmes defines, uniformes propres à chaque matériau) :
+//  · cellules (travée × niveau) permutées par immeuble — graine tirée de la couleur de sommet — : plus de tuile répétée ;
+//  · marche de rayon dans la hauteur (fenêtres en tableau de 20–25 cm, loggias, appuis, nez de dalle en saillie),
+//    échantillonnage textureGrad sur les dérivées lisses (pas de liseré aux arêtes du relief), fondu avec la distance ;
+//  · normale tirée du gradient de hauteur (arêtes des tableaux, joints de brique), ombre propre au soleil dans les
+//    creux, occlusion ambiante des renfoncements (écart entre hauteur et hauteur floutée par les mips) ;
+//  · salissures à grande échelle en coordonnées de mur (taches, coulures verticales), socle assombri au pied.
+const REL_PARS = /* glsl */`
+uniform vec4 relTile; uniform vec4 relPar; uniform vec4 relCfg; uniform sampler2D relNoise;
+varying float vRelY, vRelTop;
+vec2 relP, relDx, relDy; vec3 relT, relB, relN; float relF, relDepth, relAO, relGlass;
+float relH( vec2 p ) { return textureGrad( roughnessMap, p, relDx, relDy ).r; }
+float relHash( vec2 p ) { p = fract( p * vec2( 123.34, 456.21 ) ); p += dot( p, p + 45.32 ); return fract( p.x * p.y ); }
+float relShadow( vec3 L ) {
+  if ( relF < 0.01 || relDepth < 0.004 ) return 1.0;
+  vec3 Lt = vec3( dot( L, relT ), dot( L, relB ), dot( L, relN ) );
+  if ( Lt.z <= 0.02 ) return 1.0;
+  vec2 st = Lt.xy / max( Lt.z, 0.12 ) * relCfg.x * relF / relTile.xy;
+  float s = 0.0;
+  for ( int i = 1; i <= 8; i ++ ) {
+    float d = relDepth * ( 1.0 - float( i ) / 8.0 ), hd = 1.0 - relH( relP + st * ( relDepth - d ) );
+    s = max( s, ( d - hd ) * 14.0 );
+  }
+  return 1.0 - clamp( s, 0.0, 1.0 ) * relF;
+}
+`;
+const REL_MAIN = /* glsl */`
+  {
+    vec2 t0 = vMapUv; relDx = dFdx( t0 ); relDy = dFdy( t0 );
+    float seed = 0.0;
+    #ifdef USE_COLOR
+      seed = fract( dot( vColor.rgb, vec3( 12.9898, 78.233, 37.719 ) ) * 43.758 ) * 97.0;
+    #endif
+    // permutation des cellules (modulo relPar conservé : appareil de brique, alternances de travées)
+    vec2 cell = floor( t0 * relTile.zw ), lc = t0 * relTile.zw - cell;
+    vec2 rr = vec2( relHash( cell + seed ), relHash( cell.yx * 1.37 + seed + 11.0 ) );
+    vec2 nc = mod( cell, relPar.xy ) + relPar.xy * floor( rr * relTile.zw / relPar.xy );
+    relP = ( nc + lc ) / relTile.zw;
+    // repère tangent (u le long du mur, v vers le haut), en mètres
+    vec3 q0 = - vViewPosition, dp1 = dFdx( q0 ), dp2 = dFdy( q0 );
+    vec2 m1 = relDx * relTile.xy, m2 = relDy * relTile.xy;
+    relN = normalize( vNormal ) * ( gl_FrontFacing ? 1.0 : - 1.0 );
+    vec3 p2 = cross( dp2, relN ), p1 = cross( relN, dp1 );
+    relT = normalize( p2 * m1.x + p1 * m2.x ); relB = normalize( p2 * m1.y + p1 * m2.y );
+    float dist = length( vViewPosition );
+    relF = 1.0 - smoothstep( relCfg.y, relCfg.z, dist );
+    relDepth = 0.0;
+    vec3 V = normalize( vViewPosition ), Vt = vec3( dot( V, relT ), dot( V, relB ), dot( V, relN ) );
+    if ( relF > 0.01 && Vt.z > 0.02 ) {
+      float nS = floor( mix( 6.0, 22.0, clamp( 1.0 - Vt.z, 0.0, 1.0 ) ) * ( 0.4 + 0.6 * relF ) );
+      vec2 dUV = - Vt.xy / max( Vt.z, 0.22 ) * relCfg.x * relF / relTile.xy / nS;
+      float lay = 1.0 / nS, cd = 0.0, hd = 1.0 - relH( relP ); vec2 p = relP;
+      for ( int i = 0; i < 22; i ++ ) { if ( float( i ) >= nS || cd >= hd ) break; p += dUV; cd += lay; hd = 1.0 - relH( p ); }
+      vec2 pp = p - dUV; float aft = hd - cd, bef = ( 1.0 - relH( pp ) ) - ( cd - lay ), w = clamp( aft / ( aft - bef + 1e-5 ), 0.0, 1.0 );
+      relP = mix( p, pp, w ); relDepth = cd - w * lay;
+    }
+    vec4 dat = textureGrad( roughnessMap, relP, relDx, relDy );
+    // occlusion : renfoncement (hauteur sous la moyenne locale floutée) et profondeur absolue
+    float hb = textureGrad( roughnessMap, relP, relDx * 10.0 + vec2( 4.0 / relTile.x, 0.0 ), relDy * 10.0 + vec2( 0.0, 4.0 / relTile.y ) ).r;
+    float cav = clamp( ( hb - dat.r ) * relCfg.x / 0.18, 0.0, 1.0 );
+    if ( relF > 0.01 ) {                                                          // horizon : ciel masqué par les saillies, surtout au-dessus
+      vec2 mu = vec2( 1.0 / relTile.x, 0.0 ), mv = vec2( 0.0, 1.0 / relTile.y ); float o = 0.0;
+      for ( int i = 1; i <= 2; i ++ ) { float r = 0.13 * float( i * i );
+        o += 1.6 * clamp( ( relH( relP + mv * r ) - dat.r ) * relCfg.x / r, 0.0, 1.0 ) + 0.5 * clamp( ( relH( relP - mv * r ) - dat.r ) * relCfg.x / r, 0.0, 1.0 )
+           + 0.7 * clamp( ( relH( relP + mu * r ) - dat.r ) * relCfg.x / r, 0.0, 1.0 ) + 0.7 * clamp( ( relH( relP - mu * r ) - dat.r ) * relCfg.x / r, 0.0, 1.0 ); }
+      cav = mix( cav, clamp( o / 4.0, 0.0, 1.0 ), relF );
+    }
+    relAO = ( 1.0 - 0.7 * cav ) * ( 1.0 - 0.3 * ( 1.0 - dat.r ) );
+    relAO *= ( 0.6 + 0.4 * smoothstep( 0.0, 2.5, vRelY ) ) * ( 0.8 + 0.2 * smoothstep( 1.0, 14.0, vRelY ) );   // pied de mur, fond de rue
+    relGlass = 1.0 - smoothstep( 0.1, 0.2, dat.g );
+    sampledRel = dat;
+  }
+`;
+export function makeRelief(THREE, noiseCanvas) {
+  const nt = new THREE.CanvasTexture(noiseCanvas); nt.wrapS = nt.wrapT = THREE.RepeatWrapping; nt.colorSpace = THREE.NoColorSpace;
+  return (mat) => {
+    const R = mat.userData.rel; if (!R) return mat;
+    const U = { relTile: { value: new THREE.Vector4(...R.tile) }, relPar: { value: new THREE.Vector4(R.par[0], R.par[1], 0, 0) },
+      relCfg: { value: new THREE.Vector4(R.depth, 110, 260, 0) }, relNoise: { value: nt } };
+    mat.onBeforeCompile = (s) => {
+      Object.assign(s.uniforms, U);
+      s.vertexShader = 'attribute float relTop;\nvarying float vRelY, vRelTop;\n' + s.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vRelY = ( modelMatrix * vec4( transformed, 1.0 ) ).y; vRelTop = relTop;');
+      const g = (smp) => `textureGrad( ${smp}, relP, relDx, relDy )`;
+      s.fragmentShader = s.fragmentShader
+        .replace('void main() {', REL_PARS + 'void main() {\n  vec4 sampledRel;')
+        .replace('#include <map_fragment>', REL_MAIN + `
+  vec4 sampledDiffuseColor = ${g('map')};
+  {
+    // salissures en coordonnées de mur : taches larges, coulures verticales, socle ; pas sur les vitrages
+    vec2 wm = vMapUv * relTile.xy + seedOff();
+    float n1 = texture2D( relNoise, wm / 38.0 ).r, n2 = texture2D( relNoise, wm / 9.0 ).g, st = texture2D( relNoise, vec2( wm.x / 3.1, wm.y / 46.0 ) ).b;
+    float k = ( 0.8 + 0.38 * n1 ) * ( 0.93 + 0.14 * n2 ) * ( 1.0 - 0.16 * smoothstep( 0.4, 0.9, st ) );
+    k *= 1.0 - 0.22 * ( 1.0 - smoothstep( 0.0, 0.9, vRelY ) );                      // éclaboussures au pied
+    float dt = vRelTop - vRelY;                                                    // sous l'acrotère : encrassement, coulures plus marquées
+    k *= 1.0 - ( 0.1 + 0.12 * st ) * ( 1.0 - smoothstep( 0.2, 4.5, dt ) ) * step( 0.5, vRelTop );
+    sampledDiffuseColor.rgb *= mix( k, 1.0, relGlass * 0.85 );
+  }
+  diffuseColor *= sampledDiffuseColor;`)
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * sampledRel.g;')
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * sampledRel.b;')
+        .replace('#include <normal_fragment_maps>', `
+  {
+    vec2 ts = 1.0 / vec2( textureSize( roughnessMap, 0 ) );
+    vec2 ex = vec2( max( ts.x * 1.2, length( relDx ) ), 0.0 ), ey = vec2( 0.0, max( ts.y * 1.2, length( relDy ) ) );
+    float gx = ( relH( relP + ex ) - relH( relP - ex ) ) * relCfg.x / ( 2.0 * ex.x * relTile.x );
+    float gy = ( relH( relP + ey ) - relH( relP - ey ) ) * relCfg.x / ( 2.0 * ey.y * relTile.y );
+    normal = normalize( relN - clamp( gx, -3.0, 3.0 ) * relT - clamp( gy, -3.0, 3.0 ) * relB );
+  }`)
+        .replace('#include <emissivemap_fragment>', '#ifdef USE_EMISSIVEMAP\n  totalEmissiveRadiance *= ' + g('emissiveMap') + '.rgb;\n#endif')
+        .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n  material.specularColor = mix( material.specularColor, vec3( 0.09 ), relGlass );')
+        .replace('#include <aomap_fragment>', `
+  reflectedLight.indirectDiffuse *= relAO;
+  reflectedLight.indirectSpecular *= mix( relAO, 1.0, 0.35 );`)
+        .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replace('getDirectionalLightInfo( directionalLight, directLight );', 'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= relShadow( directLight.direction );'))
+        .replace('float relHash(', 'vec2 seedOff();\nfloat relHash(')
+        .replace('void main() {', `vec2 seedOff() {
+  #ifdef USE_COLOR
+    return vec2( fract( dot( vColor.rgb, vec3( 3.1, 7.7, 1.3 ) ) * 91.7 ) * 300.0, 0.0 );
+  #else
+    return vec2( 0.0 );
+  #endif
+}
+void main() {`);
+    };
+    mat.customProgramCacheKey = () => 'city-relief-1'; mat.userData.relU = U;
+    return mat;
+  };
 }

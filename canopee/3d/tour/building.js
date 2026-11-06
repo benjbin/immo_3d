@@ -139,13 +139,26 @@ import { createCity, siteTransform } from './city.js';
 // Azimut de l'axe +Z de la maquette (la pointe de la goutte, en −Z, regarde vers 151° : pont Riquet, allées Jean-Jaurès)
 // et position de la tour dans la parcelle (en mètres, repère des données : x est, z sud).
 const SITE_AZ = 331, SITE_ORIGIN = [-7.5, -18.7];
+// Ville lointaine (33 000 bâtiments jusqu'à 2,8 km) : téléchargée et construite une fois la maquette ouverte et
+// l'arrivée de caméra finie ; ses shaders sont compilés en parallèle avant qu'elle n'apparaisse (pas d'à-coup).
+// Dans le chargement, elle coûtait ~2,5 s (compilation au premier rendu) pour un horizon que la brume adoucit.
+function loadFarLater(THREE, cg, url) {
+  const buf = fetch(url).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+  const idle = (f) => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: 1500 }) : setTimeout(f, 50));
+  const wait = () => { const v = window.__viewer; if (!v) return setTimeout(wait, 200); setTimeout(() => idle(go), 3000); };
+  const go = async () => {
+    const b = await buf; if (!b) return;
+    const v = window.__viewer, g = cg.userData.buildFar(b); if (!g) return;
+    // variantes du rendu réel : sortie dans la cible du composer (comme compileForComposer de viewer.js)
+    try { const r = v.renderer, prev = r.getRenderTarget(); r.setRenderTarget(v.composer ? v.composer.readBuffer : null); const p = r.compileAsync(g, v.camera, v.scene); r.setRenderTarget(prev); await p; } catch (e) { /* compilé au rendu */ }
+    cg.add(g); v.render();
+  };
+  wait();
+}
 
 export async function createBuilding(THREE, M) {
   let city = null;
   try { city = await (await fetch(new URL('./city-data.json' + new URL(import.meta.url).search, import.meta.url))).json(); } catch (e) { city = null; }
-  // ville lointaine (binaire, facultatif) : décrite par city.far = { url, ... }
-  let farBuf = null;
-  if (city && city.far && city.far.url) { try { const r = await fetch(new URL('./' + city.far.url + new URL(import.meta.url).search, import.meta.url)); if (r.ok) farBuf = await r.arrayBuffer(); } catch (e) { farBuf = null; } }
   const toModel = siteTransform(SITE_AZ, SITE_ORIGIN);
   const lot = city && city.site ? city.site.map(toModel) : null;
   const group = new THREE.Group();
@@ -730,13 +743,14 @@ export async function createBuilding(THREE, M) {
   // ---------- la ville réelle alentour ----------
   if (city) {
     const keep = offsetPoly(resample(lot.slice(), 2), 0.5);
-    const cg = createCity(THREE, M, { data: city, facadeAz: SITE_AZ, origin: SITE_ORIGIN, keep: [keep], radius: 560, farBuf });
+    const cg = createCity(THREE, M, { data: city, facadeAz: SITE_AZ, origin: SITE_ORIGIN, keep: [keep], radius: 560 });
     group.add(cg);
     for (const t of cg.userData.trees) trees.push(t);
     const own = group.userData.onLight;
     group.userData.onLight = (dusk, night) => { own(dusk, night); cg.userData.onLight(dusk, night); };
     group.userData.city = true;
     group.userData.waterHoles = cg.userData.waterHoles;   // landscape.js découpe le sol sous l'eau
+    if (city.far && city.far.url) loadFarLater(THREE, cg, new URL('./' + city.far.url + new URL(import.meta.url).search, import.meta.url));
   }
   return group;
 }

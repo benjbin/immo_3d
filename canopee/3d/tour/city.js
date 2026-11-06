@@ -128,12 +128,12 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
   const bgroup = new THREE.Group(); bgroup.name = 'batiments';
   // accumulateur teinté : couleur par sommet (teinte propre à chaque immeuble) sur des clones vertexColors des matériaux CM
   class TAcc extends Acc {
-    constructor() { super(); this.c = []; this.col = [1, 1, 1]; }
-    v(x, y, z, u, w) { this.c.push(this.col[0], this.col[1], this.col[2]); return super.v(x, y, z, u, w); }
-    geo() { const g = super.geo(); g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3)); return g; }
+    constructor() { super(); this.c = []; this.col = [1, 1, 1]; this.t = []; }
+    v(x, y, z, u, w) { this.c.push(this.col[0], this.col[1], this.col[2]); this.t.push(curTop); return super.v(x, y, z, u, w); }
+    geo() { const g = super.geo(); g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3)); g.setAttribute('relTop', new THREE.Float32BufferAttribute(this.t, 1)); return g; }
   }
-  const tinted = new Map(), bacc = new Map(), WHITE = [1, 1, 1];
-  const tmat = (m) => { let c = tinted.get(m); if (!c) { c = m.clone(); c.vertexColors = true; c.name = m.name + ':t'; tinted.set(m, c); } return c; };
+  const tinted = new Map(), bacc = new Map(), WHITE = [1, 1, 1]; let curTop = 0;   // curTop : haut du mur de l'immeuble en cours (salissures sous l'acrotère)
+  const tmat = (m) => { let c = tinted.get(m); if (!c) { c = m.clone(); c.vertexColors = true; c.name = m.name + ':t'; if (CM.relief) CM.relief(c); tinted.set(m, c); } return c; };
   const B_ = (m, col = WHITE) => { const k = tmat(m); let a = bacc.get(k); if (!a) bacc.set(k, a = new TAcc()); a.col = col; return a; };
   { const set0 = CM.setLight; CM.setLight = (d, n) => { set0(d, n); for (const [m, c] of tinted) c.emissiveIntensity = m.emissiveIntensity; }; }
 
@@ -185,11 +185,26 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
     const k = acc.v(a[0], y0, a[1], u0, v0); acc.v(b[0], y0, b[1], u1, v0); acc.v(b[0], y1, b[1], u1, v1); acc.v(a[0], y1, a[1], u0, v1);
     acc.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
   };
+  // anneau décalé vers l'extérieur, distance propre à chaque arête (0 : arête mitoyenne), onglets bornés
+  const offsetRing = (r, ds) => {
+    const n = r.length, N = r.map((a, i) => { const b = r[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [-(b[1] - a[1]) / L, (b[0] - a[0]) / L]; });
+    return r.map((p, j) => {
+      const i = (j - 1 + n) % n, n0 = N[i], n1 = N[j], d0 = ds[i], d1 = ds[j], c = n0[0] * n1[0] + n0[1] * n1[1], det = n0[0] * n1[1] - n0[1] * n1[0];
+      if (Math.abs(det) < 0.15) { const d = Math.max(d0, d1); return [p[0] + (n0[0] + n1[0]) / 2 * d, p[1] + (n0[1] + n1[1]) / 2 * d]; }
+      const x = (d0 * n1[1] - d1 * n0[1]) / det, z = (n0[0] * d1 - n1[0] * d0) / det;     // n0·X = d0, n1·X = d1
+      if (Math.hypot(x, z) > 2.5 * Math.max(d0, d1) + 1e-6 || c < -0.6) return [p[0] + (n0[0] + n1[0]) / 2 * Math.max(d0, d1), p[1] + (n0[1] + n1[1]) / 2 * Math.max(d0, d1)];
+      return [p[0] + x, p[1] + z];
+    });
+  };
+  // quadrilatère quelconque orienté vers le haut (up = 1) ou vers le bas (up = -1)
+  const quadF = (acc, P4, up, uvs) => { const k = acc.p.length / 3; P4.forEach((p, i) => acc.v(p[0], p[1], p[2], uvs[i][0], uvs[i][1]));
+    const P = acc.p, ny = (P[(k + 2) * 3] - P[k * 3]) * (P[(k + 1) * 3 + 2] - P[k * 3 + 2]) - (P[(k + 1) * 3] - P[k * 3]) * (P[(k + 2) * 3 + 2] - P[k * 3 + 2]);
+    if (ny * up >= 0) acc.i.push(k, k + 1, k + 2, k, k + 2, k + 3); else acc.i.push(k, k + 2, k + 1, k, k + 3, k + 2); };
   const flatDown = (acc, pts, y) => { const from = acc.i.length; flatInto(acc, pts, y); for (let t = from; t < acc.i.length; t += 3) { const s = acc.i[t + 1]; acc.i[t + 1] = acc.i[t + 2]; acc.i[t + 2] = s; } };
 
   // --- toits en pente : enveloppe inférieure des plans de versant (squelette droit exact pour une pièce convexe) ---
   // w[i] = 1 : versant (croupe) ; 0 : pignon vertical (mur mitoyen ou arête intérieure d'une décomposition)
-  const hipRoof = (P, w, h, pitch, acc, gAcc) => {
+  const hipRoof = (P, w, h, pitch, acc, gAcc, hg = h) => {
     const n = P.length, E = [];
     for (let i = 0; i < n; i++) { const a = P[i], b = P[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; E.push({ a, b, tx: (b[0] - a[0]) / L, tz: (b[1] - a[1]) / L, nx: (b[1] - a[1]) / L, nz: -(b[0] - a[0]) / L }); }
     const d = (e, p) => e.nx * (p[0] - e.a[0]) + e.nz * (p[1] - e.a[1]);
@@ -208,8 +223,8 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
       if (w[i]) continue; const e = E[i], L = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]); const top = [];
       for (const [j, F] of faces) for (const p of F) if (Math.abs(d(e, p)) < 1e-3) { const t = (p[0] - e.a[0]) * e.tx + (p[1] - e.a[1]) * e.tz; if (t > 1e-3 && t < L - 1e-3) top.push([t, h + pitch * Math.max(0, d(E[j], p))]); }
       if (!top.length) continue; top.sort((x, y) => x[0] - y[0]);
-      const pts = [[0, h], [L, h], ...top.reverse()], base = gAcc.p.length / 3;
-      for (const [t, y] of pts) gAcc.v(e.a[0] + e.tx * t, y, e.a[1] + e.tz * t, t, y);
+      const pts = [[0, hg], [L, hg], ...top.reverse()], base = gAcc.p.length / 3;
+      for (const [t, y] of pts) gAcc.v(e.a[0] + e.tx * t + e.nx * 0.02, y, e.a[1] + e.tz * t + e.nz * 0.02, t, y);   // 2 cm en retrait : sous le débord, le mur de façade passe devant
       for (let k = 1; k < pts.length - 1; k++) gAcc.i.push(base, base + k, base + k + 1);   // a, b, … : même sens que les murs → vers l'extérieur
     }
     return { E, d };
@@ -331,16 +346,27 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
       triUp(cap, k, k + 1, k + 2); triUp(cap, k, k + 2, k + 3); }
   };
 
+  // corniche : bandeau en saillie au droit de l'acrotère (face avant, sous-face à l'ombre, dessus en couvertine) ; rien sur les mitoyens
+  const cornice = (ring, ds, h, fac, col) => {
+    if (!ds.some(Boolean)) return;
+    const acc = B_(fac.mat, col), cap = B_(CM.roofs.flatLight, WHITE), [pa, pb] = fac.pv || [0.01, 0.06], Ro = offsetRing(ring, ds), y0 = h - 0.36, y1 = h - 0.04, n = ring.length;
+    for (let i = 0; i < n; i++) { if (!ds[i]) continue; const j = (i + 1) % n, a = ring[i], b = ring[j], a2 = Ro[i], b2 = Ro[j], L = Math.hypot(b2[0] - a2[0], b2[1] - a2[1]); if (L < 0.1) continue;
+      quadW(acc, a2, b2, y0, y1, 0, L, pa, pb);
+      quadF(acc, [[a[0], y0, a[1]], [b[0], y0, b[1]], [b2[0], y0, b2[1]], [a2[0], y0, a2[1]]], -1, [[0, pa], [L, pa], [L, pb], [0, pb]]);
+      quadF(cap, [[a[0], y1, a[1]], [b[0], y1, b[1]], [b2[0], y1, b2[1]], [a2[0], y1, a2[1]]], 1, [[a[0], -a[1]], [b[0], -b[1]], [b2[0], -b2[1]], [a2[0], -a2[1]]]); }
+  };
+  const EAVE = 0.42;
+
   // --- accessoires instanciés : cheminées, édicules d'ascenseur, groupes de climatisation ---
   const props = [], PCOL = { chim: [0.62, 0.36, 0.27], chimL: [0.78, 0.66, 0.55], hvac: [0.72, 0.73, 0.74], lift: [0.8, 0.78, 0.74] };
-  const prop = (x, y, z, sx, sy, sz, ang, col) => props.push([x, y, z, sx, sy, sz, ang, col]);
+  const prop = (x, y, z, sx, sy, sz, ang, col, kind) => props.push([x, y, z, sx, sy, sz, ang, col, kind]);   // kind : 0 cheminée, 1 édicule, 2 climatiseur
   const insideM = (x, z, ring, m) => inPoly(x, z, ring) && inPoly(x + m, z, ring) && inPoly(x - m, z, ring) && inPoly(x, z + m, ring) && inPoly(x, z - m, ring);
   const roofKit = (R, h, ax, az, modern) => {                  // terrasse : édicule, climatisations, parfois végétalisée
     const { ring, cx, cz, area } = R, ang = Math.atan2(az, ax);
-    if (area > 160 && insideM(cx, cz, ring, 2.2)) prop(cx, h + 1.4, cz, 2.6, 2.8, 3.2, ang, PCOL.lift);
+    if (area > 160 && insideM(cx, cz, ring, 2.2)) prop(cx, h + 1.4, cz, 2.6, 2.8, 3.2, ang, PCOL.lift, 1);
     const n = Math.min(6, Math.floor(area / 120)), [x0, x1, z0, z1] = ring.reduce((m, [x, z]) => [Math.min(m[0], x), Math.max(m[1], x), Math.min(m[2], z), Math.max(m[3], z)], [1e9, -1e9, 1e9, -1e9]);
     for (let k = 0, tries = 0; k < n && tries < 20; tries++) { const x = x0 + rnd() * (x1 - x0), z = z0 + rnd() * (z1 - z0); if (!insideM(x, z, ring, 1.6)) continue;
-      const big = rnd() < 0.3; prop(x, h + (big ? 0.7 : 0.45), z, big ? 2.4 : 1.1, big ? 1.4 : 0.9, big ? 1.2 : 0.8, ang, PCOL.hvac); k++; }
+      const big = rnd() < 0.3; prop(x, h + (big ? 0.7 : 0.45), z, big ? 2.4 : 1.1, big ? 1.4 : 0.9, big ? 1.2 : 0.8, ang + (k & 1 ? Math.PI : 0), PCOL.hvac, 2); k++; }
   };
 
   // --- monuments ---
@@ -445,6 +471,7 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
     const gH = shopOK ? (fac.groundH || 4.2) : 0;
     let h = isDef ? (gH ? gH + (floors - 1) * fac.floorH : floors * fac.floorH) + (old ? 0.4 : 0.2) : Math.max(3, R.hOverride || b.h || 9);
     if (h - y0 < 2.5) h = y0 + 2.5;
+    curTop = h;
     // teinte propre : brique plus ou moins rose / ocre, enduits plus ou moins clairs
     const lum = 0.86 + rnd() * 0.2, warm = rnd(), col = old ? [lum, lum * (0.95 + 0.05 * warm), lum * (0.9 + 0.08 * warm)] : [lum * 1.02, lum, lum * (0.97 + 0.04 * warm)];
     const ground = gH ? { shop: rnd() < 0.65 ? 0 : 1, res: old ? (rnd() < 0.55 ? 1 : 2) : 2, col: [0.95 + 0.07 * rnd(), 0.97, 0.95 + 0.05 * rnd()] } : null;
@@ -461,7 +488,7 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
     if (tiled) {
       const pitch = /church|chapel/.test(t) ? 0.5 : 0.3, n = sr.length, isRing = (u, v) => (v === (u + 1) % n);
       const rcol = [0.86 + 0.22 * rnd(), 0.84 + 0.16 * rnd(), 0.82 + 0.14 * rnd()].map((v, k) => Math.min(1.08, v * (k ? 1 : 1)));
-      const ra = B_(CM.roofs.tile, rcol), ga = B_(CM.blank, col), gableEnds = ob.long / Math.max(1, ob.short) > 1.8 && rnd() < 0.35;
+      const ra = B_(CM.roofs.tile, rcol), sof = B_(CM.roofs.tile, rcol.map((v) => v * 0.55)), ga = B_(CM.blank, col), gableEnds = ob.long / Math.max(1, ob.short) > 1.8 && rnd() < 0.35;
       for (const pc of pieces) {
         const P = pc.map((i) => sr[i]), w = pc.map((u, k) => {
           const v = pc[(k + 1) % pc.length]; if (!isRing(u, v)) return 0;                           // arête intérieure : pignon
@@ -469,19 +496,25 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
           return end && (gableEnds || shared(a, c, R.idx)) ? 0 : 1;
         });
         if (w.filter(Boolean).length < 2) w.fill(1);
-        const { E, d } = hipRoof(P, w, h, pitch, ra, ga);
+        // débord de toit de 42 cm sur les égouts (génoise) ; pignons et arêtes intérieures au nu du mur
+        const ov = pc.map((u, k) => (w[k] && isRing(u, pc[(k + 1) % pc.length]) ? EAVE : 0)), Po = ov.some(Boolean) ? offsetRing(P, ov) : P, hb = h - pitch * EAVE;
+        const { E, d } = hipRoof(Po, w, hb, pitch, ra, ga, hb);
+        for (let k = 0; k < P.length; k++) { if (!ov[k]) continue; const k1 = (k + 1) % P.length, a = P[k], b = P[k1], a2 = Po[k], b2 = Po[k1], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          quadF(sof, [[a[0], h, a[1]], [b[0], h, b[1]], [b2[0], hb, b2[1]], [a2[0], hb, a2[1]]], -1, [[0, 0], [L, 0], [L, EAVE], [0, EAVE]]);   // sous-face
+          quadW(sof, a2, b2, hb - 0.16, hb, 0, Math.hypot(b2[0] - a2[0], b2[1] - a2[1]), 0, 0.16); }                                        // rive d'égout
         // cheminées de brique sur les vieilles maisons, près du faîtage
         if (old && rnd() < 0.75) { const pcx = P.reduce((s, p) => s + p[0], 0) / P.length, pcz = P.reduce((s, p) => s + p[1], 0) / P.length;
           const nc = area > 140 && rnd() < 0.5 ? 2 : 1;
           for (let k = 0; k < nc; k++) { const q = P[(rnd() * P.length) | 0], f = 0.2 + 0.45 * rnd(), x = pcx + (q[0] - pcx) * f, z = pcz + (q[1] - pcz) * f;
             if (!inPoly(x, z, P)) continue; let m = 1e9; E.forEach((e, i) => { if (w[i]) m = Math.min(m, d(e, [x, z])); });
-            const top = h + pitch * m + 0.9 + 0.5 * rnd(); prop(x, (top + h + pitch * m - 0.4) / 2, z, 0.55, top - (h + pitch * m - 0.4), 0.8, Math.atan2(ob.az, ob.ax), rnd() < 0.7 ? PCOL.chim : PCOL.chimL); } }
+            const top = hb + pitch * m + 0.9 + 0.5 * rnd(); prop(x, (top + hb + pitch * m - 0.4) / 2, z, 0.55, top - (hb + pitch * m - 0.4), 0.8, Math.atan2(ob.az, ob.ax), rnd() < 0.7 ? PCOL.chim : PCOL.chimL, 0); } }
       }
       nTile++;
     } else {
       const green = !old && floors >= 3 && area > 180 && rnd() < 0.18;
       flatInto(B_(green ? CM.roofs.green : rnd() < 0.7 ? CM.roofs.flat : CM.roofs.flatLight, green ? WHITE : [lum, lum, lum]), ring, h - 0.05, holes);
       parapet(ring, h, fac, col, cx, cz, floors >= 3 ? 0.8 : 0.4);
+      cornice(ring, ring.map((a, i) => (shared(a, ring[(i + 1) % ring.length], R.idx) ? 0 : floors >= 3 ? 0.34 : 0.2)), h, fac, col);
       if (!green && floors >= 3) roofKit(R, h, ob.ax, ob.az, !old);
       nFlat++;
     }
@@ -489,10 +522,37 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
   // flush : un maillage par matériau teinté, un seul InstancedMesh pour tous les accessoires de toiture
   for (const [mat, acc] of bacc) { if (!acc.i.length) continue; const m = new THREE.Mesh(acc.geo(), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); bgroup.add(m); }
   if (props.length) {
-    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ name: 'city:edicules', color: 0xffffff, roughness: 0.75, metalness: 0.1 }), props.length);
+    // modèles unitaires (−0,5…0,5) assemblés de boîtes et de cylindres, gris par sommet × teinte par instance
+    const kit = (parts) => {
+      const P = [], N = [], C = [], I = [];
+      for (const [type, x, y, z, sx, sy, sz, sh] of parts) {
+        const g = type === 'c' ? new THREE.CylinderGeometry(0.5, 0.5, 1, 8) : new THREE.BoxGeometry(1, 1, 1), p = g.attributes.position, nm = g.attributes.normal, b = P.length / 3;
+        for (let i = 0; i < p.count; i++) { P.push(x + p.getX(i) * sx, y + p.getY(i) * sy, z + p.getZ(i) * sz); N.push(nm.getX(i), nm.getY(i), nm.getZ(i)); C.push(sh, sh, sh); }
+        for (const k of g.index.array) I.push(b + k); g.dispose();
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.setIndex(I); return g;
+    };
+    const KITS = [
+      kit([['b', 0, -0.06, 0, 1, 0.88, 1, 1], ['b', 0, 0.42, 0, 1.22, 0.07, 1.22, 0.82], ['b', 0, 0.38, 0, 1.08, 0.04, 1.08, 0.7],                     // cheminée : souche, chapeau, larmier
+        ['c', -0.18, 0.55, 0, 0.26, 0.2, 0.26, 0.85], ['c', 0.2, 0.53, 0, 0.24, 0.16, 0.24, 0.8]]),                                                    // mitrons
+      kit([['b', 0, -0.03, 0, 1, 0.94, 1, 1], ['b', 0, 0.47, 0, 1.08, 0.06, 1.08, 0.86], ['b', 0, 0.495, 0, 1.1, 0.01, 1.1, 0.5],                        // édicule : maçonnerie, dalle en débord
+        ['b', 0.12, -0.13, 0.505, 0.34, 0.74, 0.02, 0.32], ['b', 0.12, 0.25, 0.505, 0.4, 0.03, 0.03, 0.75],                                            // porte métallique, auvent
+        ['b', -0.505, 0.22, -0.15, 0.02, 0.18, 0.4, 0.22], ['b', 0.505, 0.24, 0.2, 0.02, 0.14, 0.28, 0.25],                                            // grilles de ventilation
+        ['c', -0.3, 0.62, -0.28, 0.08, 0.24, 0.08, 0.55], ['b', -0.5, -0.47, 0, 0.06, 0.06, 1.0, 0.6]]),                                              // ventilation, solin
+      kit([['b', 0, 0.04, 0, 1, 0.84, 1, 1], ['b', 0, -0.44, 0, 1.04, 0.12, 1.04, 0.3],                                                               // climatiseur : caisson, châssis
+        ['c', -0.24, 0.465, 0, 0.4, 0.03, 0.4, 0.12], ['c', 0.24, 0.465, 0, 0.4, 0.03, 0.4, 0.12], ['b', -0.24, 0.482, 0, 0.06, 0.01, 0.4, 0.5], ['b', 0.24, 0.482, 0, 0.06, 0.01, 0.4, 0.5],   // ventilateurs
+        ...[0, 1, 2, 3, 4].map((k) => ['b', 0, -0.26 + k * 0.12, 0.505, 0.9, 0.035, 0.012, 0.35]),                                                      // ailettes
+        ['b', 0.505, -0.1, 0.2, 0.02, 0.3, 0.2, 0.55]]),                                                                                               // boîtier électrique
+    ];
+    const mat = new THREE.MeshStandardMaterial({ name: 'city:edicules', color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.08 });
     const o = new THREE.Object3D(), c = new THREE.Color();
-    props.forEach(([x, y, z, sx, sy, sz, a, col], i) => { o.position.set(x, y, z); o.rotation.set(0, -a, 0); o.scale.set(sx, sy, sz); o.updateMatrix(); im.setMatrixAt(i, o.matrix); const k = 0.9 + 0.2 * rnd(); im.setColorAt(i, c.setRGB(col[0] * k, col[1] * k, col[2] * k)); });
-    im.castShadow = im.receiveShadow = true; im.matrixAutoUpdate = false; im.updateMatrix(); im.computeBoundingSphere(); bgroup.add(im);
+    for (let kind = 0; kind < 3; kind++) {
+      const L = props.filter((q) => q[8] === kind); if (!L.length) continue;
+      const im = new THREE.InstancedMesh(KITS[kind], mat, L.length); im.name = 'city:edicules:' + kind;
+      L.forEach(([x, y, z, sx, sy, sz, a, col], i) => { o.position.set(x, y, z); o.rotation.set(0, -a, 0); o.scale.set(sx, sy, sz); o.updateMatrix(); im.setMatrixAt(i, o.matrix); const k = 0.9 + 0.2 * rnd(); im.setColorAt(i, c.setRGB(col[0] * k, col[1] * k, col[2] * k)); });
+      im.castShadow = im.receiveShadow = true; im.matrixAutoUpdate = false; im.updateMatrix(); im.computeBoundingSphere(); bgroup.add(im);
+    }
   }
   group.add(bgroup);
   bgroup.userData.stats = { ms: Math.round(performance.now() - tB), cmMs: Math.round(CM.genMs || 0), buildings: nb, tiled: nTile, flat: nFlat, fail: nFail, props: props.length, meshes: bgroup.children.length };
@@ -506,8 +566,9 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
   // modules spécialisés (rues et voies ferrées, eau, ville lointaine) : chacun reçoit le même contexte ;
   // s'il rend null, la version simple ci-dessous sert de repli
   const ctx = { data, T, TP, near, inKeep, keepSeg, radius, rnd: mulberry32(57), CM, farBuf };
-  const roadsG = buildRoads(THREE, M, ctx), waterG = buildWater(THREE, M, ctx), farG = buildFar(THREE, M, ctx);
-  for (const g of [roadsG, waterG, farG]) if (g) group.add(g);
+  const roadsG = buildRoads(THREE, M, ctx), waterG = buildWater(THREE, M, ctx);
+  let farG = null;
+  for (const g of [roadsG, waterG]) if (g) group.add(g);
   if (!roadsG) {
   const walkOf = { motorway: 0, trunk: 3.5, primary: 4, secondary: 3.5, tertiary: 3, residential: 2.5, unclassified: 2.5, living_street: 0, service: 0 };
   const sw = accOf(M.sidewalk), asph = accOf(M.asphalt), pav = accOf(M.paver);
@@ -575,9 +636,12 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
   pts.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
   for (const [x, z] of pts.slice(0, 900)) trees.push([species[(rnd() * species.length) | 0], +x.toFixed(2), +z.toFixed(2), +(9 + rnd() * 8).toFixed(2)]);
 
+  let light = [0, 0];
   group.userData = {
     trees, buildings: nb, source: data.source, waterHoles: waterG ? waterG.userData.holes : null,
-    onLight: (dusk, night) => { CM.setLight(dusk, night); for (const g of [roadsG, waterG, farG]) if (g && g.userData.onLight) g.userData.onLight(dusk, night); },
+    onLight: (dusk, night) => { light = [dusk, night]; CM.setLight(dusk, night); for (const g of [roadsG, waterG, farG]) if (g && g.userData.onLight) g.userData.onLight(dusk, night); },
+    // ville lointaine construite après l'ouverture (building.js) : elle n'allonge plus le chargement
+    buildFar: (buf) => { ctx.farBuf = buf; farG = buildFar(THREE, M, ctx); if (farG && farG.userData.onLight) farG.userData.onLight(...light); return farG; },
   };
   return group;
 }
