@@ -143,6 +143,9 @@ const SITE_AZ = 331, SITE_ORIGIN = [-7.5, -18.7];
 export async function createBuilding(THREE, M) {
   let city = null;
   try { city = await (await fetch(new URL('./city-data.json' + new URL(import.meta.url).search, import.meta.url))).json(); } catch (e) { city = null; }
+  // ville lointaine (binaire, facultatif) : décrite par city.far = { url, ... }
+  let farBuf = null;
+  if (city && city.far && city.far.url) { try { const r = await fetch(new URL('./' + city.far.url + new URL(import.meta.url).search, import.meta.url)); if (r.ok) farBuf = await r.arrayBuffer(); } catch (e) { farBuf = null; } }
   const toModel = siteTransform(SITE_AZ, SITE_ORIGIN);
   const lot = city && city.site ? city.site.map(toModel) : null;
   const group = new THREE.Group();
@@ -727,12 +730,13 @@ export async function createBuilding(THREE, M) {
   // ---------- la ville réelle alentour ----------
   if (city) {
     const keep = offsetPoly(resample(lot.slice(), 2), 0.5);
-    const cg = createCity(THREE, M, { data: city, facadeAz: SITE_AZ, origin: SITE_ORIGIN, keep: [keep], radius: 560 });
+    const cg = createCity(THREE, M, { data: city, facadeAz: SITE_AZ, origin: SITE_ORIGIN, keep: [keep], radius: 560, farBuf });
     group.add(cg);
     for (const t of cg.userData.trees) trees.push(t);
     const own = group.userData.onLight;
     group.userData.onLight = (dusk, night) => { own(dusk, night); cg.userData.onLight(dusk, night); };
     group.userData.city = true;
+    group.userData.waterHoles = cg.userData.waterHoles;   // landscape.js découpe le sol sous l'eau
   }
   return group;
 }

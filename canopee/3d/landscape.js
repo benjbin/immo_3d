@@ -303,6 +303,7 @@ export function createLandscape(THREE, M, bud = {}) {
     const radii = [];
     for (let i = 1; i <= NR; i++) radii.push(RMAX * Math.pow(i / NR, 1.75));
     radii.push(170, 260, 420, 700);
+    if (bud.city) radii.push(1000, 1450, 2100, 3000, 4300);   // ville réelle : le sol porte la ville lointaine jusqu'à l'horizon (plan lointain 4000 m)
     const colAt = (x, z) => {
       const d = Math.hypot(x - BC.x, z - BC.z);
       const macro = 0.66 + 0.34 * fbm2(x / 13 + 7, z / 13 + 3, 4, 2);
@@ -318,6 +319,10 @@ export function createLandscape(THREE, M, bud = {}) {
       const under = (0.4 + 0.25 * fbm2(x / 5, z / 5, 3, 9));
       const m = meadowF(x, z);
       const lr = macro * (1 + dry * 0.35) * sh * lerp(1, 1.02, m), lg = macro * (0.92 + dry * 0.08) * sh * lerp(1, 0.86, m), lb = macro * (0.72 - dry * 0.3) * sh * lerp(1, 0.5, m);
+      if (bud.city) {   // ville réelle : au-delà de la ville détaillée, sol minéral gris-olive uni (cours, jardins, parkings vus de loin) au lieu d'une pelouse vive
+        const u = sstep(380, 820, d), k = 0.84;   // teinte × texture d'herbe (≈ sRGB 90,113,32) → ≈ sRGB 118,116,96
+        if (u > 0) return [lerp(lr, k * 1.75, u), lerp(lg, k * 1.08, u), lerp(lb, k * 6.5, u)];
+      }
       return [lerp(lr, under * 0.95, f), lerp(lg, under * 0.85, f), lerp(lb, under * 0.55, f)];
     };
     const up = new V3(0, 1, 0);
@@ -336,7 +341,13 @@ export function createLandscape(THREE, M, bud = {}) {
     mat.name = 'ground'; mat.vertexColors = true;
     mat.polygonOffset = true; mat.polygonOffsetFactor = 1; mat.polygonOffsetUnits = 2;
     patchAntiTile(mat, 0.45);
-    addMesh(geo, mat, { receive: true, name: 'ground' });
+    addMesh(waterCut(geo), mat, { receive: true, name: 'ground' });
+  }
+  // ville réelle : le sol est troué au droit de l'eau (canal, Garonne) ; découpe fournie par tour/water.js
+  // (building.userData.waterHoles, relayé par building.js). Résidence : géométrie inchangée.
+  function waterCut(geo) {
+    const W = bud.city ? bud.waterHoles : null;
+    return W && W.cut ? W.cut(geo) : geo;
   }
 
   // -------------------------------------------------------------------------
@@ -667,8 +678,9 @@ export function createLandscape(THREE, M, bud = {}) {
     addMesh(g, mm, { receive: true, name: 'meadowGround' });
   }
 
-  // Lisière lointaine : anneau de houppiers peints qui ferme l'horizon (r = 145 m)
-  {
+  // Lisière lointaine : anneau de houppiers peints qui ferme l'horizon (r = 145 m) ; en ville réelle, la ville
+  // lointaine (tour/cityfar.js) court jusqu'à l'horizon et se perd dans la brume : pas de lisière
+  if (!bud.city) {
     const R0 = RESIDENCE ? 145 : 600, H0 = RESIDENCE ? 26 : 30, n = 160, rep = RESIDENCE ? 20 : 70;
     const A = new Acc();
     for (let i = 0; i <= n; i++) {

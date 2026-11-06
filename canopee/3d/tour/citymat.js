@@ -414,7 +414,7 @@ export function cityMaterials(THREE) {
     all(L, rgb(c), dat(0.8, light ? 0.7 : 0.95), 0, 0, t, t, null);
     grime(L.c, L, 0, 0.25, 1); grime(L.c, L, 1, 0.2, 2);
     if (!light) { for (let k = 0; k < 2500; k++) R(L.c, rgb(c, 0.65 + 0.7 * r(), 0.7), r() * t, r() * t, 0.03, 0.03);           // gravillons
-      for (let k = 0; k < 5; k++) { L.c.fillStyle = 'rgba(30,30,32,.35)'; L.c.beginPath(); L.c.ellipse(r() * t, r() * t, 0.3 + r(), 0.2 + 0.6 * r(), r() * 3, 0, 6.283); L.c.fill(); } }   // reprises d'étanchéité
+      for (let k = 0; k < 3; k++) { L.c.fillStyle = 'rgba(30,30,32,.12)'; L.c.beginPath(); L.c.ellipse(r() * t, r() * t, 0.3 + r(), 0.2 + 0.6 * r(), r() * 3, 0, 6.283); L.c.fill(); } }   // reprises d'étanchéité
     for (let x = 0; x < t; x += seams) { R(L.c, light ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.18)', x, 0, 0.04, t); R(L.d, dat(1, light ? 0.55 : 0.9), x, 0, 0.04, t); }
     if (light) for (let k = 0; k < 6; k++) streak(L, r() * t, t * r(), 0.5 + r(), 1 + 2 * r(), 0.1, '80,80,70');
     grain(L.c, light ? 0.12 : 0.4);
@@ -452,13 +452,107 @@ export function cityMaterials(THREE) {
     const tw = 8, th = 8.1, L = layer(tw, th), r = mulberry32(1001);
     const bp = brickPat(L, { bl: 0.4, ch: 0.045, nx: 10, ny: 60, seed: 1002, pal: [[13, 45, 50, 5], [18, 48, 56, 4], [9, 40, 42, 3], [24, 40, 64, 2]] });
     bp.fill(0, 0, tw, th); grime(L.c, L, 0, 0.3, 1); grime(L.c, L, 1, 0.18, 2);
-    for (let k = 0; k < 7; k++) { const cx = r() * tw, cy = r() * th, rx = 0.6 + 1.6 * r(), ry = 0.4 + 1.2 * r(), a = 0.55 + 0.35 * r(), col = pick(r, ['221,205,182', '206,190,170', '228,214,196']);
-      for (const ox of [-tw, 0, tw]) for (const oy of [-th, 0, th]) { L.c.fillStyle = `rgba(${col},${a})`; L.c.beginPath(); L.c.ellipse(cx + ox, cy + oy, rx, ry, r() * 3, 0, 6.283); L.c.fill();
-        L.d.fillStyle = dat(0.9, 0.92); L.d.beginPath(); L.d.ellipse(cx + ox, cy + oy, rx, ry, 0, 0, 6.283); L.d.fill(); } }   // plaques d'enduit
+    grime(L.c, L, 1, 0.12, 1, 'soft-light');                                   // brique nue, sans plaques d'enduit (elles faisaient des pois)
     grime(L.c, L, 2, 0.18, 1, 'multiply');
     for (let k = 0; k < 10; k++) streak(L, r() * tw, th * r(), 0.1 + 0.4 * r(), 1 + 2 * r(), 0.12, '40,30,25');
     grain(L.c, 0.25);
     return material('city:pignon', L, { bump: 0.5, emis: false });
+  };
+
+  // ---------- monuments : gare Matabiau (pierre et brique, 1905), pavillon de l'horloge, médiathèque, arche ----------
+  const STONE = '#ddd1b9';
+  const archP = (g, x, y, w, hs) => { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + hs); g.arc(x + w / 2, y + hs, w / 2, Math.PI, 0, true); g.lineTo(x + w, y); g.closePath(); };
+  const inArch = (L, x, y, w, hs, fn) => { for (const g of [L.c, L.d, L.e]) { g.save(); archP(g, x, y, w, hs); g.clip(); } fn(); for (const g of [L.c, L.d, L.e]) g.restore(); };
+  const bossage = (L, x, y, w, h, step = 0.45) => { all(L, STONE, dat(0.9, 0.82), x, y, w, h); grime(L.c, L, 0, 0.12, 1);
+    for (let yy = y + step; yy < y + h; yy += step) { R(L.c, 'rgba(70,55,40,.32)', x, yy, w, 0.035); R(L.c, 'rgba(255,255,255,.2)', x, yy - 0.03, w, 0.025); R(L.d, dat(0.4, 0.95), x, yy, w, 0.035); } };
+  const cornice = (L, x, y, w, h) => { all(L, '#e6dbc5', dat(1, 0.78), x, y, w, h); R(L.c, 'rgba(60,45,30,.35)', x, y, w, 0.06);
+    for (let xx = x + 0.05; xx < x + w; xx += 0.22) R(L.c, 'rgba(60,45,30,.25)', xx, y + h * 0.35, 0.1, h * 0.25);                 // denticules
+    const s = L.c.createLinearGradient(0, y, 0, y - 0.5); s.addColorStop(0, 'rgba(30,20,10,.35)'); s.addColorStop(1, 'rgba(30,20,10,0)'); L.c.fillStyle = s; L.c.fillRect(x, y - 0.5, w, 0.5); };
+  // grande baie cintrée vitrée (rez-de-chaussée de la gare) : petits bois, imposte en éventail
+  const archWin = (L, r, x, y, w, hs, lit = 0.7) => {
+    all(L, '#cdbfa5', dat(0.95, 0.8), x - 0.25, y, w + 0.5, hs + w / 2 + 0.25);
+    for (const g of [L.c, L.d]) { g.fillStyle = g === L.c ? '#e3d7bf' : dat(0.95, 0.8); archP(g, x - 0.25, y, w + 0.5, hs); g.fill(); }
+    inArch(L, x, y, w, hs, () => { glass(L, x, y, w, hs + w / 2, r, { lit, curtain: false, col: SHOPLIT[1], I: 0.8, b: 0.9 });
+      for (const [g, c] of [[L.c, '#3b3f3c'], [L.e, '#000']]) { g.fillStyle = c; for (let k = 1; k < 4; k++) g.fillRect(x + w * k / 4 - 0.025, y, 0.05, hs + w);
+        for (let yy = y + 1.1; yy < y + hs; yy += 1.1) g.fillRect(x, yy, w, 0.04); g.fillRect(x, y + hs - 0.03, w, 0.07); } });
+    all(L, '#d6c9ae', dat(1, 0.8), x + w / 2 - 0.18, y + hs + w / 2 - 0.1, 0.36, 0.45);                                       // clé de voûte
+  };
+  const stoneWin = (L, r, x, y, w, h, pediment) => {                        // fenêtre d'étage, encadrement de pierre, fronton
+    all(L, '#e3d7bf', dat(0.95, 0.8), x - 0.22, y - 0.12, w + 0.44, h + 0.4);
+    if (pediment) { for (const g of [L.c, L.d]) { g.fillStyle = g === L.c ? '#e6dbc5' : dat(1, 0.8); g.beginPath(); g.moveTo(x - 0.4, y + h + 0.3); g.lineTo(x + w + 0.4, y + h + 0.3); g.lineTo(x + w / 2, y + h + 0.95); g.closePath(); g.fill(); }
+      R(L.c, 'rgba(50,35,20,.3)', x - 0.4, y + h + 0.28, w + 0.8, 0.05); }
+    reveal(L, x, y, w, h); glass(L, x + 0.03, y + 0.03, w - 0.06, h - 0.06, r, { lit: 0.45 }); frame(L, x, y, w, h, '#e8e2d6', { t: 0.06, bars: 3, tr: 0.6 });
+    rail(L, x - 0.05, y, w + 0.1, 0.8, true);
+  };
+  const gare = () => {
+    const tw = 5, th = 16, L = layer(tw, th, 512, 1024), r = mulberry32(1301);
+    const bp = brickPat(L, { bl: 0.42, ch: 0.075, nx: 12, ny: 40, pal: PAL_TLS, mortar: '#dcc6a8', seed: 1302 });
+    bp.fill(0, 0, tw, th); grime(L.c, L, 0, 0.15, 1);
+    all(L, '#c9bca2', dat(0.95, 0.85), 0, 0, tw, 0.6);                                                         // soubassement
+    bossage(L, 0, 0.6, tw, 5.0);
+    archWin(L, r, 1.0, 0.6, 3.0, 3.4);
+    cornice(L, 0, 5.6, tw, 0.55);
+    bossage(L, 0, 6.15, 0.55, 5.3, 0.5); bossage(L, tw - 0.55, 6.15, 0.55, 5.3, 0.5);                            // chaînes d'angle (pilastres)
+    stoneWin(L, r, 1.6, 7.0, 1.8, 3.0, true);
+    cornice(L, 0, 11.45, tw, 0.9);
+    all(L, STONE, dat(0.9, 0.85), 0, 12.35, tw, 1.15);                                                          // balustrade de l'attique
+    for (let x = 0.3; x < tw - 0.2; x += 0.32) { R(L.c, 'rgba(60,45,30,.45)', x + 0.1, 12.5, 0.12, 0.75); R(L.e, '#000', x, 12.5, 0.3, 0.75); }
+    all(L, '#e6dbc5', dat(1, 0.8), 0, 13.3, tw, 0.2);
+    grain(L.c, 0.18);
+    return material('city:gare', L, { bump: 0.5 });
+  };
+  const horloge = () => {                                                  // façade du pavillon central (18 × 21 m), cadran éclairé la nuit
+    const tw = 18, th = 21, L = layer(tw, th, 1024, 1024), r = mulberry32(1401);
+    bossage(L, 0, 0, tw, th, 0.5); grime(L.c, L, 1, 0.12, 2);
+    all(L, '#c9bca2', dat(0.95, 0.85), 0, 0, tw, 0.6);
+    for (const cx of [4.3, 9, 13.7]) archWin(L, r, cx - 1.7, 0.6, 3.4, 3.6, 1);
+    cornice(L, 0, 6.2, tw, 0.6);
+    for (const cx of [4.3, 9, 13.7]) stoneWin(L, r, cx - 1.0, 7.4, 2.0, 3.4, cx === 9);
+    for (const x of [0, 6.4, 11, tw - 0.7]) all(L, '#e6dbc5', dat(1, 0.8), x, 6.8, 0.7, 5.6);                      // pilastres
+    cornice(L, 0, 12.4, tw, 1.0);
+    // attique de l'horloge
+    all(L, '#e3d7bf', dat(0.95, 0.82), 4.2, 13.4, 9.6, 6.4);
+    for (const x of [4.2, 13.1]) all(L, '#d8cbb0', dat(0.95, 0.82), x, 13.4, 0.7, 6.4);
+    const cx = 9, cy = 16.6, R0 = 2.35;
+    for (const [g, c] of [[L.c, '#d0c3a6'], [L.d, dat(1, 0.8)]]) { g.fillStyle = c; g.beginPath(); g.arc(cx, cy, R0 + 0.35, 0, 6.283); g.fill(); }
+    for (const [g, c] of [[L.c, '#f4f0e4'], [L.d, dat(0.3, 0.25, 0.1)], [L.e, '#fff3dc']]) { g.fillStyle = c; g.beginPath(); g.arc(cx, cy, R0, 0, 6.283); g.fill(); }
+    for (const g of [L.c, L.e]) { g.fillStyle = '#1d1c1a'; g.strokeStyle = '#1d1c1a';
+      for (let k = 0; k < 60; k++) { const a = k / 60 * 6.283, l = k % 5 ? 0.12 : 0.38, w = k % 5 ? 0.03 : 0.09;
+        g.save(); g.translate(cx, cy); g.rotate(-a); g.fillRect(-w / 2, R0 - 0.08 - l, w, l); g.restore(); }
+      g.lineCap = 'round'; g.lineWidth = 0.16; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.sin(-0.52) * 1.25, cy + Math.cos(-0.52) * 1.25); g.stroke();   // 10 h 10
+      g.lineWidth = 0.1; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.sin(1.05) * 1.95, cy + Math.cos(1.05) * 1.95); g.stroke(); }
+    cornice(L, 3.8, 19.8, 10.4, 0.7); all(L, '#e6dbc5', dat(1, 0.8), 0, 20.5, tw, 0.5);
+    grain(L.c, 0.16);
+    return material('city:gare-horloge', L, { bump: 0.45 });
+  };
+  const verriere = () => {                                                 // mur-rideau de la médiathèque : grands vitrages, raidisseurs fins
+    const tw = 6, th = 6, L = layer(tw, th, 512, 512), r = mulberry32(1501);
+    for (let x = 0; x < tw; x += 1.5) for (let y = 0; y < th; y += 2) {
+      glass(L, x, y, 1.5, 2, r, { lit: 0, curtain: false, b: 1.15, tint: [0.9, 1, 1.06], metal: 0.55 });
+      const I = 0.55 + 0.25 * r(), gr = L.e.createLinearGradient(0, y, 0, y + 2); gr.addColorStop(0, rgb(SHOPLIT[2], 0.5 * I)); gr.addColorStop(1, rgb(SHOPLIT[0], I)); L.e.fillStyle = gr; L.e.fillRect(x, y, 1.5, 2);
+      if (y === 0 || y === 4) for (let k = 0; k < 3; k++) R(L.e, 'rgba(0,0,0,.35)', x + 0.1 + r() * 1.1, y + 0.2, 0.25 + 0.2 * r(), 1.3 + 0.3 * r());   // rayonnages en contre-jour
+    }
+    for (let x = 0; x <= tw; x += 1.5) all(L, '#c9ced2', dat(0.9, 0.3, 0.85), x - 0.03, 0, 0.06, th);
+    for (let y = 0; y <= th; y += 2) all(L, '#c9ced2', dat(0.9, 0.3, 0.85), 0, y - 0.04, tw, y % 6 ? 0.06 : 0.14);
+    grain(L.c, 0.06);
+    return material('city:verriere', L, { bump: 0.2, env: 1.2 });
+  };
+  const pierreBureaux = () => {                                             // béton blanc de l'arche Marengo : fenêtres verticales régulières
+    const tw = 3, th = 3.5, L = layer(tw, th, 256, 256), r = mulberry32(1601);
+    all(L, '#e9e5dc', dat(0.85, 0.8), 0, 0, tw, th); grime(L.c, L, 0, 0.1, 1);
+    R(L.c, 'rgba(0,0,0,.08)', 0, 0, tw, 0.03); R(L.c, 'rgba(0,0,0,.06)', 0, 0, 0.03, th);
+    reveal(L, 0.95, 0.8, 1.1, 2.2, 0.08); glass(L, 0.95, 0.8, 1.1, 2.2, r, { lit: 0.5, curtain: false, col: OFFICE[0], b: 0.9, metal: 0.5 });
+    frame(L, 0.95, 0.8, 1.1, 2.2, '#9aa0a4', { t: 0.05, mid: false });
+    grain(L.c, 0.1);
+    return material('city:arche', L, { bump: 0.3 });
+  };
+  const vegetal = () => {                                                  // toiture végétalisée : sédums, bordure de gravier
+    const t = 8, L = layer(t, t, 512, 512), r = mulberry32(1701);
+    all(L, '#6c7a40', dat(0.6, 0.95), 0, 0, t, t, null);
+    for (let k = 0; k < 900; k++) { const c = pick(r, ['#7f8c48', '#5d6b35', '#8f7d43', '#8a4f3a', '#a39a52', '#4f5e30']); L.c.fillStyle = c; L.c.globalAlpha = 0.55;
+      L.c.beginPath(); L.c.ellipse(r() * t, r() * t, 0.08 + 0.3 * r(), 0.06 + 0.22 * r(), r() * 3, 0, 6.283); L.c.fill(); }
+    L.c.globalAlpha = 1; grime(L.c, L, 0, 0.3, 1); grime(L.c, L, 1, 0.2, 2, 'soft-light'); grain(L.c, 0.35);
+    return material('city:toit-vegetal', L, { bump: 0.8, emis: false });
   };
 
   // ---------- assemblage ----------
@@ -476,26 +570,39 @@ export function cityMaterials(THREE) {
   const contempA = contemp('city:brique-contemporaine', { seed: 401, mortar: '#b9b3aa', pal: [[16, 48, 50, 4], [12, 45, 44, 3], [20, 46, 58, 3], [8, 35, 36, 1], [24, 40, 64, 1]] });
   const bur = offices('city:bureaux', { seed: 501, spandrel: '#36414b', b: 1.1, tint: [0.92, 1, 1.08] });
   const bet = concrete('city:beton', { seed: 601, col: '#a6a49e' });
+  // variantes : volets lie-de-vin / bruns, enduit ocre à volets gris
+  const SHUT_WINE = ['#7a3b33', '#8a4a3c', '#6b3a32', '#91574a'].map(hx), SHUT_GREY = ['#c9c6bd', '#b7b8b3', '#d8d3c6', '#a9aeb0'].map(hx);
+  const briqueC = classic('city:brique-volets', { bay: 3.3, fh: 3.3, nb: 4, nf: 4, courses: 74, bl: 0.41, bnx: 16, seed: 121, ww: 1.15, wh: 2.45, sill: 0.15,
+    surround: 'brick', pShut: 0.8, pRail: 0.5, shutCols: [...SHUT_WINE, ...SHUT_FADED], mortar: '#d3baa0', pal: PAL_TLS });
+  const enduitOcre = classic('city:enduit-ocre', { bay: 3.2, fh: 3.2, nb: 4, nf: 4, courses: 70, bl: 0.4, bnx: 16, seed: 271, ww: 1.1, wh: 2.3, sill: 0.4,
+    render: '#d9b183', pShut: 0.85, pRail: 0.35, shutCols: [...SHUT_GREY, ...SHUT_GREEN], mortar: '#d8c2a2', pal: PAL_PINK });
+  // bay = largeur de travée (m) : city.js arrondit chaque pan de mur à un nombre entier de travées ; nf = niveaux par tuile
+  // old = faubourg XIXe (toits de tuiles, cheminées) ; floors = plage de niveaux plausible
   const facades = [
-    { key: 'brique', mat: briqueA.mat, floorH: 3.3, groundH: 4.5, weight: 0.22, minH: 12, maxH: 25 },
-    { key: 'briquePierre', mat: briqueB.mat, floorH: 3.4, groundH: 4.5, weight: 0.14, minH: 12, maxH: 25 },
-    { key: 'briqueEnduit', mat: enduitBrique.mat, floorH: 3.2, groundH: 4.5, weight: 0.12, minH: 10, maxH: 22 },
-    { key: 'enduitRose', mat: enduitRose.mat, floorH: 3.2, groundH: 4.5, weight: 0.08, minH: 10, maxH: 22 },
-    { key: 'enduit', mat: enduitA.mat, floorH: 2.9, groundH: 4.0, weight: 0.12, minH: 9, maxH: 36 },
-    { key: 'enduitBeige', mat: enduitB.mat, floorH: 2.9, groundH: 4.0, weight: 0.08, minH: 9, maxH: 36 },
-    { key: 'briqueContemporaine', mat: contempA.mat, floorH: 3.0, groundH: 4.5, weight: 0.12, minH: 9, maxH: 28 },
-    { key: 'bureaux', mat: bur.mat, floorH: 3.6, groundH: 4.5, weight: 0.07, minH: 15, maxH: 80 },
-    { key: 'beton', mat: bet.mat, floorH: 4.0, groundH: 4.5, weight: 0.05, minH: 8, maxH: 30 },
+    { key: 'brique', pv: [2.97, 3.28], mat: briqueA.mat, floorH: 3.3, groundH: 4.5, bay: 3.4, nf: 4, old: true, weight: 0.2, minH: 12, maxH: 25 },
+    { key: 'briquePierre', pv: [3.05, 3.38], mat: briqueB.mat, floorH: 3.4, groundH: 4.5, bay: 3.2, nf: 4, old: true, weight: 0.12, minH: 12, maxH: 25 },
+    { key: 'briqueVolets', pv: [2.95, 3.28], mat: briqueC.mat, floorH: 3.3, groundH: 4.5, bay: 3.3, nf: 4, old: true, weight: 0.14, minH: 12, maxH: 25 },
+    { key: 'briqueEnduit', pv: [3.02, 3.18], mat: enduitBrique.mat, floorH: 3.2, groundH: 4.5, bay: 3.2, nf: 4, old: true, weight: 0.12, minH: 10, maxH: 22 },
+    { key: 'enduitRose', pv: [3.02, 3.18], mat: enduitRose.mat, floorH: 3.2, groundH: 4.5, bay: 3.2, nf: 4, old: true, weight: 0.08, minH: 10, maxH: 22 },
+    { key: 'enduitOcre', pv: [3.02, 3.18], mat: enduitOcre.mat, floorH: 3.2, groundH: 4.5, bay: 3.2, nf: 4, old: true, weight: 0.08, minH: 10, maxH: 22 },
+    { key: 'enduit', pv: [0.01, 0.16], mat: enduitA.mat, floorH: 2.9, groundH: 4.0, bay: 3, nf: 5, weight: 0.12, minH: 9, maxH: 36 },
+    { key: 'enduitBeige', pv: [0.01, 0.16], mat: enduitB.mat, floorH: 2.9, groundH: 4.0, bay: 3, nf: 5, weight: 0.08, minH: 9, maxH: 36 },
+    { key: 'briqueContemporaine', pv: [2.64, 2.98], mat: contempA.mat, floorH: 3.0, groundH: 4.5, bay: 3.6, nf: 4, weight: 0.12, minH: 9, maxH: 28 },
+    { key: 'bureaux', pv: [0.05, 0.88], mat: bur.mat, floorH: 3.6, groundH: 4.5, bay: 1.35, nf: 4, weight: 0.07, minH: 15, maxH: 80 },
+    { key: 'beton', pv: [0.1, 1.0], mat: bet.mat, floorH: 4.0, groundH: 4.5, bay: 3, nf: 4, weight: 0.05, minH: 8, maxH: 30 },
   ];
   const shops = [vitrine(), arcade(), hall()];
-  const roofs = { flat: flatRoof('city:toit-gravillons', '#77746d', 1, 1101, false), flatLight: flatRoof('city:toit-membrane', '#cfccc4', 2, 1201, true), tile: tileRoof(), zinc: zinc() };
+  const roofs = { flat: flatRoof('city:toit-gravillons', '#77746d', 1, 1101, false), flatLight: flatRoof('city:toit-membrane', '#cfccc4', 2, 1201, true), tile: tileRoof(), zinc: zinc(), green: vegetal() };
   const blank = pignon();
+  // monuments
+  const land = { gare: gare(), horloge: horloge(), verriere: verriere(), arche: pierreBureaux() };
   const genMs = performance.now() - t0;
   // allumage : logements au crépuscule puis la nuit, bureaux surtout au crépuscule, vitrines plus fortes
   const setLight = (dusk, night) => {
-    const k = 0.25 * dusk * dusk + 0.9 * night;
-    for (const f of facades) f.mat.emissiveIntensity = f.key === 'bureaux' || f.key === 'beton' ? 0.4 * dusk * dusk + 0.45 * night : k;
+    const k = 0.25 * dusk * dusk + 0.9 * night, kb = 0.4 * dusk * dusk + 0.45 * night;
+    for (const f of facades) f.mat.emissiveIntensity = f.key === 'bureaux' || f.key === 'beton' ? kb : k;
     for (const m of shops) m.emissiveIntensity = 1.1 * k;
+    land.gare.emissiveIntensity = 1.1 * k; land.horloge.emissiveIntensity = 1.3 * k; land.verriere.emissiveIntensity = 0.5 * dusk + 0.6 * night; land.arche.emissiveIntensity = kb;
   };
-  return { facades, shops, roofs, blank, setLight, genMs };
+  return { facades, shops, roofs, blank, land, setLight, genMs };
 }
