@@ -46,6 +46,7 @@ export function createLandscape(THREE, M, bud = {}) {
 
   // Relief très doux, seulement loin du bâtiment et de la rue
   const groundY = (x, z) => {
+    if (bud.city) return 0;   // ville réelle : sol plat sous les rues
     const d = Math.hypot(x - BC.x, z - BC.z);
     const a = sstep(48, 105, d) * sstep(12, 34, Math.abs(z - 11.25));
     return a === 0 ? 0 : a * (fbm2(x * 0.017 + 3.1, z * 0.017 + 1.7, 3, 5) - 0.45) * 8;
@@ -629,7 +630,7 @@ export function createLandscape(THREE, M, bud = {}) {
   if (!RESIDENCE) {
     (bud.trees || []).forEach(([s, x, z, h, y], k) => growTree(s, x, z, h, 7000 + k * 17, 0, 'main', y));
     const [PCX, PCZ] = bud.plazaC || [0, 0], R0 = bud.plazaR || 60, pts = [], species = ['oak', 'linden', 'ash', 'oak', 'hornbeam', 'birch'];
-    for (let tries = 0; pts.length < 520 && tries < 40000; tries++) {
+    for (let tries = 0; !bud.city && pts.length < 520 && tries < 40000; tries++) {   // bosquets du parc, sauf en ville
       const a = rnd() * Math.PI * 2, d = Math.sqrt(rr((R0 + 14) ** 2, 300 ** 2)), x = PCX + Math.cos(a) * d, z = PCZ + Math.sin(a) * d;
       const grove = sstep(0.4, 0.62, fbm2(x * 0.03 + 4, z * 0.03 + 8, 3, 33)) + sstep(200, 280, d) * 0.7;
       if (rnd() > grove + 0.1) continue;

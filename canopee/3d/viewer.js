@@ -212,6 +212,7 @@ function fail(msg) {
 /* Modèle du soleil (heure d'été, latitude moyenne, façade rue au SSO)  */
 /* ------------------------------------------------------------------ */
 const SITE = { lat: 48.9, lon: 2.35, facadeAz: 200 };   // rue au sud (SSO) ; +X vers l'est-sud-est
+Object.assign(SITE, MAQ.site || {});   // site réel de la maquette (latitude, longitude, azimut de l'axe +Z)
 const SEASONS = { ete: { doy: 172, tz: 2 }, equinoxe: { doy: 80, tz: 1 }, hiver: { doy: 355, tz: 1 } };
 // position du soleil (algorithme NOAA simplifié), heure légale locale
 function solarPosition(hour, season = 'ete') {

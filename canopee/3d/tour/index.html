@@ -160,6 +160,8 @@ body.sheet-open .lvl.ext svg{width:16px;height:16px}
 
 .hint{position:absolute;left:50%;bottom:calc(var(--pad) + 124px + var(--safe-b));transform:translateX(-50%);font-size:12.5px;color:rgba(255,255,255,.82);padding:8px 14px;border-radius:999px;white-space:nowrap;transition:opacity .8s var(--ease);pointer-events:none}
 .hint.off{opacity:0}
+.osm{position:fixed;right:8px;bottom:calc(4px + var(--safe-b));z-index:5;font-size:10px;color:rgba(255,255,255,.6);text-decoration:none;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.osm:hover{color:#fff}
 .kbd{display:inline-block;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:0 5px;font-size:11px;margin:0 1px}
 .touch .k-only{display:none}
 .notouch .t-only{display:none}
@@ -479,23 +481,26 @@ body.immersive .dock .sun{display:block!important}
 <script type="importmap">{"imports":{
   "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
   "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "../viewer.js":"../viewer.js?v=20261106a",
-  "../materials.js":"../materials.js?v=20261106a",
-  "../landscape.js":"../landscape.js?v=20261106a",
-  "../building.js":"../building.js?v=20261106a",
-  "../interiors.js":"../interiors.js?v=20261106a",
-  "../decor.js":"../decor.js?v=20261106a",
-  "../decortex.js":"../decortex.js?v=20261106a",
-  "../furniture.js":"../furniture.js?v=20261106a",
-  "../models.js":"../models.js?v=20261106a",
-  "../lots.js":"../lots.js?v=20261106a",
-  "../cars.js":"../cars.js?v=20261106a",
-  "../nav.js":"../nav.js?v=20261106a",
-  "../texpool.js":"../texpool.js?v=20261106a",
-  "../texcache.js":"../texcache.js?v=20261106a",
-  "./building.js":"./building.js?v=20261106a"}}</script>
+  "../viewer.js":"../viewer.js?v=20261106b",
+  "../materials.js":"../materials.js?v=20261106b",
+  "../landscape.js":"../landscape.js?v=20261106b",
+  "../building.js":"../building.js?v=20261106b",
+  "../interiors.js":"../interiors.js?v=20261106b",
+  "../decor.js":"../decor.js?v=20261106b",
+  "../decortex.js":"../decortex.js?v=20261106b",
+  "../furniture.js":"../furniture.js?v=20261106b",
+  "../models.js":"../models.js?v=20261106b",
+  "../lots.js":"../lots.js?v=20261106b",
+  "../cars.js":"../cars.js?v=20261106b",
+  "../nav.js":"../nav.js?v=20261106b",
+  "../texpool.js":"../texpool.js?v=20261106b",
+  "../texcache.js":"../texcache.js?v=20261106b",
+  "./building.js":"./building.js?v=20261106b",
+  "./city.js":"./city.js?v=20261106b",
+  "./citymat.js":"./citymat.js?v=20261106b"}}</script>
 </head>
 <body>
+<a class="osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Ville : © contributeurs OpenStreetMap</a>
 <a class="skip" href="#lotsPanel">Aller à la liste des logements</a>
 <div id="app">
   <canvas id="scene" tabindex="0" role="img" aria-label="Maquette 3D interactive de la tour Canopée. Glisser pour tourner, molette ou pincement pour zoomer, clic droit ou deux doigts pour déplacer. Survolez un logement pour le voir, cliquez pour ouvrir sa fiche."></canvas>
@@ -681,10 +686,11 @@ body.immersive .dock .sun{display:block!important}
 // Maquette 02 : la tour. Même moteur de rendu que la résidence (../viewer.js), bâtiment et échelle propres.
 window.MAQUETTE = {
   building: './tour/building.js', landscape: './landscape.js', lots: false, nav: false,
-  far: 4000, maxDist: 700, targetRadius: 140, targetY: [0.5, 150], cursorY: 60, probeY: 45, maxPolar: Math.PI / 2 + 0.95, thumbs: '../../img/tour/',
+  site: { lat: 43.6102, lon: 1.4539, facadeAz: 331 },   // parcelle de la tour Occitanie, Toulouse (axe +Z vers le NNO)
+  far: 4000, maxDist: 900, targetRadius: 140, targetY: [0.5, 150], cursorY: 60, probeY: 45, maxPolar: Math.PI / 2 + 0.95, thumbs: '../../img/tour/',
   look: { fog: 0.00055 },
   views: [
-    { id: 't01', t: "Vue d'ensemble", d: 'Une tour de verre de 150 m sur son socle-jardin, enlacée par une faille plantée.', pos: [-70, 95, 300], tgt: [18, 64, 6], fov: 34, aspect: 4 / 3 },
+    { id: 't01', t: "Vue d'ensemble", d: 'Une tour de verre de 150 m à Matabiau, entre la gare et le canal du Midi.', pos: [-150, 150, 330], tgt: [10, 60, 0], fov: 36, aspect: 4 / 3 },
     { id: 't02', t: 'Le jardin en spirale', d: 'Une faille de terrasses plantées qui fait le tour de la tour, du socle au sommet.', pos: [-88, 62, 88], tgt: [0, 62, 0], fov: 38, aspect: 4 / 3 },
     { id: 't03', t: 'À mi-hauteur', d: 'Jardinières, arbres et garde-corps vitrés devant les bureaux.', pos: [52, 100, -84], tgt: [0, 92, 0], fov: 38, aspect: 4 / 3 },
     { id: 't04', t: 'Les jardins du sommet', d: 'Des gradins plantés qui montent en spirale jusqu’à la pointe de verre, à 150 m.', pos: [48, 178, -52], tgt: [0, 132, 0], fov: 40, aspect: 4 / 3 },
@@ -698,6 +704,6 @@ window.MAQUETTE = {
 /* la tour n'a ni logements ni étages en coupe, ni balade à pied */
 #navMode, #tLots, #tAvail, #minimap, #floors, #lotsPanel, [data-pane="floors"], [data-pane="lotsPanel"] { display: none !important; }
 </style>
-<script type="module" src="../viewer.js?v=20261106a"></script>
+<script type="module" src="../viewer.js?v=20261106b"></script>
 </body>
 </html>

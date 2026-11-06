@@ -10,7 +10,7 @@ export const FLOOR = 3.6;                   // étage courant de la tour
 export const HP = 29, NP = 7, FP = HP / NP; // socle : hauteur, niveaux, hauteur de niveau
 export const FLOORS = NP + Math.floor((H - HP) / FLOOR);
 const SP = HP / H;                          // toit du socle, en fraction de hauteur
-const TA = 20, TB = 26, TM = 0.9;           // goutte : demi-largeur (échelle), demi-longueur, finesse de la pointe
+const TA = 18.5, TB = 26, TM = 0.9;           // goutte : demi-largeur (échelle), demi-longueur, finesse de la pointe
 const TWIST = 0.5;                         // légère vrille de la section sur toute la hauteur (rad)
 const TURNS = 1;                            // tours de la faille entre le socle et le sommet
 const G_END = 0.45;                         // position de la faille au sommet (0 = pointe) : elle débouche dans le bas des gradins
@@ -133,7 +133,18 @@ const segDist = (x, z, pts) => {
   return d;
 };
 
-export function createBuilding(THREE, M) {
+import { createCity, siteTransform } from './city.js';
+
+// site réel : parcelle de la tour Occitanie (Toulouse, au sud de la gare Matabiau), d'après OpenStreetMap.
+// Azimut de l'axe +Z de la maquette (la pointe de la goutte, en −Z, regarde vers 151° : pont Riquet, allées Jean-Jaurès)
+// et position de la tour dans la parcelle (en mètres, repère des données : x est, z sud).
+const SITE_AZ = 331, SITE_ORIGIN = [-7.5, -18.7];
+
+export async function createBuilding(THREE, M) {
+  let city = null;
+  try { city = await (await fetch(new URL('./city-data.json' + new URL(import.meta.url).search, import.meta.url))).json(); } catch (e) { city = null; }
+  const toModel = siteTransform(SITE_AZ, SITE_ORIGIN);
+  const lot = city && city.site ? city.site.map(toModel) : null;
   const group = new THREE.Group();
   group.name = 'tour';
   const rnd = mulberry32(150);
@@ -540,7 +551,9 @@ export function createBuilding(THREE, M) {
   }
 
   // ---------- socle : façades de verre pliées, plateaux éclairés, toiture-jardin ----------
-  const plan = podiumPlan();
+  // socle : la parcelle réelle, en retrait de 2,6 m pour que les plis de façade restent dans ses limites
+  let plan = podiumPlan();
+  if (lot) { const l = lot.slice(); if (Math.sign(area2(l)) !== Math.sign(area2(plan))) l.reverse(); plan = offsetPoly(resample(l, 2), -2.6); }
   let roofPoly;
   {
     const ring = resample(plan, 9);
@@ -634,8 +647,9 @@ export function createBuilding(THREE, M) {
   }
 
   // ---------- parvis : dallage autour du socle, bordure, arbres d'alignement ----------
-  const plazaPoly = offsetPoly(resample(plan, 2), 13);
-  {
+  const plazaPoly = lot ? lot : offsetPoly(resample(plan, 2), 13);
+  if (lot) add(flat(lot, 0.13), mat.paver, { cast: false, name: 'plaza' });   // en ville : seul le pied du socle est dallé
+  else {
     add(flat(plazaPoly, 0.04), mat.paver, { cast: false, name: 'plaza' });
     const curb = new Acc(), out = offsetPoly(resample(plan, 2), 13.25);
     for (let i = 0; i < plazaPoly.length; i++) {
@@ -710,5 +724,15 @@ export function createBuilding(THREE, M) {
       { key: 4, name: 'Sommet', y0: H - DROP, y1: H },
     ],
   };
+  // ---------- la ville réelle alentour ----------
+  if (city) {
+    const keep = offsetPoly(resample(lot.slice(), 2), 0.5);
+    const cg = createCity(THREE, M, { data: city, facadeAz: SITE_AZ, origin: SITE_ORIGIN, keep: [keep], radius: 560 });
+    group.add(cg);
+    for (const t of cg.userData.trees) trees.push(t);
+    const own = group.userData.onLight;
+    group.userData.onLight = (dusk, night) => { own(dusk, night); cg.userData.onLight(dusk, night); };
+    group.userData.city = true;
+  }
   return group;
 }
