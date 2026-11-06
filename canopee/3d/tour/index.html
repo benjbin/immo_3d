@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Canopée, la tour — Maquette 3D</title>
-<meta name="description" content="Canopée, la tour, en 3D temps réel : une flèche de verre de 150 m enlacée par un jardin en spirale. Tournez autour et faites varier la lumière du jour.">
+<meta name="description" content="Canopée, la tour, en 3D temps réel : une tour de verre de 150 m sur un socle-jardin, enlacée par une faille plantée. Tournez autour et faites varier la lumière du jour.">
 <meta name="theme-color" content="#071633">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b214a'/%3E%3Cpath d='M9 25V10h14v15M9 15h14M9 20h14' stroke='%23145cff' stroke-width='2' fill='none'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -479,21 +479,21 @@ body.immersive .dock .sun{display:block!important}
 <script type="importmap">{"imports":{
   "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
   "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "../viewer.js":"../viewer.js?v=20261105b",
-  "../materials.js":"../materials.js?v=20261105b",
-  "../landscape.js":"../landscape.js?v=20261105b",
-  "../building.js":"../building.js?v=20261105b",
-  "../interiors.js":"../interiors.js?v=20261105b",
-  "../decor.js":"../decor.js?v=20261105b",
-  "../decortex.js":"../decortex.js?v=20261105b",
-  "../furniture.js":"../furniture.js?v=20261105b",
-  "../models.js":"../models.js?v=20261105b",
-  "../lots.js":"../lots.js?v=20261105b",
-  "../cars.js":"../cars.js?v=20261105b",
-  "../nav.js":"../nav.js?v=20261105b",
-  "../texpool.js":"../texpool.js?v=20261105b",
-  "../texcache.js":"../texcache.js?v=20261105b",
-  "./building.js":"./building.js?v=20261105b"}}</script>
+  "../viewer.js":"../viewer.js?v=20261106a",
+  "../materials.js":"../materials.js?v=20261106a",
+  "../landscape.js":"../landscape.js?v=20261106a",
+  "../building.js":"../building.js?v=20261106a",
+  "../interiors.js":"../interiors.js?v=20261106a",
+  "../decor.js":"../decor.js?v=20261106a",
+  "../decortex.js":"../decortex.js?v=20261106a",
+  "../furniture.js":"../furniture.js?v=20261106a",
+  "../models.js":"../models.js?v=20261106a",
+  "../lots.js":"../lots.js?v=20261106a",
+  "../cars.js":"../cars.js?v=20261106a",
+  "../nav.js":"../nav.js?v=20261106a",
+  "../texpool.js":"../texpool.js?v=20261106a",
+  "../texcache.js":"../texcache.js?v=20261106a",
+  "./building.js":"./building.js?v=20261106a"}}</script>
 </head>
 <body>
 <a class="skip" href="#lotsPanel">Aller à la liste des logements</a>
@@ -684,12 +684,13 @@ window.MAQUETTE = {
   far: 4000, maxDist: 700, targetRadius: 140, targetY: [0.5, 150], cursorY: 60, probeY: 45, maxPolar: Math.PI / 2 + 0.95, thumbs: '../../img/tour/',
   look: { fog: 0.00055 },
   views: [
-    { id: 't01', t: "Vue d'ensemble", d: 'Une flèche de verre de 150 m, vrillée sur elle-même.', pos: [215, 105, 245], tgt: [0, 72, 0], fov: 34, aspect: 4 / 3 },
-    { id: 't02', t: 'Le jardin en spirale', d: 'Quarante étages de terrasses plantées qui s’enroulent autour de la tour.', pos: [-82.7, 55, -46.7], tgt: [-5.2, 45, -3], fov: 38, aspect: 4 / 3 },
-    { id: 't03', t: 'À mi-hauteur', d: 'Jardinières, garde-corps vitrés et bureaux derrière le mur-rideau.', pos: [28.3, 90.5, -82.7], tgt: [2.2, 82.5, -6.6], fov: 38, aspect: 4 / 3 },
-    { id: 't04', t: 'Le sommet', d: 'La pointe vitrée et le dernier jardin, à 140 m.', pos: [51.4, 145, 33.3], tgt: [2.1, 123, 1.4], fov: 40, aspect: 4 / 3 },
-    { id: 't05', t: 'Depuis le parvis', d: 'Au pied de la tour, le regard qui suit la spirale vers le ciel.', pos: [-21, 1.7, 27], tgt: [0, 42, 0], fov: 64, aspect: 4 / 3 },
-    { id: 't06', t: 'Vu du ciel', d: 'L’amande vrillée et le parvis planté.', pos: [40, 330, 60], tgt: [0, 60, 0], fov: 34, aspect: 4 / 3 },
+    { id: 't01', t: "Vue d'ensemble", d: 'Une tour de verre de 150 m sur son socle-jardin, enlacée par une faille plantée.', pos: [-70, 95, 300], tgt: [18, 64, 6], fov: 34, aspect: 4 / 3 },
+    { id: 't02', t: 'Le jardin en spirale', d: 'Une faille de terrasses plantées qui fait le tour de la tour, du socle au sommet.', pos: [-88, 62, 88], tgt: [0, 62, 0], fov: 38, aspect: 4 / 3 },
+    { id: 't03', t: 'À mi-hauteur', d: 'Jardinières, arbres et garde-corps vitrés devant les bureaux.', pos: [52, 100, -84], tgt: [0, 92, 0], fov: 38, aspect: 4 / 3 },
+    { id: 't04', t: 'Les jardins du sommet', d: 'Des gradins plantés qui montent en spirale jusqu’à la pointe de verre, à 150 m.', pos: [48, 178, -52], tgt: [0, 132, 0], fov: 40, aspect: 4 / 3 },
+    { id: 't05', t: 'Depuis le parvis', d: 'Au pied du socle aux façades pliées, le regard qui suit la faille vers le ciel.', pos: [-24, 1.7, 50], tgt: [6, 48, 0], fov: 64, aspect: 4 / 3 },
+    { id: 't06', t: 'Le socle-jardin', d: 'Sept niveaux sous une toiture plantée d’arbres, au pied de la tour.', pos: [95, 52, 95], tgt: [28, 26, 12], fov: 40, aspect: 4 / 3 },
+    { id: 't07', t: 'Vu du ciel', d: 'Le plan en goutte d’eau de la tour et le socle en L.', pos: [40, 330, 60], tgt: [22, 60, 0], fov: 34, aspect: 4 / 3 },
   ],
 };
 </script>
@@ -697,6 +698,6 @@ window.MAQUETTE = {
 /* la tour n'a ni logements ni étages en coupe, ni balade à pied */
 #navMode, #tLots, #tAvail, #minimap, #floors, #lotsPanel, [data-pane="floors"], [data-pane="lotsPanel"] { display: none !important; }
 </style>
-<script type="module" src="../viewer.js?v=20261105b"></script>
+<script type="module" src="../viewer.js?v=20261106a"></script>
 </body>
 </html>

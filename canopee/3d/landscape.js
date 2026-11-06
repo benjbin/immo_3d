@@ -453,11 +453,11 @@ export function createLandscape(THREE, M, bud = {}) {
     young:    { leaf: 'leafA', fork: 0.42, leader: true, cw: 0.26, ch: 0.56, r: 0.013, lobes: [6, 8], lobeR: 0.5, clumps: [2, 4], clumpR: [0.55, 0.85], card: [0.6, 0.85], dens: 44, core: [1, 3] },
   };
 
-  function growTree(spName, x, z, H, seed, lod = 0, kind = 'main') {
+  function growTree(spName, x, z, H, seed, lod = 0, kind = 'main', yBase) {
     const sp = SP[spName], r = mulberry32(seed);
     const R = (a, b) => a + r() * (b - a), RI = (a, b) => a + Math.floor(r() * (b - a + 1));
     const A = lod ? bark.bg : bark.main;
-    const y0 = groundY(x, z);
+    const y0 = yBase ?? groundY(x, z);   // yBase : arbre planté en toiture
     const crownH = Math.min(0.86, sp.ch * (lod ? 1.18 : 1)) * H, crownBot = H - crownH, rx = sp.cw * H * R(0.88, 1.12) * (lod ? 1.55 : 1), ry = crownH / 2;
     const lean = new V3(R(-1, 1), 0, R(-1, 1)).multiplyScalar(H * 0.025);
     // centre du houppier décentré : silhouettes asymétriques
@@ -627,10 +627,10 @@ export function createLandscape(THREE, M, bud = {}) {
 
   // Tour : arbres du parvis (building.userData.trees) et bosquets du parc alentour, au-delà du parvis
   if (!RESIDENCE) {
-    (bud.trees || []).forEach(([s, x, z, h], k) => growTree(s, x, z, h, 7000 + k * 17, 0, 'main'));
-    const R0 = bud.plazaR || 60, pts = [], species = ['oak', 'linden', 'ash', 'oak', 'hornbeam', 'birch'];
+    (bud.trees || []).forEach(([s, x, z, h, y], k) => growTree(s, x, z, h, 7000 + k * 17, 0, 'main', y));
+    const [PCX, PCZ] = bud.plazaC || [0, 0], R0 = bud.plazaR || 60, pts = [], species = ['oak', 'linden', 'ash', 'oak', 'hornbeam', 'birch'];
     for (let tries = 0; pts.length < 520 && tries < 40000; tries++) {
-      const a = rnd() * Math.PI * 2, d = Math.sqrt(rr((R0 + 14) ** 2, 300 ** 2)), x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rr((R0 + 14) ** 2, 300 ** 2)), x = PCX + Math.cos(a) * d, z = PCZ + Math.sin(a) * d;
       const grove = sstep(0.4, 0.62, fbm2(x * 0.03 + 4, z * 0.03 + 8, 3, 33)) + sstep(200, 280, d) * 0.7;
       if (rnd() > grove + 0.1) continue;
       if (pts.some(([px, pz]) => (px - x) ** 2 + (pz - z) ** 2 < 42)) continue;
@@ -866,7 +866,7 @@ export function createLandscape(THREE, M, bud = {}) {
     // retombantes
     const nt = Math.max(2, Math.round(L / 0.3));
     for (let i = 0; i < nt; i++) {
-      if (rnd() < 0.45) continue;
+      if (rnd() < (pl.trailSkip ?? 0.45)) continue;
       const t = (i + rr(0.2, 0.8)) / nt - 0.5;
       const sides = pl.kind === 'roof' ? [1, -1] : [inner];
       for (const sd of sides) {
@@ -875,11 +875,13 @@ export function createLandscape(THREE, M, bud = {}) {
         outDir.applyAxisAngle(new V3(0, 1, 0), rr(-0.45, 0.45));
         const q = quatYZ(new V3(0, 1, 0), outDir, new THREE.Quaternion());
         const s = rr(0.7, 1.1);
-        B.trail.add(pos, q, new V3(s, rr(0.3, 0.75), s), [rr(0.9, 1.05), rr(0.95, 1.1), rr(0.85, 1)]);
+        B.trail.add(pos, q, new V3(s, rr(0.3, 0.75) * (pl.trailLen || 1), s), [rr(0.9, 1.05), rr(0.95, 1.1), rr(0.85, 1)]);
       }
     }
   }
 
+  // toiture de forme libre (pl.poly, pl.hole : polygones en x,z)
+  const inPoly = (x, z, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, zi] = pts[i], [xj, zj] = pts[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; };
   function greenRoof(pl) {
     const x0 = pl.x - pl.w / 2 + 0.12, x1 = pl.x + pl.w / 2 - 0.12, z0 = pl.z - pl.d / 2 + 0.12, z1 = pl.z + pl.d / 2 - 0.12;
     const holes = bud.greenroofHoles || [];
@@ -896,7 +898,7 @@ export function createLandscape(THREE, M, bud = {}) {
     const y = pl.y;
     for (let x = x0; x < x1; x += 0.4) for (let z = z0; z < z1; z += 0.4) {
       const px = x + rr(0, 0.4), pz = z + rr(0, 0.4);
-      if (px > x1 || pz > z1 || !free(px, pz)) continue;
+      if (px > x1 || pz > z1 || !free(px, pz) || (pl.poly && (!inPoly(px, pz, pl.poly) || (pl.hole && inPoly(px, pz, pl.hole))))) continue;
       const { c, a } = pal(px, pz);
       const s = rr(0.5, 0.8);
       P.set(px, y + 0.01 + rnd() * 0.05, pz);
@@ -911,7 +913,7 @@ export function createLandscape(THREE, M, bud = {}) {
         B.plume.add(P.set(px, y, pz), qY(rnd() * 6.28, Q), new V3(hs, rr(0.6, 0.9), hs), [rr(0.95, 1.05), rr(0.85, 0.95), rr(0.65, 0.78)]);
       } else if (r2 < 0.53) {
         const s2 = rr(0.4, 0.5); B.lav.add(P.set(px, y, pz), qY(rnd() * 6.28, Q), new V3(s2, s2 * 0.8, s2), [1, 1, 1]);
-      } else if (r2 < 0.545) shrub(px, y, pz, rr(0.22, 0.35), { dens: 80, card: 0.8, tint: [0.9, 1, 0.85] });
+      } else if (r2 < 0.545 + (pl.lush || 0)) shrub(px, y, pz, rr(0.22, 0.35) * (pl.lush ? 1.6 : 1), { dens: 80, card: 0.8, tint: [0.9, 1, 0.85] });   // lush : toiture-jardin arbustive
     }
   }
 

@@ -1160,6 +1160,7 @@ function applyHour(h, immediate = false) {
     M.interiorWarm.emissiveIntensity = state.interiorBase * (1 + 0.9 * dusk + 1.2 * night);
   }
   setInteriorGain(1 + 0.35 * dusk + 0.6 * night);
+  if (building.userData.onLight) building.userData.onLight(dusk, night);   // éclairage propre à la maquette (tour : bureaux allumés)
   if (neighbourMat) neighbourMat.color.setScalar(0.45 * THREE.MathUtils.smoothstep(night, 0.15, 1));   // voisins : s'allument au crépuscule
   // de jour, une pièce vue de la rue est bien plus sombre que la façade ensoleillée (rapport ~1:5 en photo) :
   // intérieurs simulés d'interiors.js atténués, et leur reflet de ciel uniforme réduit (le verre de façade
