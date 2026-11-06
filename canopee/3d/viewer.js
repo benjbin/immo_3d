@@ -1828,7 +1828,9 @@ function loop(now) {
 const NEAR_OUT = 0.2, NEAR_IN = 0.05;
 function updateNearPlane() {
   const st = nav && nav.getState ? nav.getState() : null;
-  const want = st && st.mode === 'walk' && st.indoor ? NEAR_IN : NEAR_OUT;
+  let want = st && st.mode === 'walk' && st.indoor ? NEAR_IN : NEAR_OUT;
+  // grande maquette (ville autour) : en hauteur, plan proche reculé avec l'altitude pour garder la précision au loin
+  if (MAQ.nearScale && !(st && st.mode === 'walk')) want = Math.round(THREE.MathUtils.clamp(camera.position.y * MAQ.nearScale, NEAR_OUT, 2) * 20) / 20;
   if (camera.near !== want) { camera.near = want; camera.updateProjectionMatrix(); }
 }
 // Rayon d'AO proportionnel à la distance : 1,4 m convient en vue d'ensemble,

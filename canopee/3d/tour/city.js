@@ -182,7 +182,7 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
   }
   const A = data.areas || {};
   for (const p of A.pedestrian || []) { const q = TP(p); if (near(q)) flatInto(pav, q, 0.135); }
-  for (const p of A.parking || []) { const q = TP(p); if (near(q) && !q.some(([x, z]) => inKeep(x, z))) flatInto(asph, q, 0.115); }
+  for (const p of A.parking || []) { const q = TP(p); if (near(q) && !q.some(([x, z]) => inKeep(x, z))) flatInto(asph, q, 0.14); }
   faceUp(sw, sw0); faceUp(asph, as0); faceUp(pav, pv0);
   const bal = accOf(MAT.ballast), b0 = bal.i.length;
   for (const p of A.railway || []) { const q = TP(p); if (near(q)) flatInto(bal, q, 0.05); }
@@ -217,7 +217,10 @@ export function createCity(THREE, M, { data, facadeAz = 180, origin = [0, 0], ke
     const mesh = new THREE.Mesh(acc.geo(), mat);
     const isGround = mat === M.sidewalk || mat === M.asphalt || mat === M.paver || mat === M.grass || mat === MAT.ballast || mat === MAT.water || mat === MAT.track;
     mesh.castShadow = !isGround; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.updateMatrix();
-    if (isGround) { mat.polygonOffset = mat.polygonOffset || false; }
+    // sols empilés à quelques centimètres : vus de 300 m, la précision de profondeur ne les sépare plus et ils
+    // se battent en rayures qui scintillent dès que la caméra bouge ; un décalage de profondeur par couche les ordonne
+    const layer = [MAT.water, MAT.ballast, M.grass, MAT.track, M.sidewalk, M.paver, M.asphalt].indexOf(mat);
+    if (layer >= 0) { mat.polygonOffset = true; mat.polygonOffsetFactor = -(layer + 1); mat.polygonOffsetUnits = -4 * (layer + 1); }
     group.add(mesh);
   }
 

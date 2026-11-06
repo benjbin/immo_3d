@@ -481,23 +481,23 @@ body.immersive .dock .sun{display:block!important}
 <script type="importmap">{"imports":{
   "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
   "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "../viewer.js":"../viewer.js?v=20261106b",
-  "../materials.js":"../materials.js?v=20261106b",
-  "../landscape.js":"../landscape.js?v=20261106b",
-  "../building.js":"../building.js?v=20261106b",
-  "../interiors.js":"../interiors.js?v=20261106b",
-  "../decor.js":"../decor.js?v=20261106b",
-  "../decortex.js":"../decortex.js?v=20261106b",
-  "../furniture.js":"../furniture.js?v=20261106b",
-  "../models.js":"../models.js?v=20261106b",
-  "../lots.js":"../lots.js?v=20261106b",
-  "../cars.js":"../cars.js?v=20261106b",
-  "../nav.js":"../nav.js?v=20261106b",
-  "../texpool.js":"../texpool.js?v=20261106b",
-  "../texcache.js":"../texcache.js?v=20261106b",
-  "./building.js":"./building.js?v=20261106b",
-  "./city.js":"./city.js?v=20261106b",
-  "./citymat.js":"./citymat.js?v=20261106b"}}</script>
+  "../viewer.js":"../viewer.js?v=20261106c",
+  "../materials.js":"../materials.js?v=20261106c",
+  "../landscape.js":"../landscape.js?v=20261106c",
+  "../building.js":"../building.js?v=20261106c",
+  "../interiors.js":"../interiors.js?v=20261106c",
+  "../decor.js":"../decor.js?v=20261106c",
+  "../decortex.js":"../decortex.js?v=20261106c",
+  "../furniture.js":"../furniture.js?v=20261106c",
+  "../models.js":"../models.js?v=20261106c",
+  "../lots.js":"../lots.js?v=20261106c",
+  "../cars.js":"../cars.js?v=20261106c",
+  "../nav.js":"../nav.js?v=20261106c",
+  "../texpool.js":"../texpool.js?v=20261106c",
+  "../texcache.js":"../texcache.js?v=20261106c",
+  "./building.js":"./building.js?v=20261106c",
+  "./city.js":"./city.js?v=20261106c",
+  "./citymat.js":"./citymat.js?v=20261106c"}}</script>
 </head>
 <body>
 <a class="osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Ville : © contributeurs OpenStreetMap</a>
@@ -687,7 +687,7 @@ body.immersive .dock .sun{display:block!important}
 window.MAQUETTE = {
   building: './tour/building.js', landscape: './landscape.js', lots: false, nav: false,
   site: { lat: 43.6102, lon: 1.4539, facadeAz: 331 },   // parcelle de la tour Occitanie, Toulouse (axe +Z vers le NNO)
-  far: 4000, maxDist: 900, targetRadius: 140, targetY: [0.5, 150], cursorY: 60, probeY: 45, maxPolar: Math.PI / 2 + 0.95, thumbs: '../../img/tour/',
+  far: 4000, maxDist: 900, nearScale: 0.01, targetRadius: 140, targetY: [0.5, 150], cursorY: 60, probeY: 45, maxPolar: Math.PI / 2 + 0.95, thumbs: '../../img/tour/',
   look: { fog: 0.00055 },
   views: [
     { id: 't01', t: "Vue d'ensemble", d: 'Une tour de verre de 150 m à Matabiau, entre la gare et le canal du Midi.', pos: [-150, 150, 330], tgt: [10, 60, 0], fov: 36, aspect: 4 / 3 },
@@ -704,6 +704,6 @@ window.MAQUETTE = {
 /* la tour n'a ni logements ni étages en coupe, ni balade à pied */
 #navMode, #tLots, #tAvail, #minimap, #floors, #lotsPanel, [data-pane="floors"], [data-pane="lotsPanel"] { display: none !important; }
 </style>
-<script type="module" src="../viewer.js?v=20261106b"></script>
+<script type="module" src="../viewer.js?v=20261106c"></script>
 </body>
 </html>
