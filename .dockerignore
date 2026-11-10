@@ -1,0 +1,16 @@
+# seul canopee/ (et la config nginx) entre dans l'image
+.git
+.gitignore
+.claude
+**/.claude
+**/.DS_Store
+README.md
+index.html
+3d/
+video/
+canopee/3d/dev/
+canopee/3d/SPEC.md
+canopee/outils/
+canopee/photos/
+**/__pycache__
+**/_test-*.html
