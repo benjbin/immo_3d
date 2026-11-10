@@ -66,24 +66,55 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   // --- chêne clair huilé (mobilier) : 1 m × 0,25 m, fil horizontal
   const oak = paintOf('deco:oak');
   D.oak = std('decoOak', 0xffffff, set(oak, 1.0, 0.25, 1.2, { roughness: 1, normalScale: new THREE.Vector2(0.25, 0.25) }));
+  // textures partagées à d'autres échelles : même image (une seule texture GPU), répétition propre
+  const again = (t, rx, ry = rx) => { const c = t.clone(); c.repeat.set(1 / rx, 1 / ry); c.needsUpdate = true; list.push(c); return c; };
+  const reuse = (s, rx, ry = rx, extra = {}) => ({ map: again(s.map, rx, ry), normalMap: again(s.normalMap, rx, ry), roughnessMap: again(s.roughnessMap, rx, ry), ...extra });
   // --- textiles : lin lavé neutre (teinté par objet), 0,2 m
   const linen = paintOf('deco:linen');
-  const linenSet = set(linen, 0.2, 0.2, 2.5, { roughness: 1, normalScale: new THREE.Vector2(0.55, 0.55) });
-  // tissus : MeshPhysicalMaterial avec sheen (velouté rasant, pas de reflet plastique), spéculaire très bas
-  const fab = (name, p, extra = {}) => { const m = new THREE.MeshPhysicalMaterial({ name, color: 0xffffff, roughness: 1, metalness: 0, sheen: 1, sheenRoughness: 0.7, sheenColor: new THREE.Color(0x6e6a64), specularIntensity: 0.18, envMapIntensity: 0.7, ...p, ...extra }); list.push(m); return m; };
+  const linenSet = set(linen, 0.2, 0.2, 2.2, { roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8) });
+  // tissus : MeshPhysicalMaterial avec sheen (duvet rasant, pas de reflet plastique), spéculaire très bas.
+  // Un tissu réel n'est jamais uni : variations lentes de teinte et de duvet (sens du poil, zones tassées, lavage)
+  // ajoutées dans le shader en coordonnées MONDE (continues sur les formes courbes, sans répétition visible) :
+  // deux lectures d'un petit bruit (≈ 1,4 m et ≈ 0,3 m). k = [teinte, duvet, grain fin] ; une seule forme de programme.
+  const fabLo = T(paintOf('deco:fablo').color, 1, 1, false);
+  const fab = (name, p, extra = {}, k = [0.2, 0.5]) => {
+    const m = new THREE.MeshPhysicalMaterial({ name, color: 0xffffff, roughness: 1, metalness: 0, sheen: 1, sheenRoughness: 0.6, sheenColor: new THREE.Color(0x9a958c), specularIntensity: 0.18, envMapIntensity: 0.7, ...p, ...extra });
+    const uni = { uFabLo: { value: fabLo }, uFabK: { value: new THREE.Vector2(k[0], k[1]) } };
+    m.userData.fab = uni;
+    m.onBeforeCompile = (sh) => {
+      if (!sh.vertexShader.includes('#include <project_vertex>') || !sh.fragmentShader.includes('#include <lights_physical_fragment>')) return;
+      Object.assign(sh.uniforms, uni);
+      sh.vertexShader = 'varying vec3 vFabW;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vFabW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+      sh.fragmentShader = 'varying vec3 vFabW;\nuniform sampler2D uFabLo; uniform vec2 uFabK;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', `#include <map_fragment>
+        vec3 fabA = texture2D( uFabLo, ( vFabW.xz + vFabW.y * vec2( 0.53, 0.31 ) ) * 0.71 ).rgb;
+        vec3 fabB = texture2D( uFabLo, ( vFabW.zx * vec2( 0.8, -0.6 ) + vFabW.xz * vec2( 0.6, 0.8 ) + vFabW.y * vec2( -0.37, 0.71 ) ) * 3.3 + 0.37 ).rgb;
+        float fabV = ( fabA.r - 0.5 ) + 0.6 * ( fabB.g - 0.5 );
+        diffuseColor.rgb *= 1.0 + uFabK.x * fabV;`)
+        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        #ifdef USE_SHEEN
+          material.sheenColor *= clamp( 1.0 + uFabK.y * ( ( fabA.b - 0.5 ) * 2.4 + ( fabB.r - 0.5 ) * 1.6 ), 0.0, 2.0 );
+        #endif`);
+    };
+    m.customProgramCacheKey = () => 'decoFab';
+    list.push(m); return m;
+  };
   D.textile = fab('decoTextile', linenSet);
   D.cloth = fab('decoCloth', linenSet, { side: THREE.DoubleSide });
-  // velours mat (canapés, coussins) : même forme de programme que le lin, sheen fort et resserré, relief faible
-  D.velvet = fab('decoVelvet', linenSet, { normalScale: new THREE.Vector2(0.12, 0.12), sheenRoughness: 0.45, sheenColor: new THREE.Color(0x8c877e), specularIntensity: 0.04, envMapIntensity: 0.45 });
-  // --- bouclé écru : boucles serrées, 0,12 m
+  // le lin peint (fils irréguliers, flammes) se lit à 1–2 m ; la photo de lin, presque blanche, donnait un aplat
+  D.textile.userData.cnpNoPhoto = D.cloth.userData.cnpNoPhoto = true;
+  // velours ras (canapés, coussins) : presque uni, duvet fort et resserré qui varie beaucoup (sens du poil)
+  const velvet = paintOf('deco:velvet');
+  D.velvet = fab('decoVelvet', set(velvet, 0.15, 0.15, 2, { roughness: 1, normalScale: new THREE.Vector2(0.25, 0.25) }), { sheenRoughness: 0.4, sheenColor: new THREE.Color(0xb4aea4), specularIntensity: 0.04, envMapIntensity: 0.45 }, [0.3, 0.9]);
+  // --- bouclé fin chiné (canapé, fauteuils, poufs) : brins frisés de 2 mm, 0,3 m par répétition
   const boucle = paintOf('deco:boucle');
-  D.boucle = fab('decoBoucle', set(boucle, 0.12, 0.12, 6, { roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3) }), { sheenRoughness: 0.9, sheenColor: new THREE.Color(0x8a867e) });
+  D.boucle = fab('decoBoucle', set(boucle, 0.3, 0.3, 4, { roughness: 1, normalScale: new THREE.Vector2(0.9, 0.9) }), { sheenRoughness: 0.55, sheenColor: new THREE.Color(0xb0aaa0) }, [0.28, 0.6]);
   // --- tapis berbère (laine écrue, losanges brun-noir), motif répété tous les 0,8 m
   const rug = paintOf('deco:rug');
   D.rug = fab('decoRug', set(rug, 0.8, 0.8, 4, { roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8) }), { sheenRoughness: 0.9 });
   // laine unie (tapis de chambre, plaids épais)
   const wool = paintOf('deco:wool');
-  D.wool = fab('decoWool', set(wool, 0.3, 0.3, 5, { roughness: 1 }), { sheenRoughness: 0.9 });
+  D.wool = fab('decoWool', set(wool, 0.3, 0.3, 3, { roughness: 1, normalScale: new THREE.Vector2(0.6, 0.6) }), { sheenRoughness: 0.75 }, [0.26, 0.6]);
   // jute tissé à plat (tapis) : natté 2 × 2 en fils épais, 0,16 m par motif
   const jute = paintOf('deco:jute');
   D.jute = fab('decoJute', set(jute, 0.16, 0.16, 5, { roughness: 1, normalScale: new THREE.Vector2(0.65, 0.65) }), { sheenRoughness: 0.95, sheenColor: new THREE.Color(0x7a6a50) });
@@ -95,21 +126,27 @@ export function decorMaterials(THREE, M, std, opt = {}) {
   D.travertine = std('decoTravertine', 0xffffff, set(trav, 1.2, 1.2, 2.5, { roughness: 1, normalScale: new THREE.Vector2(0.5, 0.5) }));
   // --- pierre claire du plan de travail (quartzite blanc chaud, veines grises douces) : 1,6 m
   const qz = paintOf('deco:qz');
-  D.stone = std('decoStone', 0xffffff, set(qz, 1.6, 1.6, 0.6, { roughness: 1, normalScale: new THREE.Vector2(0.15, 0.15) }));   // poli : relief à peine perceptible
+  D.stone = std('decoStone', 0xffffff, set(qz, 1.6, 1.6, 0.6, { roughness: 1, normalScale: new THREE.Vector2(0.2, 0.2) }));   // poli : relief à peine perceptible
   // --- zellige blanc crème (crédence, douche) : carreaux 10 × 10 cm, émail ondulé, tons variés, 0,4 m
   const zel = paintOf('deco:zel');
   D.zellige = std('decoZellige', 0xffffff, set(zel, 0.4, 0.4, 3, { roughness: 1, normalScale: new THREE.Vector2(1.25, 1.25) }));   // joints creusés, émail ondulé
   // --- céramiques
-  D.ceramic = std('decoCeramic', 0xffffff, { roughness: 0.12, metalness: 0 });            // sanitaires émaillés, vaisselle
+  // surfaces lisses : même jeu de cartes « satin » (peau d'orange très fine, rugosité inégale : traces, zones plus
+  // mates) à des échelles différentes — et même forme de programme que le chêne ou la pierre (couleur + normales
+  // + rugosité). La rugosité du matériau multiplie la carte (≈ 0,76 en moyenne).
+  const satin = set(paintOf('deco:satin'), 0.5, 0.5, 1.6);
+  const brushed = set(paintOf('deco:brushed'), 0.09, 0.09, 1.2);
+  const V2 = (v) => new THREE.Vector2(v, v);
+  D.ceramic = std('decoCeramic', 0xffffff, reuse(satin, 0.37, 0.37, { roughness: 0.17, metalness: 0, normalScale: V2(0.035) }));   // sanitaires émaillés, vaisselle
   const grain = paintOf('deco:grain');
   D.stoneware = std('decoStoneware', 0xffffff, set(grain, 0.15, 0.15, 2, { roughness: 1, normalScale: new THREE.Vector2(0.3, 0.3) }));   // grain fin : relief discret (plus de piqué « bruit blanc »)  // grès mat (vases, pieds de lampe, pots)
-  D.lacquer = std('decoLacquer', 0xffffff, { roughness: 0.42, metalness: 0 });            // façades laquées mates
-  D.skirt = std('decoSkirt', 0xf3f1ec, { roughness: 0.5 });                               // plinthes, chambranles
-  // --- métaux
-  D.black = std('decoBlack', 0x1d1d1e, { roughness: 0.48, metalness: 0.55 });
-  D.brass = std('decoBrass', 0xc9a46a, { roughness: 0.32, metalness: 1 });
-  D.steel = std('decoSteel', 0xbfc1c3, { roughness: 0.28, metalness: 1 });
-  D.glassBlack = std('decoGlassBlack', 0x0d0e10, { roughness: 0.08, metalness: 0.1 });    // vitrocéramique, porte de four
+  D.lacquer = std('decoLacquer', 0xffffff, { ...satin, roughness: 0.52, metalness: 0, normalScale: V2(0.1) });   // façades laquées mates
+  D.skirt = std('decoSkirt', 0xf3f1ec, reuse(satin, 0.43, 0.43, { roughness: 0.62, normalScale: V2(0.12) }));     // plinthes, chambranles
+  // --- métaux : noir thermolaqué (grain de poudre fin), laiton et inox brossés
+  D.black = std('decoBlack', 0x1d1d1e, reuse(satin, 0.13, 0.13, { roughness: 0.62, metalness: 0.55, normalScale: V2(0.3) }));
+  D.brass = std('decoBrass', 0xc9a46a, { ...brushed, roughness: 0.44, metalness: 1, normalScale: V2(0.22) });
+  D.steel = std('decoSteel', 0xbfc1c3, reuse(brushed, 0.11, 0.11, { roughness: 0.38, metalness: 1, normalScale: V2(0.18) }));
+  D.glassBlack = std('decoGlassBlack', 0x0d0e10, reuse(satin, 0.61, 0.61, { roughness: 0.13, metalness: 0.1, normalScale: V2(0) }));   // vitrocéramique, porte de four : traces dans les reflets
   D.mirror = std('decoMirror', 0xe2e5e6, { roughness: 0.02, metalness: 1, envMapIntensity: 0.9 });
   D.glassClear = std('decoGlass', 0xeef4f2, { roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
   D.sheer = std('decoSheer', 0xfbf8f2, { ...set(linen, 0.12, 0.12, 0), roughness: 1, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
@@ -409,12 +446,29 @@ export function createDecor(THREE, P, ctx = {}) {
     g.computeVertexNormals(); rot(g, o); g.translate(x, y, z); put(mk, g, col);
   };
   // nappe paramétrique (drapés) : f(u, v) → [x, y, z], u, v ∈ [0, 1]
-  const sheet = (mk, nu, nv, f, col, keepUV = false) => {
+  // cav : ombre propre de courbure (fond des plis plus sombre, crêtes un peu plus claires) ; son signe choisit la face
+  // regardée (cav > 0 : côté de la normale géométrique u × v, cav < 0 : l'autre)
+  const sheet = (mk, nu, nv, f, col, keepUV = false, cav = 0) => {
     const pos = [], uv = [], idx = [];
     for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = f(i / nu, j / nv); pos.push(p[0], p[1], p[2]); uv.push(i / nu, j / nv); }
     for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a0 = j * (nu + 1) + i, b0 = a0 + nu + 1; idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-    g.computeVertexNormals(); put(mk, g, col, keepUV);
+    g.computeVertexNormals();
+    if (cav) {
+      const nr = g.attributes.normal.array, sh = new Float32Array((nu + 1) * (nv + 1)).fill(1), W = nu + 1;
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+        const k = j * W + i, k3 = k * 3; let c = 0, hh = 0;
+        for (const [a, b, ok] of [[k - 1, k + 1, i > 0 && i < nu], [k - W, k + W, j > 0 && j < nv]]) {
+          if (!ok) continue; const a3 = a * 3, b3 = b * 3;
+          const lx = (pos[a3] + pos[b3]) / 2 - pos[k3], ly = (pos[a3 + 1] + pos[b3 + 1]) / 2 - pos[k3 + 1], lz = (pos[a3 + 2] + pos[b3 + 2]) / 2 - pos[k3 + 2];
+          const h = Math.hypot(pos[b3] - pos[a3], pos[b3 + 1] - pos[a3 + 1], pos[b3 + 2] - pos[a3 + 2]) / 2 || 1e-6;
+          c += (lx * nr[k3] + ly * nr[k3 + 1] + lz * nr[k3 + 2]) / h; hh++;
+        }
+        if (hh) sh[k] = 1 - Math.max(-0.07, Math.min(0.5, cav * c));
+      }
+      g.setAttribute('shade', new THREE.BufferAttribute(sh, 1));
+    }
+    put(mk, g, col, keepUV);
   };
   // plaque extrudée à coins arrondis (plateaux), posée en y0, épaisseur t
   const slab = (mk, w, d, t, r, x, y0, z, col, o = {}) => {
@@ -431,7 +485,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // version « plan » d'un volume haut : boîte coupée à 1,2 m + tranche sombre
   const tallPlan = (mk, x0, x1, z0, z1, c) => P.planOnly(() => { box(mk, x0, x1, 0, CUT - 0.01, z0, z1, c); const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0); g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, CUT + 0.003, (z0 + z1) / 2); put('cut', g); });
   const walk = (fn) => P.walkOnly(fn);
-  let kitchenTap = null, fxCushion = null, barHandleFn = null, puffBoxFn = null;   // furniture.js
+  let kitchenTap = null, fxCushion = null, barHandleFn = null, puffBoxFn = null, fxPillow = null;   // furniture.js
   const at = (x, z, ry, fn, y) => P.at(x, z, ry, fn, y);
   const pick = (a) => a[Math.floor(R() * a.length) % a.length];
   const jit = (s) => (R() - 0.5) * s;
@@ -683,7 +737,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // coussin : superquadrique pincée à la couture, ventre bombé, léger tassement côté appui, passepoil de couture
   function pillow(x, y, z, s, t, col, o = {}) {
     const a = s / 2, b = t / 2, ro = { rx: o.rx || 0, ry: o.ry || 0, rz: o.rz || 0 };
-    sq(o.mk || 'textile', a, b, a, x, y, z, col, { e1: 0.42, e2: o.e2 ?? 0.2, pinch: 0.82, puff: o.puff ?? 0.22, squash: 0.18, dimple: 0.12, crease: o.crease ?? 0.05, nu: 22, nv: 12, wob: o.wob ?? 0.003, ...ro });
+    sq(o.mk || 'textile', a, b, a, x, y, z, col, { e1: o.e1 ?? 0.42, e2: o.e2 ?? 0.2, pinch: 0.82, puff: o.puff ?? 0.22, squash: 0.18, dimple: 0.12, crease: o.crease ?? 0.05, nu: o.nu || 22, nv: o.nv || 12, wob: o.wob ?? 0.003, ...ro });
     seamLoop(o.mk || 'textile', a * 0.985, a * 0.985, 0.0035, x, y, z, col.map(v => v * 0.9), ro, 0.2, 40);
   }
   // couture / passepoil en superellipse dans le plan local y = 0, avec les mêmes rotations que l'objet
@@ -694,9 +748,10 @@ export function createDecor(THREE, P, ctx = {}) {
   // tombé d'un textile au-delà d'un bord arrondi (rayon rr) : distance horizontale dd depuis le bord → [débord, chute]
   const fallOf = (dd, rr) => (dd <= 0 ? [0, 0] : dd < rr * Math.PI / 2 ? [rr * Math.sin(dd / rr), -rr + rr * Math.cos(dd / rr)] : [rr, -rr - (dd - rr * Math.PI / 2)]);
   // nappe épaisse : surface f(u, v) + envers décalé de e + ourlets roulés sur les bords libres (u = 0, u = 1, v = 1)
-  function thickSheet(mk, nu, nv, f, col, e = 0.012, hems = 'u0 u1 v1') {
-    sheet(mk, nu, nv, f, col);
-    sheet(mk, nu, nv, (u, v) => { const p = f(u, v), q = f(Math.min(1, u + 1e-3), v), r = f(u, Math.min(1, v + 1e-3)); const ax = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], bx = [r[0] - p[0], r[1] - p[1], r[2] - p[2]]; let n = [ax[1] * bx[2] - ax[2] * bx[1], ax[2] * bx[0] - ax[0] * bx[2], ax[0] * bx[1] - ax[1] * bx[0]]; const L = Math.hypot(...n) || 1; return [p[0] - n[0] / L * e, p[1] - n[1] / L * e, p[2] - n[2] / L * e]; }, col.map(v => v * 0.92));
+  // o.back === false : pas d'envers (nappe posée, dont le dessous ne se voit jamais) ; o.cav : voir sheet()
+  function thickSheet(mk, nu, nv, f, col, e = 0.012, hems = 'u0 u1 v1', o = {}) {
+    sheet(mk, nu, nv, f, col, false, o.cav || 0);
+    if (o.back !== false) sheet(mk, nu, nv, (u, v) => { const p = f(u, v), q = f(Math.min(1, u + 1e-3), v), r = f(u, Math.min(1, v + 1e-3)); const ax = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], bx = [r[0] - p[0], r[1] - p[1], r[2] - p[2]]; let n = [ax[1] * bx[2] - ax[2] * bx[1], ax[2] * bx[0] - ax[0] * bx[2], ax[0] * bx[1] - ax[1] * bx[0]]; const L = Math.hypot(...n) || 1; return [p[0] - n[0] / L * e, p[1] - n[1] / L * e, p[2] - n[2] / L * e]; }, col.map(v => v * 0.92));
     const edge = (fn, m) => { const pts = []; for (let k = 0; k <= m; k++) pts.push(new V3(...fn(k / m))); const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), m * 2, e * 0.62, 5, false); put(mk, g, col.map(v => v * 0.95)); };
     const off = (p, u, v) => p;
     if (hems.includes('u0')) edge((t) => off(f(0, t)), nv);
@@ -936,7 +991,9 @@ export function createDecor(THREE, P, ctx = {}) {
     else sq('textile', w / 2, 0.11, L / 2, 0, 0.33 + 0.105, z0 + L / 2, sheetC, { e1: 0.18, e2: 0.1, pinch: 0.1, nu: 24, nv: 10 });
     // couette épaisse : dessus bombé matelassé, arrondi sur l'arête du matelas, chute avec plis verticaux,
     // coins en cône (plus bas), ourlet roulé ; envers décalé (épaisseur visible au bord)
-    const hang = 0.2, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.06, hw = w / 2 + 0.012, ph = R() * 6;
+    const hang = 0.2, hangF = o.tuck ? 0.1 : hang, zA = z0 + 0.52, zB = z0 + L + 0.03, len = zB - zA, rr = 0.07, hw = w / 2 + 0.012, ph = R() * 6;
+    // grands plis du dessus : quelques crêtes obliques (la couette a été tirée d'un côté), chacune sa largeur et sa longueur
+    const RD = Array.from({ length: 6 }, (_, k) => { const a0 = (R() - 0.5) * 1.7; return { x: (R() - 0.5) * 1.5 * hw, z: len * (0.1 + 0.16 * k + 0.08 * R()), dx: Math.cos(a0), dz: Math.sin(a0), wd: 0.04 + R() * 0.05, A: 0.012 + R() * 0.016, L: 0.35 + R() * 0.55, wv: R() * 6 }; });
     const duvet = (u, v) => {
       u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v));
       const s = (u - 0.5) * (2 * hw + 2 * hang), t = v * (len + hangF);
@@ -945,28 +1002,42 @@ export function createDecor(THREE, P, ctx = {}) {
       let x = Math.sign(s) * (Math.min(Math.abs(s), hw) + ex * k), z = zA + Math.min(t, len) + ez * k, y = top + 0.05 + oy;
       const inTop = d === 0, hangK = Math.min(1, d / hang);
       // dessus : gonflant, matelassage léger, plis doux (corps couché)
-      if (inTop) { const nx = s / hw, nz = t / len; y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) - 0.003 * Math.pow(Math.cos((t / 0.33) * Math.PI + 0.3 * Math.sin(s * 4)), 16) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5);
+      if (inTop) { const nx = s / hw, nz = t / len;
+        // gonflant : le bord est un bourrelet (la couette a de l'épaisseur), grands plis obliques
+        y += 0.028 * (1 - Math.exp(-Math.min(hw - Math.abs(s), len - t) / 0.07));
+        for (const f of RD) { const qx = s - f.x, qz = t - f.z, al = qx * f.dx + qz * f.dz; if (Math.abs(al) > f.L) continue; const ac = -qx * f.dz + qz * f.dx + 0.03 * Math.sin(al * 6 + f.wv); y += f.A * Math.exp(-Math.pow(ac / f.wd, 2)) * (1 - Math.pow(al / f.L, 2)); }
+        y += 0.025 * (1 - nx * nx) * (0.6 + 0.4 * Math.sin(nz * 3.1)) + 0.03 * Math.exp(-Math.pow(t / 0.1, 2)) + 0.012 * Math.sin(s * 7 + t * 3 + ph) * Math.sin(t * 4.3) + 0.016 * Math.exp(-Math.pow((s * 0.8 + t * 0.55 - 0.45) / 0.09, 2)) * (1 - nz * 0.5);
         // passe 2 : froissé fin du lin lavé (rides croisées de 4–8 cm, plus marquées vers le pied et les bords)
         const fr = 0.35 + 0.65 * Math.min(1, nz * 1.3 + Math.abs(nx) * 0.6);
         y += fr * (0.0045 * Math.sin(s * 19 + ph * 2 + 2.6 * Math.sin(t * 4.3 + s * 2)) * Math.sin(t * 13 + s * 5.1 + Math.sin(s * 3)) + 0.002 * Math.sin(s * 9 - t * 27 + ph) * Math.sin(t * 21 + 2.3 * Math.sin(s * 7))); }
       // chute : plis verticaux qui s'ouvrent vers le bas, ondulation de l'ourlet
-      const ang = (Math.abs(s) > hw ? t : s), pf = 0.022 * hangK * Math.sin(ang * 11 + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0)) + 0.007 * hangK * Math.sin(ang * 31 + 2 * ph);
+      const ang = (Math.abs(s) > hw ? t : s), pf = 0.021 * hangK * Math.sin(ang * 11 + 1.3 * Math.sin(ang * 3.1 + ph) + ph + (ex > 0 && ez > 0 ? Math.atan2(ez, ex) * 3 : 0)) * (0.65 + 0.35 * Math.sin(ang * 2.3 + 2 * ph)) + 0.007 * hangK * Math.sin(ang * 29 + 2 * ph);
+      if (!inTop) y += 0.012 * hangK * hangK * Math.sin(ang * 4.7 + ph * 3);   // ourlet jamais de niveau
       if (!inTop) { const nxv = ex > 0 ? Math.sign(s) : 0, nzv = ez > 0 ? 1 : 0, L2 = Math.hypot(nxv, nzv) || 1; x += nxv / L2 * pf; z += nzv / L2 * pf; if (ez > 0 && ex === 0) x += pf * 0.6; if (ex > 0 && ez === 0) z += pf * 0.6; }
       y = Math.max(y, 0.1 + 0.015 * Math.sin(s * 20 + t * 13));
       return [x, y, z];
     };
-    thickSheet('cloth', 64, 70, duvet, duvetC, 0.02, 'u0 u1 v1');   // maillage fin : rides de quelques centimètres
-    // revers de couette en tête : rouleau souple avec housse
-    sq('cloth', hw + 0.01, 0.04, 0.12, 0, top + 0.062, zA + 0.04, duvetC.map(v => v * 0.97), { e1: 0.45, e2: 0.1, puff: 0.1, crease: 0.08, nu: 30, nv: 10, wob: 0.004 });
+    thickSheet('cloth', 70, 74, duvet, duvetC, 0.02, 'u0 u1 v1 v0', { back: false, cav: -0.5 });   // maillage fin : rides de quelques centimètres ; dessous jamais vu
     // oreillers : deux grands carrés contre la tête de lit, deux standard, un coussin
     const np = 2;
     // grands oreillers presque droits, adossés à la tête de lit (≈ 15°), bombés et tassés au centre ; oreillers standard devant
-    for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.34, z0 + 0.16, Math.min(0.64, w / np - 0.03), 0.27, sheetC, { rx: -Math.PI / 2 + 0.27 + jit(0.05), rz: jit(0.06), e2: 0.24, puff: 0.42, crease: 0.16, wob: 0.006 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.38, Math.min(0.6, w / np - 0.05) * 0.93, 0.19, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.6, rz: jit(0.05), puff: 0.32, crease: 0.12 }); }
+    if (fxPillow) {
+      // oreillers moelleux (furniture.js) : deux grands carrés adossés à la tête de lit, deux oreillers de couchage
+      // affalés dessus, tous écrasés sur le drap ; le garnissage descend, les coins font des oreilles
+      const zh = hm === 'oak' || hm === 'cane' ? 0.06 : 0.115, pl = [[0, 1, 0, top + 0.012], [0, 0, 1, zh]];
+      for (let i = 0; i < np; i++) {
+        const x = (i - (np - 1) / 2) * (w / np), s1 = Math.min(0.63, w / np - 0.03), t1 = 0.24 + jit(0.05), s2 = Math.min(0.66, w / np - 0.04), t2 = 0.74 + jit(0.12);
+        const c2 = [x + jit(0.04), top + 0.012 + 0.21 * Math.cos(t2) + 0.035, z0 + 0.33 + jit(0.02)];
+        fxPillow('cloth', x + jit(0.02), top + (s1 / 2) * Math.cos(t1), zh + 0.075 + (s1 / 2) * Math.sin(t1), s1, 0.25, sheetC, { tilt: t1, ry: jit(0.07), roll: jit(0.05), chop: 0.12 + R() * 0.12, planes: pl, n: 20, press: [{ c: [c2[0], c2[1] + 0.03, c2[2] - 0.08], r: 0.3, dir: [0, -0.15, -1], k: 0.03 }] });
+        fxPillow('cloth', c2[0], c2[1], c2[2], s2, 0.2, C(o.pillow2 || PAL.linenOat, 0.03), { h: 0.42, tilt: t2, ry: jit(0.09), roll: jit(0.06), slump: 0.3, planes: [[0, 1, 0, top + 0.012]], n: 18 });
+      }
+    } else for (let i = 0; i < np; i++) { const x = (i - (np - 1) / 2) * (w / np); pillow(x + jit(0.02), top + 0.34, z0 + 0.16, Math.min(0.64, w / np - 0.03), 0.27, sheetC, { rx: -Math.PI / 2 + 0.27 + jit(0.05), rz: jit(0.06), e2: 0.24, puff: 0.42, crease: 0.16, wob: 0.006 }); pillow(x + jit(0.03), top + 0.2, z0 + 0.38, Math.min(0.6, w / np - 0.05) * 0.93, 0.19, C(o.pillow2 || PAL.linenOat, 0.03), { rx: -Math.PI / 2 + 0.6, rz: jit(0.05), puff: 0.32, crease: 0.12 }); }
     if (o.bolster) { // traversin : cylindre rembourré, extrémités bombées et passepoilées
       const bl = w - 0.2, br = 0.085, bc = C(o.bolster, 0.03);
       lathe('textile', [[0, -bl / 2], [br * 0.75, -bl / 2 + 0.004], [br * 0.97, -bl / 2 + 0.03], [br, -bl / 2 + 0.06], [br * 1.02, 0], [br, bl / 2 - 0.06], [br * 0.97, bl / 2 - 0.03], [br * 0.75, bl / 2 - 0.004], [0, bl / 2]], 0, top + 0.11, z0 + 0.6, bc, { rz: Math.PI / 2, seg: 28 });
       for (const sx of [-1, 1]) torus('textile', br * 0.97, 0.004, sx * (bl / 2 - 0.03), top + 0.11, z0 + 0.6, bc.map(v => v * 0.88), { rz: Math.PI / 2, seg: 32, rad: 4 });
-    } else pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
+    } else if (fxPillow) fxPillow('textile', jit(0.12), top + 0.2, z0 + 0.6, 0.46, 0.17, C(o.accent || PAL.terracotta, 0.03), { h: 0.3, tilt: 0.95, ry: jit(0.2), roll: jit(0.1), planes: [[0, 1, 0, top + 0.085]], n: 16 });
+    else pillow(0, top + 0.16, z0 + 0.62, 0.44, 0.15, C(o.accent || PAL.terracotta), { rx: -Math.PI / 2 + 0.6, rz: 0.04 });
     // plaid épais plié en travers au pied : épouse la couette (décalé selon sa normale), retombe moins bas qu'elle
     const tW = 2 * hw + 2 * hang, tL = len + hangF, tdrop = 0.19, tz0 = L - 0.52 + z0 - zA, tdz = 0.44;
     const onDuvet = (s, t, e) => {
@@ -975,11 +1046,14 @@ export function createDecor(THREE, P, ctx = {}) {
       let n = [ax[2] * bx[1] - ax[1] * bx[2], ax[0] * bx[2] - ax[2] * bx[0], ax[1] * bx[0] - ax[0] * bx[1]]; const Ln = Math.hypot(...n) || 1; n = n.map(c => c / Ln); if (n[1] < 0) n = n.map(c => -c);
       return [p[0] + n[0] * e, p[1] + n[1] * e, p[2] + n[2] * e];
     };
-    thickSheet('cloth', 48, 10, (u, v) => {
-      const s = (u - 0.5) * 2 * (hw + tdrop), t = tz0 + v * tdz;
-      const hk = Math.min(1, Math.max(0, Math.abs(s) - hw) / tdrop), q = onDuvet(s, t, 0.018 + 0.016 * hk);
+    // jeté sans soin : bande de travers, bords qui serpentent, bourrelets en long (le plaid fait des vagues), un côté plus bas
+    const tp = R() * 6, tsk = jit(0.1);
+    thickSheet('cloth', 56, 12, (u, v) => {
+      const s = (u - 0.5) * 2 * (hw + tdrop * (u < 0.5 ? 0.8 : 1.15)), wd = tdz * (1 + 0.1 * Math.sin(u * 5.3 + tp)), t = tz0 + tsk * (u - 0.5) + 0.035 * Math.sin(u * 3.7 + tp) + (v - 0.5) * wd + tdz / 2;
+      const hk = Math.min(1, Math.max(0, Math.abs(s) - hw) / tdrop), wave = 0.5 + 0.5 * Math.sin(v * 10.5 + 1.6 * Math.sin(u * 6 + tp) + tp);
+      const q = onDuvet(s, Math.min(tL - 0.01, Math.max(0.01, t)), 0.015 + 0.012 * hk + 0.013 * wave * (1 - 0.5 * hk) * Math.sin(Math.PI * v));
       return [q[0] + 0.006 * hk * Math.sin(v * 9 + u * 5), q[1] + 0.003 * Math.sin(u * 17) * (1 - hk), q[2] + 0.012 * hk * Math.sin(u * 23 + 1)];
-    }, C(o.throw || PAL.ochre, 0.02), 0.011, 'u0 u1 v0 v1');
+    }, C(o.throw || PAL.ochre, 0.02), 0.011, 'u0 u1 v0 v1', { back: false, cav: -0.5 });
     // prises murales de part et d'autre de la tête de lit (plaque blanche, deux alvéoles)
     (P.untracked || ((f) => f()))(() => walk(() => { for (const sx of (o.sockets || [-1, 1])) { const px = sx * (w / 2 + 0.36); rbb('ceramic', px - 0.042, px + 0.042, 0.26, 0.344, 0, 0.009, 0.004, C(0xf4f2ee)); for (const dx of [-0.011, 0.011]) cyl('black', 0.0035, 0.0035, 0.003, px + dx, 0.302, 0.0085, WHITE, { rx: Math.PI / 2, seg: 8 }); } }));
     contact(0, z0 + L / 2, w + 0.3, L + 0.3);
@@ -1043,12 +1117,13 @@ export function createDecor(THREE, P, ctx = {}) {
   function pleated(mk, x0, x1, z, col, o = {}) {
     const top = H - 0.045, W0 = x1 - x0, nP = Math.max(3, Math.round(W0 / (o.lam || 0.11))), A = o.amp || 0.04, ph = R() * 6, n = nP * 10, ny = 18;
     const prof = (u, v) => { // phase du pli : profil en « S » arrondi (pas une sinusoïde pure)
-      const x = x0 + W0 * u, f = u * nP * Math.PI * 2 + ph, s = Math.sin(f), shaped = Math.sign(s) * Math.pow(Math.abs(s), 0.6);
-      const amp = A * (1.3 - 0.5 * v) * (1 + 0.15 * Math.sin(u * 7 + ph)), hemSag = 0.004 * Math.sin(u * nP * 2 * Math.PI * 0.5 + ph);
+      // plis jamais identiques : la phase dérive, l'amplitude respire d'un pli à l'autre, le tombé se déhanche vers le bas
+      const x = x0 + W0 * u, f = u * nP * Math.PI * 2 + ph + 0.9 * Math.sin(u * nP * 1.7 + ph * 2) + 0.35 * (1 - v) * Math.sin(u * nP * 0.8 + ph), s = Math.sin(f), shaped = Math.sign(s) * Math.pow(Math.abs(s), 0.6);
+      const amp = A * (1.3 - 0.5 * v) * (1 + 0.28 * Math.sin(u * nP * 2.9 + ph) + 0.12 * Math.sin(v * 5 + u * 9)), hemSag = 0.004 * Math.sin(u * nP * 2 * Math.PI * 0.5 + ph);
       const y = 0.012 + (top - 0.012) * v + (v < 0.03 ? hemSag : 0);
       return [x + 0.006 * Math.cos(f) * (1 - v), y, z + amp * shaped];
     };
-    sheet(mk, n, ny, (u, v) => prof(u, v), col);
+    sheet(mk, n, ny, (u, v) => prof(u, v), col, false, o.cav ?? (mk === 'sheer' ? -0.1 : -0.22));
     const hemPts = []; for (let k = 0; k <= n; k++) hemPts.push(new V3(...prof(k / n, 0.004)));
     put(mk, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hemPts), n * 2, 0.005, 4, false), col.map(v => v * 0.96));
     const headPts = []; for (let k = 0; k <= n; k++) headPts.push(new V3(...prof(k / n, 0.985)));
@@ -1079,7 +1154,7 @@ export function createDecor(THREE, P, ctx = {}) {
       const x0 = x + 0.0015, x1 = x + m.w - 0.0015;
       const fronts = m.t === 'drawers' ? [[0.1, 0.36], [0.36, 0.62], [0.62, hY - 0.003]] : m.t === 'drawers2' ? [[0.1, 0.5], [0.5, hY - 0.003]] : [[0.1, hY - 0.003]];
       for (const [y0, y1] of fronts) {
-        rbb(fr, x0, x1, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 });
+        rbb(fr, x0, x1, y0 + 0.0015, y1 - 0.0015, 0.28, 0.2985 + jit(0.0012), 0.0015, fc.map(v => v * (0.985 + 0.03 * R())), { seg: 1 });
         if (o.handle !== 'none') { const hy = y1 - 0.04, hl = Math.min(0.26, (x1 - x0) * 0.55); if (barHandleFn) barHandleFn(o.handleMk || 'brass', (x0 + x1) / 2, hy, 0.299, hl, { r: 0.0055, off: 0.026 }); else rbb(o.handleMk || 'brass', (x0 + x1) / 2 - hl / 2, (x0 + x1) / 2 + hl / 2, hy - 0.006, hy + 0.006, 0.299, 0.318, 0.004, WHITE); }
       }
       if (m.sink) sinks.push([(x0 + x1) / 2, m.sinkW || 0.5]);
@@ -1100,10 +1175,25 @@ export function createDecor(THREE, P, ctx = {}) {
       cx = sx + sw / 2;
     }
     box(top, cx, L / 2, ty0, ty1, zb, zf, topC);
+    // plaque à induction : verre noir à bord chanfreiné posé sur le plan, foyers sérigraphiés (cercle, repère central),
+    // bandeau de commandes tactiles à l'avant (marche/arrêt, un réglage par foyer, curseur de puissance)
     for (const hx of hobs) {
-      box('glassBlack', hx - 0.29, hx + 0.29, ty1, ty1 + 0.005, -0.25, 0.25);
-      for (const [dx, dz, r] of [[-0.14, -0.1, 0.1], [0.14, -0.1, 0.08], [-0.14, 0.12, 0.08], [0.14, 0.12, 0.1]]) { const g = new THREE.RingGeometry(r - 0.003, r, 40); g.rotateX(-Math.PI / 2); g.translate(hx + dx, ty1 + 0.0055, dz); put('steel', g, C(0x6a6e72)); }
-      box('steel', hx - 0.1, hx + 0.1, ty1 + 0.0052, ty1 + 0.0058, 0.2, 0.235, C(0x7a7e82));
+      const gy = ty1 + 0.006, my = gy + 0.0004, PR = [44, 44, 47], PD = [18, 18, 19.5];
+      rbb('glassBlack', hx - 0.29, hx + 0.29, ty1, gy, -0.25, 0.25, 0.0028, WHITE, { seg: 2 });
+      const ring = (x, z, r, t, c, a0 = 0, a1 = Math.PI * 2) => { const g = new THREE.RingGeometry(r - t, r, 56, 1, a0, a1); g.rotateX(-Math.PI / 2); g.translate(x, my, z); put('glassBlack', g, c); };
+      const mark = (x0, x1, z0, z1, c = PR) => box('glassBlack', x0, x1, gy, my, z0, z1, c);
+      for (const [dx, dz, r] of [[-0.145, -0.1, 0.105], [0.145, -0.1, 0.08], [-0.145, 0.085, 0.08], [0.145, 0.085, 0.105]]) {
+        const x = hx + dx;
+        ring(x, dz, r, 0.0016, PR); ring(x, dz, r * 0.5, 0.0008, PD);
+        mark(x - 0.012, x + 0.012, dz - 0.0006, dz + 0.0006, PD); mark(x - 0.0006, x + 0.0006, dz - 0.012, dz + 0.012, PD);
+      }
+      // bandeau de commandes
+      const cz = 0.212;
+      ring(hx - 0.235, cz, 0.008, 0.0012, PR, 0.5, Math.PI * 2 - 1.0); mark(hx - 0.2356, hx - 0.2344, cz - 0.011, cz - 0.003);   // marche / arrêt
+      for (let k = 0; k < 4; k++) { const x = hx - 0.17 + k * 0.05; ring(x, cz, 0.0075, 0.001, PD); mark(x - 0.0025, x + 0.0025, cz - 0.0005, cz + 0.0005); if (k % 2) mark(x - 0.0005, x + 0.0005, cz - 0.0025, cz + 0.0025); }
+      for (let k = 0; k < 10; k++) { const x = hx + 0.06 + k * 0.016, hgt = 0.003 + k * 0.0009; mark(x - 0.0035, x + 0.0035, cz + 0.004 - hgt, cz + 0.004, k < 4 ? PR : PD); }   // curseur de puissance
+      ring(hx + 0.25, cz, 0.0065, 0.001, PD); mark(hx + 0.2475, hx + 0.2525, cz - 0.001, cz + 0.004, PD);                       // verrouillage
+      mark(hx - 0.27, hx - 0.225, -0.236, -0.2335, PD);                                                                          // marque
     }
     return { top: ty1, sinks, hobs };
   }
@@ -1111,19 +1201,56 @@ export function createDecor(THREE, P, ctx = {}) {
   function tallUnit(w, kind, o = {}) {
     const fc = C(o.frontC || 0xe8e3da, 0.01), fr = o.front || 'lacquer', hT = H - 0.005;
     walk(() => {
-      box('lacquer', -w / 2, w / 2, 0, hT, -0.3, 0.28, C(0xe9e5dd));
-      box('lacquer', -w / 2 + 0.005, w / 2 - 0.005, 0, 0.1, 0.18, 0.28, C(0x4a4744));
+      // caisson posé sur une plinthe sombre en retrait de 4 cm (plus de faces confondues : elles scintillaient en noir)
+      box('lacquer', -w / 2, w / 2, 0.1, hT, -0.3, 0.28, C(0xe9e5dd));
+      box('lacquer', -w / 2 + 0.005, w / 2 - 0.005, 0, 0.1, -0.3, 0.24, C(0x4a4744));
       const F = (y0, y1, handle = true) => { rbb(fr, -w / 2 + 0.0015, w / 2 - 0.0015, y0 + 0.0015, y1 - 0.0015, 0.28, 0.299, 0.0015, fc, { seg: 1 }); if (handle) { const hl = Math.min(0.42, y1 - y0 - 0.12), hy = y1 - y0 > 1 ? (y0 < 0.6 ? y1 - 0.1 - hl / 2 : y0 + 0.1 + hl / 2) : (y0 + y1) / 2; if (barHandleFn) barHandleFn(o.handleMk || 'brass', w / 2 - 0.045, hy, 0.299, hl, { vertical: true, r: 0.0055, off: 0.026 }); else rbb(o.handleMk || 'brass', w / 2 - 0.05, w / 2 - 0.038, hy - hl / 2, hy + hl / 2, 0.299, 0.318, 0.004, WHITE); } };
       if (kind === 'oven') {
         F(0.1, 0.5); F(0.5, 0.8);
-        // four encastré : cadre inox brossé, porte en verre noir (reflets), bandeau de commande (deux manettes, afficheur), poignée barre
-        rbb('steel', -w / 2 + 0.004, w / 2 - 0.004, 0.8, 1.38, 0.268, 0.29, 0.004, C(0xc9ccd0));
-        rbb('glassBlack', -w / 2 + 0.02, w / 2 - 0.02, 0.81, 1.26, 0.289, 0.302, 0.006, WHITE);
-        box('glassBlack', -w / 2 + 0.02, w / 2 - 0.02, 1.28, 1.37, 0.289, 0.3, C(0x2a2b2d));
-        for (const s of [-1, 1]) { cyl('steel', 0.019, 0.019, 0.022, s * (w / 2 - 0.09), 1.325, 0.3, C(0xd0d3d6), { rx: Math.PI / 2, seg: 24 }); box('black', s * (w / 2 - 0.09) - 0.002, s * (w / 2 - 0.09) + 0.002, 1.325, 1.34, 0.32, 0.323); }
-        box('bulb', -0.05, 0.05, 1.31, 1.34, 0.3, 0.3015);                                       // afficheur
-        if (barHandleFn) barHandleFn('steel', 0, 1.235, 0.302, w - 0.14, { r: 0.007, off: 0.03 }); else tube('steel', [[-w / 2 + 0.06, 1.24, 0.33], [w / 2 - 0.06, 1.24, 0.33]], 0.007, WHITE, { seg: 2 });
-        box('glassBlack', -w / 2 + 0.003, w / 2 - 0.003, 1.38, 1.83, 0.27, 0.3); tube('steel', [[-w / 2 + 0.06, 1.75, 0.31], [w / 2 - 0.06, 1.75, 0.31]], 0.006, WHITE, { seg: 2 });
+        // deux appareils encastrés : four (0,80–1,38) et four combiné (1,38–1,83). Cadre inox brossé, bandeau de verre
+        // noir à afficheur et manettes tournées, fente d'aération, porte vitrée (hublot fumé, grilles devinées), jonc inox
+        const hw = w / 2, GL = [3.2, 3.2, 3.4], RK = [7, 7, 7.4], DG = [20, 26, 34];
+        // afficheur 7 segments (verre clair teinté, lisible de jour comme de nuit)
+        const SEG = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abfgcd' };
+        const digit = (ch, x, y, z, hD) => {
+          const wd = hD * 0.5, t = hD * 0.11, on = SEG[ch] || '';
+          const hz = (yy) => box('glassBlack', x - wd / 2 + t, x + wd / 2 - t, yy - t / 2, yy + t / 2, z, z + 0.0006, DG);
+          const vt = (xx, y0) => box('glassBlack', xx - t / 2, xx + t / 2, y0 + t / 2, y0 + hD / 2 - t / 2, z, z + 0.0006, DG);
+          if (on.includes('a')) hz(y + hD); if (on.includes('g')) hz(y + hD / 2); if (on.includes('d')) hz(y);
+          if (on.includes('f')) vt(x - wd / 2 + t / 2, y + hD / 2); if (on.includes('b')) vt(x + wd / 2 - t / 2, y + hD / 2);
+          if (on.includes('e')) vt(x - wd / 2 + t / 2, y); if (on.includes('c')) vt(x + wd / 2 - t / 2, y);
+        };
+        const clock = (txt, cx, y, z, hD) => { const st = hD * 0.72; let x = cx - st * 1.75; for (const ch of txt) { if (ch === ':') { for (const dy of [0.3, 0.7]) box('glassBlack', x - hD * 0.05, x + hD * 0.05, y + hD * dy - hD * 0.05, y + hD * dy + hD * 0.05, z, z + 0.0006, DG); x += st * 0.5; } else { digit(ch, x, y, z, hD); x += st; } } };
+        const knob = (x, y, z) => {
+          lathe('steel', [[0.0225, 0], [0.0225, 0.003], [0.0185, 0.0045], [0.0172, 0.019], [0.0152, 0.0215], [0, 0.0215]], x, y, z, C(0xcfd2d5), { rx: Math.PI / 2, seg: 36 });
+          box('black', x - 0.0012, x + 0.0012, y + 0.004, y + 0.016, z + 0.0215, z + 0.0222);
+        };
+        const door = (y0, y1, handleY) => {
+          rbb('glassBlack', -hw + 0.012, hw - 0.012, y0, y1, 0.289, 0.3025, 0.005, WHITE);
+          // hublot : verre fumé un peu plus clair, liseré, deux grilles devinées derrière
+          const wx = hw - 0.075, wy0 = y0 + 0.07, wy1 = handleY - 0.06;
+          rbb('glassBlack', -wx, wx, wy0, wy1, 0.3018, 0.3031, 0.012, GL, { seg: 3 });
+          for (const k of [0.36, 0.68]) { const yy = wy0 + (wy1 - wy0) * k; box('glassBlack', -wx + 0.02, wx - 0.02, yy - 0.0012, yy + 0.0012, 0.3031, 0.3035, RK); }
+          rbb('steel', -hw + 0.012, hw - 0.012, y0, y0 + 0.011, 0.3, 0.3042, 0.002, C(0xc6c9cc));          // jonc inox en bas de porte
+          if (barHandleFn) barHandleFn('steel', 0, handleY, 0.3025, w - 0.13, { r: 0.0075, off: 0.034 }); else tube('steel', [[-hw + 0.06, handleY, 0.335], [hw - 0.06, handleY, 0.335]], 0.0075, WHITE, { seg: 2 });
+        };
+        // --- four : cadre, bandeau, fente d'aération, porte
+        rbb('steel', -hw + 0.004, hw - 0.004, 0.8, 1.38, 0.268, 0.29, 0.004, C(0xc9ccd0));
+        rbb('glassBlack', -hw + 0.012, hw - 0.012, 1.292, 1.374, 0.289, 0.3015, 0.004, C(0x2a2b2d));
+        box('black', -hw + 0.02, hw - 0.02, 1.272, 1.288, 0.286, 0.2905, C(0x0a0a0a));
+        for (const sx of [-1, 1]) knob(sx * (hw - 0.085), 1.333, 0.3015);
+        rbb('glassBlack', -0.062, 0.062, 1.316, 1.352, 0.3013, 0.3019, 0.004, [1.6, 1.9, 2.4], { seg: 2 });   // fenêtre de l'afficheur
+        clock('18:00', 0, 1.3235, 0.3019, 0.021);
+        for (let k = -2; k <= 2; k++) if (k) cyl('glassBlack', 0.0022, 0.0022, 0.0005, k * 0.014, 1.303, 0.3017, RK, { rx: Math.PI / 2, seg: 10 });   // touches sensitives
+        door(0.806, 1.266, 1.232);
+        // --- four combiné : cadre, bandeau tactile en haut, porte
+        rbb('steel', -hw + 0.004, hw - 0.004, 1.38, 1.83, 0.268, 0.29, 0.004, C(0xc9ccd0));
+        rbb('glassBlack', -hw + 0.012, hw - 0.012, 1.762, 1.824, 0.289, 0.3015, 0.004, C(0x2a2b2d));
+        box('black', -hw + 0.02, hw - 0.02, 1.744, 1.758, 0.286, 0.2905, C(0x0a0a0a));
+        rbb('glassBlack', -hw + 0.05, -hw + 0.16, 1.777, 1.809, 0.3013, 0.3019, 0.004, [1.6, 1.9, 2.4], { seg: 2 });
+        clock('00:30', -hw + 0.105, 1.784, 0.3019, 0.018);
+        for (let k = 0; k < 5; k++) cyl('glassBlack', 0.0024, 0.0024, 0.0005, hw - 0.06 - k * 0.022, 1.793, 0.3017, RK, { rx: Math.PI / 2, seg: 10 });
+        door(1.386, 1.738, 1.706);
         F(1.83, hT);
       } else { F(0.1, 1.55); F(1.55, hT); }
     });
@@ -1279,7 +1406,7 @@ export function createDecor(THREE, P, ctx = {}) {
   // rideaux de lin à plis, repère local mur z = 0 : panneaux [x0, x1] (repliés), rail plafond de r0 à r1
   function linenPanels(spans, r0, r1, col, z = 0.1) {
     walk(() => {
-      for (const [x0, x1] of spans) pleated('cloth', x0, x1, z, col, { lam: 0.07, amp: 0.048 });
+      for (const [x0, x1] of spans) pleated('cloth', x0, x1, z, col, { lam: 0.07, amp: 0.048, cav: 0.22 });
       box('black', r0, r1, H - 0.03, H - 0.002, z - 0.012, z + 0.012, WHITE);
     });
   }
@@ -1504,9 +1631,10 @@ export function createDecor(THREE, P, ctx = {}) {
   if (typeof location !== 'undefined' && /[?&]fx=0/.test(location.search)) return D0;   // diagnostic : mobilier d'origine
   const FX = createFurniture(THREE, D0);
   Object.assign(D0, { sofa: FX.sofa, chair: FX.chair, rectTable: FX.rectTable, cushion: FX.cushion, strut: FX.strut, ribbon: FX.ribbon,
-    vanity: FX.vanity, towelRail: FX.towelRail, showerHead: FX.showerSet, barHandle: FX.barHandle, bathTub: FX.bathTub });
+    vanity: FX.vanity, towelRail: FX.towelRail, showerHead: FX.showerSet, barHandle: FX.barHandle, bathTub: FX.bathTub,
+    barStool: FX.barStool, pouf: FX.pouf, armchair: FX.armchair, island: FX.island, rugF: FX.rugF, softPillow: FX.softPillow });
   barHandleFn = FX.barHandle; puffBoxFn = FX.puffBox;
-  kitchenTap = FX.kitchenTap; fxCushion = FX.cushion;
+  kitchenTap = FX.kitchenTap; fxCushion = FX.cushion; fxPillow = FX.softPillow;
   return D0;
 }
 

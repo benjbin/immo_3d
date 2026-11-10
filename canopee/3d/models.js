@@ -189,7 +189,8 @@ export function createModels(THREE) {
   // Texture, donc aucun programme à recompiler ; la répétition (m) et la rotation sont des uniformes.
   const upgrades = [];
   let upState = 'idle', upQueue = [];
-  function upgrade(mat, key, o = {}) { if (mat && mat.map) upgrades.push({ mat, key, ...o }); }
+  // userData.cnpNoPhoto : matière dont la texture peinte est voulue telle quelle (decorMaterials)
+  function upgrade(mat, key, o = {}) { if (mat && mat.map && !mat.userData.cnpNoPhoto) upgrades.push({ mat, key, ...o }); }
   async function loadUpgrades() {
     upState = 'loading';
     const img = (url) => { const im = new Image(); im.decoding = 'async'; im.src = url; return im.decode().then(() => im); };
@@ -208,6 +209,8 @@ export function createModels(THREE) {
     t.anisotropy = hooks.anisotropy; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
     t.needsUpdate = true;
     if (hooks.renderer) hooks.renderer.initTexture(t);
+    // texture partagée par plusieurs matériaux (variante « visite » clonée) : chacun reçoit ses réglages
+    for (const u2 of upgrades) if (u2 !== u && u2.key === u.key && u2.all && !u2.mat.userData.cnpUpg) { u2.mat.userData.cnpUpg = true; if (u2.ns && u2.mat.normalScale) u2.mat.normalScale.set(u2.ns, u2.ns); }
     const m = u.mat;
     if (!m.userData.cnpUpg) {
       m.userData.cnpUpg = true;

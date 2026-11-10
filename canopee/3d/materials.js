@@ -1072,8 +1072,8 @@ export const TEX_TASKS = {
     const S = 512, peel = fbm(S, S, { px: 64, oct: 3, seed: 411 }), roll = fbm(S, S, { px: 4, py: 16, oct: 3, seed: 412 }), lo = fbm(S, S, { px: 2, oct: 4, seed: 413 });
     const col = new Buf(S, S), rough = new Float32Array(S * S), hgt = new Float32Array(S * S), w = [255, 255, 255];
     for (let i = 0; i < S * S; i++) {
-      col.set(i, w, 0.985 + 0.012 * (lo[i] - 0.5) + 0.006 * (roll[i] - 0.5));
-      rough[i] = 0.9 + 0.05 * (peel[i] - 0.5) - 0.03 * (roll[i] - 0.5);
+      col.set(i, w, 0.98 + 0.03 * (lo[i] - 0.5) + 0.014 * (roll[i] - 0.5));   // passes de rouleau, reprises : ±1,5 %
+      rough[i] = 0.88 + 0.06 * (peel[i] - 0.5) - 0.08 * (roll[i] - 0.5) + 0.06 * (lo[i] - 0.5);
       hgt[i] = 0.7 * peel[i] + 0.3 * roll[i];
     }
     return pbrData(S, S, col, rough, hgt, 0.9);
@@ -1508,19 +1508,19 @@ function interiorMaterials(THREE, M, { tex, pbrSet, pbrOf, pbrFromData, std, ani
     const paint = (name, c, kind = 'wall', p = {}) => mark(std(set, { name, color: new THREE.Color(c), normalScale: V2(0.35), envMapIntensity: 0.6, ...p }), kind);
     M.wallPaint = paint('wallPaint', '#ece9e3');           // blanc chaud (murs)
     M.ceilingPaint = paint('ceilingPaint', '#f3f2ee', 'ceiling', { normalScale: V2(0.2) });
-    // peau d'orange du rouleau (visible en lumière rasante, à 1 m d'un mur) : période 25 cm
+    // peau d'orange du rouleau (visible en lumière rasante, à 1 m d'un mur) : période 15 cm
     {
       const S2 = 256, a = fbm(S2, S2, { px: 20, oct: 3, seed: 414 }), b = fbm(S2, S2, { px: 64, oct: 2, seed: 415 });
       const h = new Float32Array(S2 * S2), v = new Float32Array(S2 * S2);
-      for (let i = 0; i < S2 * S2; i++) { h[i] = 0.7 * a[i] + 0.3 * b[i]; v[i] = 0.5 + 0.25 * (a[i] - 0.5); }
+      for (let i = 0; i < S2 * S2; i++) { h[i] = 0.45 * a[i] + 0.55 * b[i]; v[i] = 0.5 + 0.5 * (a[i] - 0.5) + 0.5 * (b[i] - 0.5); }   // grain fin du rouleau (2–3 mm) sur ondulation douce
       PAINT_DETAIL = detailTexture(THREE, S2, h, v, 1.6, aniso);
     }
-    patchDetail(M.wallPaint, PAINT_DETAIL, { rep: [6, 6], n: 0.12, albedo: 0.012, rough: 0.05, key: 'paint' });
-    patchDetail(M.ceilingPaint, PAINT_DETAIL, { rep: [6, 6], n: 0.08, albedo: 0.01, rough: 0.04, key: 'paint' });
+    patchDetail(M.wallPaint, PAINT_DETAIL, { rep: [10, 10], n: 0.14, albedo: 0.028, rough: 0.07, key: 'paint' });
+    patchDetail(M.ceilingPaint, PAINT_DETAIL, { rep: [10, 10], n: 0.09, albedo: 0.02, rough: 0.05, key: 'paint' });
     M.wallPaintGreige = paint('wallPaintGreige', '#d6cec2');
     M.wallPaintSage = paint('wallPaintSage', '#b3b8a3');
     M.wallPaintClay = paint('wallPaintClay', '#c9a58c');
-    for (const m of [M.wallPaintGreige, M.wallPaintSage, M.wallPaintClay]) patchDetail(m, PAINT_DETAIL, { rep: [6, 6], n: 0.12, albedo: 0.012, rough: 0.05, key: 'paint' });
+    for (const m of [M.wallPaintGreige, M.wallPaintSage, M.wallPaintClay]) patchDetail(m, PAINT_DETAIL, { rep: [10, 10], n: 0.14, albedo: 0.028, rough: 0.07, key: 'paint' });
     M.skirting = mark(std({}, { name: 'skirting', color: new THREE.Color('#f0eee9'), roughness: 0.42, envMapIntensity: 0.7 }), 'wall');
   }
 

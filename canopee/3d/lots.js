@@ -77,6 +77,9 @@ const segDist = (x, z, s) => {
   return Math.hypot(x - ax - t * dx, z - az - t * dz);
 };
 
+// pas de maillage de la coque de visite (murs, plafonds, sols) : la lumière précalculée est portée par les sommets
+const GI_STEP = 0.32;
+
 export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const bud = buildingUserData || {};
   const LY = { ...DEF_LAYOUT, ...(bud.layout || {}) };
@@ -211,6 +214,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   for (const m of Object.values(MAT)) m.userData.lotsPlan = true;
   // variantes « visite » : mêmes couleurs et textures, éclairage baké (couleurs de sommet), non éclairées
   const WALK = {};
+  const OUT = { k: { value: new THREE.Vector4(1, 0, 0, 0) }, lamp: { value: new THREE.Vector3(0, 0, 0) }, gi: { value: 1 } };
   const walkMat = (k) => {
     if (WALK[k]) return WALK[k];
     const s = MAT[k];
@@ -221,6 +225,24 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // en visite, les doublages affleurent la face intérieure des façades : ils doivent toujours gagner
     // (sinon le bardage traverse en rayures sombres quand on bouge)
     Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+    // logements vus de dehors (derrière les vitrages) : même matériau, lumière ramenée à celle d'une pièce vue de la
+    // rue (cnpOut.x : part de l'éclairage extérieur ; cnpOutLamp : ambiance propre, lampes le soir). Nul en visite.
+    const prevC = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile') ? m.onBeforeCompile : null;
+    const prevK = Object.prototype.hasOwnProperty.call(m, 'customProgramCacheKey') ? m.customProgramCacheKey() : '';
+    m.onBeforeCompile = function (sh, r) {
+      if (prevC) prevC.call(this, sh, r);
+      if (!sh.fragmentShader.includes('#include <dithering_fragment>') || !sh.fragmentShader.includes('vec4 diffuseColor')) return;
+      sh.uniforms.cnpOut = OUT.k; sh.uniforms.cnpOutLamp = OUT.lamp;
+      sh.fragmentShader = 'uniform vec4 cnpOut;\nuniform vec3 cnpOutLamp;\n' + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      if ( cnpOut.w > 0.5 ) gl_FragColor.rgb = gl_FragColor.rgb * cnpOut.x + diffuseColor.rgb * cnpOutLamp;`);
+      // lumière du ciel précalculée (outils/gi, par sommet : applyGI) : écart à l'occlusion analytique, nul sans donnée
+      if (sh.vertexShader.includes('#include <begin_vertex>') && sh.fragmentShader.includes('#include <color_fragment>')) {
+        sh.uniforms.cnpGiK = OUT.gi;
+        sh.vertexShader = 'attribute float cnpGi;\nvarying float vCnpGi;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vCnpGi = cnpGi;');
+        sh.fragmentShader = 'uniform float cnpGiK;\nvarying float vCnpGi;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= max( 0.0, 1.0 + vCnpGi * cnpGiK );');
+      }
+    };
+    m.customProgramCacheKey = () => prevK + ':walk-out-gi';
     return (WALK[k] = m);
   };
 
@@ -257,13 +279,15 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       const tn = o.tint || g.userData.tint || tint;
       if (g.index) g = g.toNonIndexed();
       if (xf) g.applyMatrix4(xf);
+      // 'shade' (facultatif) : ombre propre par sommet (creux entre coussins, plis), multipliée à la teinte
+      const shade = g.attributes.shade ? g.attributes.shade.array : null;
       for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n);
       if (!g.attributes.normal) g.computeVertexNormals();
       if (piece && mk !== 'contact' && tag !== 'px' && tag !== 'plan') piece.list.push(g);   // après transformation (coordonnées monde, non indexées)
       if (!keepUV || !g.attributes.uv) boxUV(g);
       if (mk === 'contact' && !(g.userData && g.userData.atlasUV)) { const [u0, v0, du, dv] = cellUV(0), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * du, v0 + uv.getY(i) * dv); }
       const n = g.attributes.position.count, tc = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) { tc[i * 3] = tn[0]; tc[i * 3 + 1] = tn[1]; tc[i * 3 + 2] = tn[2]; }
+      for (let i = 0; i < n; i++) { const sh = shade ? shade[i] : 1; tc[i * 3] = tn[0] * sh; tc[i * 3 + 1] = tn[1] * sh; tc[i * 3 + 2] = tn[2] * sh; }
       g.setAttribute('tint', new THREE.BufferAttribute(tc, 3));
       g.clearGroups();
       const k = tag + '|' + mk;
@@ -307,7 +331,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       push(mk, g);
     };
     // polygone horizontal maillé (≈ 0,4 m) pour recevoir l'éclairage baké (sols, plafonds)
-    const gridPoly = (mk, P, y, down = false, step = 0.4) => {
+    const gridPoly = (mk, P, y, down = false, step = GI_STEP) => {
       const xs = [...new Set(P.map(p => p[0]))].sort((a, b) => a - b), zs = [...new Set(P.map(p => p[1]))].sort((a, b) => a - b);
       const refine = (arr) => { const o = []; for (let i = 0; i < arr.length - 1; i++) { const n = Math.max(1, Math.ceil((arr[i + 1] - arr[i]) / step)); for (let k = 0; k < n; k++) o.push(arr[i] + (arr[i + 1] - arr[i]) * k / n); } o.push(arr[arr.length - 1]); return o; };
       const gx = refine(xs), gz = refine(zs), pos = [];
@@ -392,7 +416,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         let [x0, x1, z0, z1] = w; const o = w.o || w, self = solids.find(r => r[0] === o[0] && r[1] === o[1] && r[2] === o[2] && r[3] === o[3]);
         if (x1 - x0 >= z1 - z0) { const zc = (z0 + z1) / 2; if (hit(self, x0 - 0.01, zc, true, z0, z1)) x0 -= E; if (hit(self, x1 + 0.01, zc, true, z0, z1)) x1 += E; }
         else { const xc = (x0 + x1) / 2; if (hit(self, xc, z0 - 0.01, false, x0, x1)) z0 -= E; if (hit(self, xc, z1 + 0.01, false, x0, x1)) z1 += E; }
-        walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', 0.5));
+        walkOnly(() => B('wall', x0, x1, 0, H, z0, z1, 'py ny', GI_STEP));
         cap(x0, x1, z0, z1);
       }
       wallViz.length = 0;
@@ -408,11 +432,11 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       const cX0 = -IN - 0.001, cX1 = -3.3 + 0.001, cZ0 = -11.4 + WALL_T / 2 - 0.001, cZ1 = -7.6 - WALL_T / 2 + 0.001;
       const inCageAt = (x, z) => x > cX0 && x < cX1 && z > cZ0 && z < cZ1, zm = (z0 + z1) / 2, xm = (x0 + x1) / 2;
       const ex0 = inCageAt(x0 - e / 2, zm) ? 0 : e, ex1 = inCageAt(x1 + e / 2, zm) ? 0 : e, ez0 = inCageAt(xm, z0 - e / 2) ? 0 : e, ez1 = inCageAt(xm, z1 + e / 2) ? 0 : e;
-      walkOnly(() => gridPoly('ceil', rect(x0 - ex0, x1 + ex1, z0 - ez0, z1 + ez1), fy + H + 0.003, true, 0.5));
+      walkOnly(() => gridPoly('ceil', rect(x0 - ex0, x1 + ex1, z0 - ez0, z1 + ez1), fy + H + 0.003, true, GI_STEP));
     }
     const lintel = (axis, c0, c1, a, b) => {
       if (H <= DOOR_H) return;
-      walkOnly(() => axis === 'x' ? B('wall', a, b, DOOR_H, H, c0, c1, 'py', 0.5) : B('wall', c0, c1, DOOR_H, H, a, b, 'py', 0.5));
+      walkOnly(() => axis === 'x' ? B('wall', a, b, DOOR_H, H, c0, c1, 'py', GI_STEP) : B('wall', c0, c1, DOOR_H, H, a, b, 'py', GI_STEP));
       if (axis === 'x') cap(a, b, c0, c1); else cap(c0, c1, a, b);
     };
     // mur le long d'un axe avec ouvertures : axis 'x' (mur parallèle à X, épaisseur en z) ou 'z'
@@ -526,8 +550,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           const sA = axis === 'x' ? ['nx', 'px'] : ['nz', 'pz'];
           const sk = [(j === 0 || !hole(i, j - 1)) && 'ny', (j === ys.length - 2 || !hole(i, j + 1)) && 'py',
             i > 0 && !hole(i - 1, j) && sA[0], i < ss.length - 2 && !hole(i + 1, j) && sA[1]].filter(Boolean).join(' ');
-          if (axis === 'x') B('wall', sa, sb, ya, yb2, c0, c1, sk, 0.5);
-          else B('wall', c0, c1, ya, yb2, sa, sb, sk, 0.5);
+          if (axis === 'x') B('wall', sa, sb, ya, yb2, c0, c1, sk, GI_STEP);
+          else B('wall', c0, c1, ya, yb2, sa, sb, sk, GI_STEP);
           if (j === 0 && FIN) { // plinthe au pied du doublage, côté pièce
             const f = cIn + dir * 0.012, g0 = Math.min(f, f + dir * SK_T), g1 = Math.max(f, f + dir * SK_T);
             // cage d'escalier (étages) : pas de plinthe au-dessus de la trémie (pas de sol au droit des volées ;
@@ -548,7 +572,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // ----- pièces -----
     const room = (name, P, floorMat, lot = null, labelAt = null, show = true) => {
       if (floorMat !== 'none') gridPoly(floorMat, P, fy + 0.004);
-      if (H > 0 && floorMat !== 'none') walkOnly(() => gridPoly('ceil', P, fy + H, true, 0.5));
+      if (H > 0 && floorMat !== 'none') walkOnly(() => gridPoly('ceil', P, fy + H, true, GI_STEP));
       const s = Math.abs(area(P));
       const c = labelAt || centroid(P);
       rooms.push({ name, surface: +s.toFixed(1), poly: P.map(p => [+p[0].toFixed(3), +p[1].toFixed(3)]), lot, level: key, label: c });
@@ -699,9 +723,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         B('wall', xW, xL, yb2, y0 + HH, nS - 0.03, nS + 0.012, 'ny');
         B('wall', -3.312, -3.27, yb2, y0 + 0.004, nS, nN, 'ny'); B('wall', -3.312, -3.27, y0, y0 + HH, zl - 0.02, nN, 'ny'); B('wall', -3.312, -3.27, y0, y0 + HH, nS, nS + 0.1, 'ny');
         B('wall', -3.312, -3.27, y0 + DOOR_H, y0 + HH, nS + 0.1, zl - 0.02);
-        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + y0 + HH, true, 0.5);
+        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + y0 + HH, true, GI_STEP);
         // palier de l'ascenseur (toit)
-        gridPoly('tile', rect(-3.3, xL, nS, zLift), fy + y0 + 0.004); gridPoly('ceil', rect(-3.3, xL, nS, zLift), fy + y0 + HH, true, 0.5);
+        gridPoly('tile', rect(-3.3, xL, nS, zLift), fy + y0 + 0.004); gridPoly('ceil', rect(-3.3, xL, nS, zLift), fy + y0 + HH, true, GI_STEP);
         B('wall', -3.3, xL, y0, y0 + HH, zLift, zLift + 0.03);
         B('wall', xL, xL + 0.03, y0, y0 + HH, nS, dz0); B('wall', xL, xL + 0.03, y0, y0 + HH, dz1, zLift); B('wall', xL, xL + 0.03, y0 + DOOR_H, y0 + HH, dz0, dz1);
         B('black', xL - 0.01, xL + 0.04, y0 + DOOR_H - 0.04, y0 + DOOR_H, dz0, dz1);
@@ -720,7 +744,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
           B('wall', S1b + 0.005, S2a - 0.005, -fb, 0.02, zl + 0.25, zn);
           B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, nS, wz0, 'py'); B('wall', xW - 0.03, xW + 0.012, -fb, 0.004, wz1, nN, 'py'); B('wall', xW - 0.03, xW + 0.012, -fb + 2.5, 0.004, wz0, wz1, 'py'); paneAt(-fb);
           B('wall', xW, -3.3, -fb, 0.004, nN - 0.012, nN + 0.03, 'py'); B('wall', -3.312, -3.27, -fb, 0.004, nS, nN, 'py'); B('wall', xW, -3.3, -fb, 0.004, nS - 0.03, nS + 0.012, 'py');
-          gridPoly('ceil', rect(xW, -3.3, nS, nN), fy - fb - 0.3, false, 0.5);
+          gridPoly('ceil', rect(xW, -3.3, nS, nN), fy - fb - 0.3, false, GI_STEP);
         });
         rooms.push({ name: 'Escalier', surface: 8.1, poly: plan.map(q => q.slice()), lot: null, level: key, label: [-4.45, -9.5] });
         rooms.push({ name: 'Palier', surface: 2.2, poly: rect(-3.3, xL, nS, zLift), lot: null, level: key, label: [-2.7, -10.3] });
@@ -758,7 +782,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         // au-dessus : la cage reste ouverte jusqu'à l'étage suivant — volées et palier de l'étage supérieur (sous-faces
         // visibles), plafond seulement sous le palier d'étage du dessus, parois de la cage sur deux niveaux (fenêtre
         // de l'étage supérieur laissée ouverte), fond de cage au-dessus
-        gridPoly('ceil', rect(xW, -3.3, nS, zl), fy + H, true, 0.5);
+        gridPoly('ceil', rect(xW, -3.3, nS, zl), fy + H, true, GI_STEP);
         B('wall', S1a, S2b, H, ff, zl - 0.005, zl + 0.005);              // nez de la dalle du palier supérieur
         if (key === 3) head(ff, H);
         else { flight(S2a, S2b, zl, 1, ff, rise); landing(zn, nN - 0.01, ff * 1.5); flight(S1a, S1b, zn, -1, ff * 1.5, rise); }
@@ -771,7 +795,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         B('wall', -3.312, -3.27, H - 0.004, top, nS, nN, 'ny');                         // est
         B('wall', xW, -3.3, H - 0.004, top, nS - 0.03, nS + 0.012, 'ny');              // sud (bandeau de dalle et palier supérieur : sinon trou sur le dehors)
         B('wall', S1b + 0.005, S2a - 0.005, ff + 0.05, top, zl + 0.25, zn); // échiffre, niveau supérieur
-        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, 0.5);    // fond de cage
+        gridPoly('ceil', rect(xW, -3.3, nS, nN), fy + top, true, GI_STEP);    // fond de cage
         }
         // fenêtre de la cage aux niveaux voisins (au-dessus et au-dessous de la coupe de l'étage affiché, la façade du
         // bâtiment n'est pas dessinée) : dormant noir et vitrage
@@ -851,7 +875,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     const setTint = (c) => { const p = tint; tint = c ? (Array.isArray(c) ? c : [c.r, c.g, c.b]) : [1, 1, 1]; return p; };
     const withTintFn = (c, fn) => { const p = setTint(c); fn(); tint = p; };
     // bande de sol + plafond sans pièce (passage ouvert entre deux pièces : épaisseur d'une cloison absente)
-    const fill = (x0, x1, z0, z1, mat = 'parquet') => { gridPoly(mat, rect(x0, x1, z0, z1), fy + 0.004); if (H > 0) walkOnly(() => gridPoly('ceil', rect(x0, x1, z0, z1), fy + H, true, 0.5)); };
+    const fill = (x0, x1, z0, z1, mat = 'parquet') => { gridPoly(mat, rect(x0, x1, z0, z1), fy + 0.004); if (H > 0) walkOnly(() => gridPoly('ceil', rect(x0, x1, z0, z1), fy + H, true, GI_STEP)); };
     return { model, modelList, withTag, untracked, markPendant, emitSpots, fill, cap, flushWalls, key, fy, cy, H, B, RB, CY, SPH, flat, at, F, run, partition, wallRect, lining, room, core, rooms, labels, colliders, lights, buckets, door, frame, planOnly, walkOnly, furniture, push, setTint, withTint: withTintFn, skirts, get tag() { return tag; } };
   }
 
@@ -889,16 +913,16 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       // les retours partent du nu intérieur du mur de la porte (rx − T) : sinon on voit le bardage extérieur
       // et le ciel par le vide de 41 × 31 cm à l'angle ; ce pilier est aussi solide pour la visite
       const x0r = rx - T - 0.012;
-      P.walkOnly(() => { P.B('wall', x0r, IN, 0, P.H, zb, zb + 0.312, 'py ny nz', 0.5); P.B('wall', x0r, IN, 0, P.H, za - 0.312, za, 'py ny pz', 0.5); });   // face côté loggia omise (le bardage y reste visible)
+      P.walkOnly(() => { P.B('wall', x0r, IN, 0, P.H, zb, zb + 0.312, 'py ny nz', GI_STEP); P.B('wall', x0r, IN, 0, P.H, za - 0.312, za, 'py ny pz', GI_STEP); });   // face côté loggia omise (le bardage y reste visible)
       P.cap(x0r, IN, zb, zb + 0.312); P.cap(x0r, IN, za - 0.312, za);
       P.colliders.push(...rectSegs(rx - T, rx, zb, zb + 0.3), ...rectSegs(rx - T, rx, za - 0.3, za));
       const sill = k === 'C' ? 0.15 : 0, [d0, d1] = D[k], top = sill + 2.08, xf = rx - 0.135;   // dormant de la porte-fenêtre à 13,5 cm du nu extérieur
       P.lining('z', rx - T, -1, za, zb, [{ a: d0, b: d1, y0: sill, y1: top }]);
       // embrasure peinte (tableaux + linteau) jusqu'au dormant, seuil en chêne dans l'épaisseur du mur
       if (P.H > 0) P.walkOnly(() => {
-        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d0, d0 + 0.012, '', 0.5);
-        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d1 - 0.012, d1, '', 0.5);
-        P.B('wall', rx - T - 0.012, xf, top, top + 0.012, d0, d1, '', 0.5);
+        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d0, d0 + 0.012, '', GI_STEP);
+        P.B('wall', rx - T - 0.012, xf, 0, top + 0.012, d1 - 0.012, d1, '', GI_STEP);
+        P.B('wall', rx - T - 0.012, xf, top, top + 0.012, d0, d1, '', GI_STEP);
         P.B('wood', rx - T - 0.004, rx - 0.07, sill - (sill ? 0.012 : 0), sill + 0.006, d0 + 0.012, d1 - 0.012);
         if (sill) P.B('wall', rx - T - 0.012, rx - T + 0.002, 0, sill, d0, d1);
       });
@@ -960,12 +984,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     P.partition('x', -5.9, 2.11, IN, []);
     P.partition('x', -7.6, -1.275, 0.7, []);
     P.partition('x', -7.6, 1.9, 2.11, []);
-    P.walkOnly(() => P.B('wall', 0.7, 1.9, DOOR_H + 0.1, P.H, -7.64, -7.56, 'py', 0.5));    // retombée de l'entrée
+    P.walkOnly(() => P.B('wall', 0.7, 1.9, DOOR_H + 0.1, P.H, -7.64, -7.56, 'py', GI_STEP));    // retombée de l'entrée
     P.partition('z', 0.51, -9.275, -7.64, [{ a: -8.75, b: -8.0, hinge: 'b', side: -1 }]);
     // passages ouverts : sol et plafond dans l'épaisseur de cloison absente (plus de fente herbe / ciel)
     P.fill(0.7, 1.9, -7.64, -7.56); P.fill(-0.93, -0.92, -5.21, -4.04);
     // angle nord-est de la salle de bains : vide de 26 × 9 cm entre le mur du noyau, la cloison z −7,6 et la cloison x −0,97 (ciel visible)
-    P.walkOnly(() => P.B('wall', -1.275, -0.995, 0, P.H, -7.6, -7.475, 'py ny', 0.5)); P.cap(-1.275, -0.995, -7.6, -7.475);   // affleurant au mur voisin (sinon tranche de 5 mm = trait sombre) P.colliders.push(...rectSegs(-1.275, -1.01, -7.56, -7.475));
+    P.walkOnly(() => P.B('wall', -1.275, -0.995, 0, P.H, -7.6, -7.475, 'py ny', GI_STEP)); P.cap(-1.275, -0.995, -7.6, -7.475);   // affleurant au mur voisin (sinon tranche de 5 mm = trait sombre) P.colliders.push(...rectSegs(-1.275, -1.01, -7.56, -7.475));
     // chambre 1 / suite : doublage peint du mur est (le bardage de façade se voyait entre l'armoire et la baie)
     P.lining('z', -1.02, -1, -1.62, -T, []); P.cap(-1.02, -0.6, -1.62, -T);
     // retombée plâtre le long de la façade droite : masque la sous-face des dalles de balcon (retour jusqu'à z = −11)
@@ -1108,7 +1132,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   const NO_SEGS = [];
   // éclairage baké : ambiance (occlusion près du sol, du plafond et des murs) + spots chauds
   function bake(g, P) {
-    const pos = g.attributes.position, nor = g.attributes.normal, col = new Float32Array(pos.count * 3), H = P.H || 2.6;
+    const pos = g.attributes.position, nor = g.attributes.normal, col = new Float32Array(pos.count * 3), occU = new Uint8Array(pos.count), H = P.H || 2.6;
     const tn = g.attributes.tint ? g.attributes.tint.array : new Float32Array(pos.count * 3).fill(1);
     const grid = segGrid(P.colliders);
     for (let i = 0; i < pos.count; i++) {
@@ -1126,7 +1150,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       // matériaux éclairés : la couleur de sommet ne porte que l'occlusion (et la teinte de l'objet)
       const a = occ, ti = i * 3;
       col[ti] = a * tn[ti]; col[ti + 1] = a * tn[ti + 1]; col[ti + 2] = a * tn[ti + 2];
+      occU[i] = Math.round(a * 255);
     }
+    g.userData.occ = occU;   // pour applyGI (lumière précalculée exprimée par rapport à cette occlusion)
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
   // petits objets : pas d'ombre portée (économise les passes d'ombre des projecteurs de baie)
@@ -1227,9 +1253,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   // textures photographiques (Poly Haven CC0) chargées avec le mobilier : parquet point de Hongrie en chêne
   // clair, chêne fil droit, lin lavé (tissus, rideaux) ; tile = taille réelle d'une répétition (m)
   for (const [k, key, o] of [
-    ['parquet', 'parquet', { tile: [4.4], ns: 0.8, detail: 0 }],
+    ['parquet', 'parquet', { tile: [4.4], ns: 0.8, detail: 0, rough: 0.72 }],
     ['oak', 'oak', { tile: [0.6], rot: Math.PI / 2, ns: 0.35 }],   // relief du fil discret (le grain « rayé » faisait sale)
-    ['textile', 'linen', { tile: [0.24], ns: 0.9 }],
     // tapis (laine, jute) : textures procédurales d'origine — la laine photo, trop fine, lisait comme un aplat gris
   ]) { if (MAT[k]) MODELS.upgrade(MAT[k], key, o); if (WALK[k] && WALK[k] !== MAT[k]) MODELS.upgrade(WALK[k], key, o); }
 
@@ -1340,27 +1365,41 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     s.edgeM.color.copy(s.match ? s.col : grey).lerp(white, 0.3 + 2.5 * s.cur.mix);
     s.volM.visible = s.cur.vol > 0.003; s.edgeM.visible = s.cur.edge > 0.003;
   }
+  // logements réels montrés derrière les vitrages (vue extérieure et étages sous la coupe) à la place des pièces
+  // simulées d'interiors.js : étages 1 à outTop, révélés un à un par viewer.js une fois leurs programmes compilés
+  let outTop = 0, cutLimit = 1e9, outSig = '';
+  const outOn = (k) => k >= 1 && k <= outTop && k !== floorKey && viewMode === 'plan' && floorY(k) + ceilH(k) <= cutLimit + 0.05;
   function applyVisibility() {
+    let sig = '';
     for (const [k, p] of plans) {
-      const on = k === floorKey;
-      p.group.visible = on;
-      p.plan.visible = viewMode === 'plan';
-      p.walk.visible = viewMode === 'walk';
-      p.labels.visible = on && viewMode === 'plan';
-      for (const c of p.common) c.mesh.material = viewMode === 'walk' ? c.walk : c.plan;
+      const cur = k === floorKey, ext = !cur && outOn(k), walkLook = cur ? viewMode === 'walk' : ext;
+      p.group.visible = cur || ext;
+      p.plan.visible = cur && viewMode === 'plan';
+      p.walk.visible = walkLook;
+      p.labels.visible = cur && viewMode === 'plan';
+      for (const c of p.common) c.mesh.material = walkLook || (!cur && p.staged) ? c.walk : c.plan;
+      // vus de dehors : pas d'ombre portée (l'enveloppe du bâtiment la porte déjà)
+      if (ext !== !!p.shadowOff) { p.shadowOff = ext; p.group.traverse((o) => { if (!o.isMesh) return; if (ext) { if (o.castShadow) { o.castShadow = false; o.userData.castOff = true; } } else if (o.userData.castOff) { o.castShadow = true; o.userData.castOff = false; } }); }
+      if (ext) sig += k;
     }
+    OUT.k.value.w = viewMode === 'plan' ? 1 : 0;
+    outSig = sig;
     labels.visible = labelsOn;
+    applyBand();
+  }
+  function applyBand() {
+    if (typeof bud.setInteriorBand !== 'function') return;
+    let y0 = null, y1 = null;
+    if (floorKey === 0) { y0 = -0.5; y1 = 2.95; }
+    else if (floorKey === 4) { y0 = 12.3; y1 = 15; }
+    else if (floorKey != null) { const yl = FL[floorKey - 1]; y0 = yl + 0.05; y1 = yl + 2.98; }
+    if (outTop > 0 && viewMode === 'plan') { const a = FL[0] + 0.05, b = FL[outTop - 1] + 2.98; y0 = y0 == null ? a : Math.min(y0, a); y1 = y1 == null ? b : Math.max(y1, b); }
+    bud.setInteriorBand(y0, y1);
   }
   function setFloor(key) {
     floorKey = key == null ? null : +key;
     applyVisibility();
     if (floorKey != null) MODELS.request(floorKey);
-    if (typeof bud.setInteriorBand === 'function') {
-      if (floorKey == null) bud.setInteriorBand(null, null);
-      else if (floorKey === 0) bud.setInteriorBand(-0.5, 2.95);
-      else if (floorKey === 4) bud.setInteriorBand(12.3, 15);
-      else { const yl = FL[floorKey - 1]; bud.setInteriorBand(yl + 0.05, yl + 2.98); }
-    }
     const noRay = () => {};
     for (const p of pickables) {
       const G = p.userData.geoms;
@@ -1368,6 +1407,35 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       if (geo) { p.geometry = geo; p.raycast = THREE.Mesh.prototype.raycast; } else p.raycast = noRay;
     }
     refreshTargets();
+  }
+  // viewer.js : stageOutside(k) met l'étage dans son état « vu de dehors » sans l'afficher (compilation), puis
+  // setOutside(n) affiche les étages 1 à n (0 : pièces simulées, comme avant) ; setCutLimit suit le plan de coupe
+  // lumière précalculée d'un étage : index [{ name, n }] + un octet par sommet (0–255 = facteur 0–1 sur l'albédo).
+  // Stockée en écart à l'occlusion analytique déjà cuite dans la couleur (attribut signé, 0 = inchangé).
+  function applyGI(key, index, bytes) {
+    const p = plans.get(+key); if (!p) return 0;
+    const by = new Map(); p.group.traverse((o) => { if (o.isMesh) by.set(o.name, o); });
+    let off = 0, done = 0;
+    for (const e of index) {
+      const o = by.get(e.name), g = o && o.geometry, occ = g && g.userData.occ;
+      if (g && occ && g.attributes.position.count === e.n) {
+        const a = new Int8Array(e.n);
+        for (let i = 0; i < e.n; i++) { const f = (bytes[off + i] / 255) / Math.max(0.05, occ[i] / 255) - 1; a[i] = Math.max(-127, Math.min(127, Math.round(f * 127))); }
+        g.setAttribute('cnpGi', new THREE.BufferAttribute(a, 1, true));
+        done++;
+      }
+      off += e.n;
+    }
+    return done;
+  }
+  function stageOutside(k) { const p = plans.get(k); if (!p) return null; p.staged = true; applyVisibility(); return p.group; }
+  function setOutside(n) { n = Math.max(0, Math.min(3, n | 0)); if (n === outTop) return false; outTop = n; applyVisibility(); return true; }
+  function setCutLimit(y) {
+    cutLimit = y;
+    if (!outTop) return false;
+    let sig = ''; for (const k of plans.keys()) if (k !== floorKey && outOn(k)) sig += k;
+    if (sig === outSig) return false;
+    applyVisibility(); return true;
   }
   function setViewMode(m) { viewMode = m === 'walk' ? 'walk' : 'plan'; applyVisibility(); animating = true; }
   function setMode(m) { mode = m === 'availability' ? 'availability' : 'none'; refreshTargets(); }
@@ -1532,6 +1600,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
+    stageOutside, setOutside, setCutLimit, applyGI, outdoor: OUT, get outside() { return outTop; },
     models: MODELS, commonRooms, stairFloor, stairLevel, inCage, get stair() { return STAIR; },
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },

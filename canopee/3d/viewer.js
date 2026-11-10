@@ -93,6 +93,8 @@ const PARAMS = {
   hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, HOUR_MIN, HOUR_MAX) : 18,
   quality: ['auto', 'native', 'high', 'medium', 'low'].includes(URLP.get('q')) ? URLP.get('q') : 'auto',
   ui: URLP.get('ui') !== '0',
+  gi: URLP.get('gi') !== '0',   // gi=0 : sans la lumière précalculée (comparaison)
+  rooms: URLP.get('rooms') === 'sim' ? 'sim' : 'real',   // rooms=sim : pièces simulées derrière les vitrages (comparaison)
   intro: URLP.get('intro') !== '0',
   fallback: URLP.get('fallback') === '1',
   toneMapping: URLP.get('tm') === 'agx' ? 'agx' : 'aces',
@@ -114,6 +116,8 @@ const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const TOUCH = matchMedia('(hover: none) and (pointer: coarse)').matches;
 document.documentElement.classList.add(TOUCH ? 'touch' : 'notouch');
 if (!PARAMS.ui) document.body.classList.add('noui');
+// interface refondue (résidence) : activée par <body data-ux="2"> ; les autres maquettes gardent l'ancienne
+const UX2 = document.body.dataset.ux === '2';
 if (PARAMS.lot) PARAMS.intro = false;   // arrivée depuis le site : pas d'intro longue
 
 const BRASS = new THREE.Color('#4f86ff');
@@ -136,14 +140,14 @@ const DEG = Math.PI / 180;
 /* pos / tgt en mètres, fov vertical pour l'aspect de la référence     */
 /* ------------------------------------------------------------------ */
 const VIEWS = MAQ.views || [
-  { id: 'p01', t: 'Façade sur rue', d: 'Le socle des garages, puis trois niveaux de balcons plantés.', pos: [0.2, 8.5, 27], tgt: [0.3, 6.4, -8.5], fov: 38, aspect: 4 / 3},
-  { id: 'p02', t: "À l'angle", d: 'Les balcons filants qui se retournent sur la façade anthracite.', pos: [25, 2.2, 11.5], tgt: [-1, 6.2, -8], fov: 42, aspect: 4 / 3, crop: 0.7, portrait: { pos: [25, 2.4, 11.5], tgt: [-0.5, 7.4, -8], fov: 66 }},
-  { id: 'p03', t: 'Survol de la façade', d: 'Le toit-terrasse apparaît : salon, table et prairie.', pos: [18.1, 24.25, 27.0], tgt: [-0.5, 4.0, -7.0], fov: 35, aspect: 4 / 3},
-  { id: 'p04', t: 'Trois-quarts aérien', d: 'La façade blanche se dévoile le long du jardin.', pos: [-20.6, 27.9, 22.9], tgt: [-0.1, 4.8, -7.6], fov: 35, aspect: 4 / 3},
-  { id: 'p05', t: "Côté jardin, vu d'en haut", d: 'Une toiture entièrement plantée au-dessus des arbres.', pos: [-28.0, 42.4, 31.2], tgt: [0, 7.5, -7.6], fov: 26, aspect: 16 / 9},
-  { id: 'p06', t: 'Côté jardin, plus près', d: 'Le rythme des fenêtres et le noyau anthracite.', pos: [-23.3, 36.1, 24.8], tgt: [0, 7.0, -7.6], fov: 26, aspect: 16 / 9},
-  { id: 'p07', t: 'Façade jardin', d: 'Le long du jardin, au-dessus des massifs : fenêtres et cage d’escalier.', pos: [-36.4, 7.1, -7.4], tgt: [0, 7.1, -7.4], fov: 38, aspect: 4 / 3, crop: 0.55},
-  { id: 'p08', t: 'Vu du ciel', d: 'Le plan du toit-terrasse, entre prairie et salon d’été.', pos: [0, 47, -7.25], tgt: [0, 6, -7.3], fov: 40, aspect: 4 / 3},
+  { id: 'p01', t: 'Façade sur rue', s: 'Rue', d: 'Le socle des garages, puis trois niveaux de balcons plantés.', pos: [0.2, 8.5, 27], tgt: [0.3, 6.4, -8.5], fov: 38, aspect: 4 / 3},
+  { id: 'p02', t: "À l'angle", s: 'Angle', d: 'Les balcons filants qui se retournent sur la façade anthracite.', pos: [25, 2.2, 11.5], tgt: [-1, 6.2, -8], fov: 42, aspect: 4 / 3, crop: 0.7, portrait: { pos: [25, 2.4, 11.5], tgt: [-0.5, 7.4, -8], fov: 66 }},
+  { id: 'p03', t: 'Survol de la façade', s: 'Survol', d: 'Le toit-terrasse apparaît : salon, table et prairie.', pos: [18.1, 24.25, 27.0], tgt: [-0.5, 4.0, -7.0], fov: 35, aspect: 4 / 3},
+  { id: 'p04', t: 'Trois-quarts aérien', s: 'Aérien', d: 'La façade blanche se dévoile le long du jardin.', pos: [-20.6, 27.9, 22.9], tgt: [-0.1, 4.8, -7.6], fov: 35, aspect: 4 / 3},
+  { id: 'p05', t: "Côté jardin, vu d'en haut", s: 'Jardin haut', d: 'Une toiture entièrement plantée au-dessus des arbres.', pos: [-28.0, 42.4, 31.2], tgt: [0, 7.5, -7.6], fov: 26, aspect: 16 / 9},
+  { id: 'p06', t: 'Côté jardin, plus près', s: 'Jardin', d: 'Le rythme des fenêtres et le noyau anthracite.', pos: [-23.3, 36.1, 24.8], tgt: [0, 7.0, -7.6], fov: 26, aspect: 16 / 9},
+  { id: 'p07', t: 'Façade jardin', s: 'Côté jardin', d: 'Le long du jardin, au-dessus des massifs : fenêtres et cage d’escalier.', pos: [-36.4, 7.1, -7.4], tgt: [0, 7.1, -7.4], fov: 38, aspect: 4 / 3, crop: 0.55},
+  { id: 'p08', t: 'Vu du ciel', s: 'Ciel', d: 'Le plan du toit-terrasse, entre prairie et salon d’été.', pos: [0, 47, -7.25], tgt: [0, 6, -7.3], fov: 40, aspect: 4 / 3},
 ];
 
 /* Réglages par niveau de qualité */
@@ -153,8 +157,8 @@ const QUALITY = {
   // changements d'étage passent à une cadence régulière plus basse (30 i/s) plutôt qu'à une définition réduite.
   // MSAA 2× (la définition native suffit à lisser) : ~0,55 Go de cibles en 3456 × 2234 (2 × [couleur MSAA + profondeur
   // MSAA + couleur résolue + profondeur résolue]) contre ~1 Go en 4×
-  native: { label: 'Native', pr: Math.min(DPR, 2),   shadow: 4096, ao: true, aoScale: 0.4, aoSamples: 10, pdSamples: 10, msaa: 2, bloom: true,  cheapGlass: false, sharp: 0.18 },
-  high:   { label: 'Haute',   pr: Math.min(DPR, 1.5),  shadow: 4096, ao: true, aoScale: 0.75, aoSamples: 16, pdSamples: 16, msaa: 4, bloom: true,  cheapGlass: false },
+  native: { label: 'Native', realRooms: true, pr: Math.min(DPR, 2),   shadow: 4096, ao: true, aoScale: 0.4, aoSamples: 10, pdSamples: 10, msaa: 2, bloom: true,  cheapGlass: false, sharp: 0.18 },
+  high:   { label: 'Haute',   realRooms: true, pr: Math.min(DPR, 1.5),  shadow: 4096, ao: true, aoScale: 0.75, aoSamples: 16, pdSamples: 16, msaa: 4, bloom: true,  cheapGlass: false },
   medium: { label: 'Moyenne', pr: Math.min(DPR, 1.25), shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 12, pdSamples: 12, msaa: 4, bloom: true,  cheapGlass: true },
   low:    { label: 'Basse',   pr: 1,                   shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 8,  pdSamples: 8,  msaa: 2, bloom: false, cheapGlass: true, aoFoliage: false },
 };
@@ -189,7 +193,8 @@ const ui = {
   tLots: $('tLots'), tAvail: $('tAvail'), tHelp: $('tHelp'), help: $('help'), dock: $('dock'),
   mmCam: $('mmCam'), mmLots: $('mmLots'), mmCap: $('mmCap'), lotsClose: $('lotsClose'), mmNorth: $('mmNorth'),
   brand: document.querySelector('.brand'), backBtn: $('backBtn'), lift: $('lift'), liftBtns: $('liftBtns'), toast: $('toast'),
-  lSort: $('lSort'), sunBar: $('sunBar'), seasons: [...document.querySelectorAll('.seasons [data-season]')],
+  lSort: $('lSort'), sunBar: $('sunBar'), tLotsT: $('tLotsT'), tabLotsT: $('tabLotsT'), navTip: $('navTip'), welcome: $('welcome'),
+  sun: $('sun'), sunToggle: $('sunToggle'), sunSum: $('sunSum'), fToggle: $('fToggle'), seasons: [...document.querySelectorAll('.seasons [data-season]')],
 };
 
 let loadShown = 0;
@@ -697,6 +702,7 @@ async function start() {
   // arrivée depuis le site avec ?lot=ID : étage en coupe, lot sélectionné, fiche ouverte
   if (PARAMS.lot && lots && lotData(PARAMS.lot)) setTimeout(() => selectLot(PARAMS.lot, { fly: true }), 120);
   else if (PARAMS.lot) toast(`Lot ${PARAMS.lot} introuvable : voici la résidence.`);
+  if (UX2) uxStart();
 }
 
 // mobilier photogrammétrique (models.js) : chargé quand un étage s'affiche, permuté avec ses doublures au repos
@@ -1031,6 +1037,72 @@ function setupLevelDimming() {
     }
   });
 }
+// logements réels vus de dehors : part de l'éclairage extérieur gardée (jour / nuit), lampes du soir, ambiance de jour
+const OUT_LOOK = { day: 0.75, night: 0.9, lamp: 0.5, fill: 0.16 };
+const OUTD = { done: 0, busy: false, still: 0, last: 0, cam: new THREE.Matrix4() };
+// Un étage à la fois, caméra au repos : programmes compilés hors image, puis l'étage remplace ses pièces simulées.
+// Rien au chargement ; qualités moyenne et basse : pièces simulées conservées (3 M de triangles en moins).
+function outdoorTick(now) {
+  if (!lots || !lots.setOutside || !state.ready || MAQ.lots === false || MAQ.realRooms === false) return;
+  if (!OUTD.t0) OUTD.t0 = now;
+  if (!GI.started && now - OUTD.t0 > 800) loadGI();
+  if (!QUALITY[state.quality].realRooms || PARAMS.rooms === 'sim') { if (lots.outside) { lots.setOutside(0); invalidate(200); } return; }
+  if (!OUTD.cam.equals(camera.matrixWorld)) { OUTD.cam.copy(camera.matrixWorld); OUTD.still = now; }
+  if (!OUTD.t0) OUTD.t0 = now;
+  const still = now - OUTD.still > 350 && now - OUTD.t0 > 1200 && !state.anim && !cfg.cut.anim && !state.userMoving && !(xfadePass && xfadePass.enabled) && !(nav && nav.mode !== 'orbit');
+  if (!still || OUTD.busy || now - OUTD.last < 300) return;
+  if (lots.outside < OUTD.done) { lots.setOutside(lots.outside + 1); OUTD.last = performance.now(); invalidate(300); return; }
+  if (OUTD.done >= 3) return;
+  const g = lots.stageOutside(OUTD.done + 1);
+  if (!g) { OUTD.done = 3; return; }
+  OUTD.busy = true;
+  compileForComposer(g, camera, scene).then(() => { OUTD.done++; OUTD.busy = false; OUTD.last = performance.now(); invalidate(); });
+}
+// Lumière du ciel précalculée (outils/gi : lancer de rayons maison, un octet par sommet : assets/gi/gi-K.bin) : chargée après l'affichage,
+// étage par étage, appliquée caméra au repos. Absente (404) : occlusion analytique d'origine.
+const GI = { started: false, floors: [2, 1, 3], done: [] };
+async function loadGI() {
+  if (GI.started || !lots || !lots.applyGI || PARAMS.gi === false) return;
+  GI.started = true;
+  const rest = () => new Promise((res) => { const t = () => (!state.userMoving && !state.anim && !cfg.cut.anim ? res() : setTimeout(t, 200)); setTimeout(t, 200); });
+  for (const k of GI.floors) {
+    try {
+      const ir = await fetch(new URL(`./assets/gi/gi-${k}.json?v=${GI_V}`, import.meta.url)); if (!ir.ok) continue;
+      const index = await ir.json();
+      const br = await fetch(new URL(`./assets/gi/gi-${k}.bin?v=${GI_V}`, import.meta.url)); if (!br.ok) continue;
+      const bytes = new Uint8Array(await br.arrayBuffer());
+      await rest();
+      if (lots.applyGI(k, index, bytes)) { GI.done.push(k); invalidate(300); }
+    } catch (e) { /* lumière précalculée facultative */ }
+  }
+}
+const GI_V = '7';
+// Baies coulissantes (building.js : userData.leaves) : en promenade, le vantail devant le visiteur glisse derrière
+// son voisin quand on s'en approche, et se referme quand on s'éloigne.
+const _leafV = new THREE.Vector3();
+function stepLeaves(dt) {
+  const Ls = building && building.userData && building.userData.leaves;
+  if (!Ls || !Ls.length) return false;
+  let best = null, bd = 1e9;
+  if (nav && nav.mode === 'walk') for (const L of Ls) {
+    if (Math.abs(camera.position.y - L.c[1]) > 1.7) continue;
+    _leafV.set(camera.position.x - L.c[0], 0, camera.position.z - L.c[2]);
+    const along = Math.abs(_leafV.x * L.dir[0] + _leafV.z * L.dir[2]), perp = Math.abs(_leafV.x * L.inward[0] + _leafV.z * L.inward[2]);
+    const reach = L.k > 0.01 ? 2.1 : 1.45;                 // s'ouvre à 1,45 m, se referme au-delà de 2,1 m
+    if (perp < reach && along < L.w / 2 + 0.3) { const d = perp + along; if (d < bd) { bd = d; best = L; } }
+  }
+  let moved = false;
+  for (const L of Ls) {
+    const t = L === best ? 1 : 0;
+    if (L.k === t) continue;
+    L.k = t > L.k ? Math.min(1, L.k + dt / 0.9) : Math.max(0, L.k - dt / 1.1);
+    const e = L.k * L.k * (3 - 2 * L.k), d = L.slide * (L.w - 0.07) * e;
+    L.group.position.set(L.dir[0] * d, L.dir[1] * d, L.dir[2] * d);
+    L.group.updateMatrixWorld(true);
+    moved = true;
+  }
+  return moved;
+}
 const NIGHT_U = { tint: { value: new THREE.Vector4(0.1, 0.14, 0.3, 0) }, refl: { value: new THREE.Vector3(0.05, 0.035, 0.022) } };
 function patchDim(m) {
   const prev = m.onBeforeCompile;
@@ -1172,6 +1244,13 @@ function applyHour(h, immediate = false) {
     if (DLu.uExpo) DLu.uExpo.value = THREE.MathUtils.lerp(1, 0.72, s.day);
     if (DLu.uRoomDayK) DLu.uRoomDayK.value = THREE.MathUtils.lerp(1, 0.75, s.day);
     if (DLu.uRefl) DLu.uRefl.value = THREE.MathUtils.lerp(0.5, 0.18, s.day);
+  }
+  // logements réels vus de dehors (lots.js) : même rapport de jour que les pièces simulées ; le soir, lampes allumées
+  if (lots && lots.outdoor) {
+    const lampK = Math.max(night, 0.55 * dusk);
+    lots.outdoor.k.value.x = THREE.MathUtils.lerp(OUT_LOOK.night, OUT_LOOK.day, s.day);
+    if (lots.outdoor.gi) lots.outdoor.gi.value = THREE.MathUtils.lerp(0.35, 1, s.day);   // la nuit, les lampes éclairent : lumière du ciel précalculée atténuée
+    lots.outdoor.lamp.value.set(1, 0.78, 0.56).multiplyScalar(OUT_LOOK.fill * s.day + OUT_LOOK.lamp * lampK);
   }
   renderer.toneMappingExposure = (PARAMS.exposure ?? LOOK.exposure) * (1 + 0.12 * dusk + 0.25 * night);
   state.baseExposure = renderer.toneMappingExposure; state.baseHemi = hemi.intensity;
@@ -1350,9 +1429,9 @@ function setFree(on) {
   state.free = on;
   if (on && cfg.floor != null) { ui.views.querySelectorAll('.vbtn').forEach((b) => b.setAttribute('aria-pressed', 'false')); return; }
   if (on) {
-    ui.capN.textContent = `— / 0${VIEWS.length}`;
-    ui.capT.textContent = 'Navigation libre';
-    ui.capD.textContent = 'Choisissez une vignette pour revenir à un point de vue.';
+    ui.capN.textContent = UX2 ? 'Résidence' : `— / 0${VIEWS.length}`;
+    ui.capT.textContent = UX2 ? 'Vue libre' : 'Navigation libre';
+    ui.capD.textContent = UX2 ? EXT_HINT() : 'Choisissez une vignette pour revenir à un point de vue.';
     ui.views.querySelectorAll('.vbtn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
   }
 }
@@ -1403,9 +1482,9 @@ function goToView(i, { duration } = {}) {
   const dur = flyTo(f, { duration });
   // interface
   ui.views.querySelectorAll('.vbtn').forEach((btn, k) => btn.setAttribute('aria-pressed', String(k === i)));
-  const btn = ui.views.children[i];
+  const btn = ui.views.querySelectorAll('.vbtn')[i];
   if (btn && btn.scrollIntoView && ui.views.scrollWidth > ui.views.clientWidth) btn.scrollIntoView({ inline: 'center', block: 'nearest', behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
-  setCaption(`${String(i + 1).padStart(2, '0')} / ${String(VIEWS.length).padStart(2, '0')}`, v.t, v.d);
+  setCaption(UX2 ? 'Résidence' : `${String(i + 1).padStart(2, '0')} / ${String(VIEWS.length).padStart(2, '0')}`, v.t, v.d);
   invalidate(dur * 1000 + 300);
 }
 
@@ -1443,7 +1522,10 @@ function flyTo(f, { duration } = {}) {
   invalidate(dur * 1000 + 300);
   return dur;
 }
+const EXT_HINT = () => (TOUCH ? 'Glissez pour tourner autour de la résidence, ou choisissez un logement.' : 'Glissez pour tourner autour de la résidence, ou choisissez un logement.');
 function setCaption(n, t, d) {
+  if (UX2 && /^—/.test(n || '')) n = 'Résidence';
+  ui.capN.hidden = !n;
   ui.capN.textContent = n; ui.capT.textContent = t; ui.capD.textContent = d || '';
   ui.cap.classList.remove('swap'); void ui.cap.offsetWidth; ui.cap.classList.add('swap');
 }
@@ -1776,6 +1858,8 @@ function loop(now) {
   if (stepProbes(dt, now)) invalidate();
   stepMirrors();
   if (lots && lots.models) lots.models.tick(camera, now);
+  outdoorTick(now);
+  if (stepLeaves(dt)) invalidate();
   const animating = !!state.anim;
   if (!animating && orbit) {
     controls.autoRotate = ui.rotate.getAttribute('aria-pressed') === 'true';
@@ -2765,7 +2849,7 @@ function onResize() {
 /* ------------------------------------------------------------------ */
 function buildUI() {
   // vignettes des points de vue
-  ui.views.innerHTML = '';
+  ui.views.innerHTML = UX2 ? '<span class="vlab" aria-hidden="true">Points de vue</span>' : '';
   VIEWS.forEach((v, i) => {
     const b = document.createElement('button');
     b.className = 'vbtn';
@@ -2773,7 +2857,7 @@ function buildUI() {
     b.setAttribute('aria-pressed', String(i === state.view));
     b.setAttribute('aria-label', `Vue ${i + 1} : ${v.t}`);
     b.title = `${v.t} (${i + 1})`;
-    b.innerHTML = `<img src="${MAQ.thumbs}${v.id}-thumb.jpg" alt="" loading="lazy" decoding="async"><b>${String(i + 1).padStart(2, '0')}</b><span>${v.t}</span>`;
+    b.innerHTML = `<img src="${MAQ.thumbs}${v.id}-thumb.jpg" alt="" loading="lazy" decoding="async"><b>${String(i + 1).padStart(2, '0')}</b><span>${UX2 && v.s ? v.s : v.t}</span>`;
     b.addEventListener('click', () => goToView(i));
     ui.views.appendChild(b);
   });
@@ -2787,6 +2871,7 @@ function buildUI() {
     ui.hourOut.textContent = txt;
     ui.hour.setAttribute('aria-valuetext', txt);
     ui.hour.style.setProperty('--p', `${((h - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * 100}%`);
+    syncSunSum(h);
     return h;
   };
   ui.hour.value = String(state.hour);
@@ -2843,6 +2928,7 @@ function toggleFullscreen() {
 function toggleQPanel(force) {
   const open = force !== undefined ? force : ui.qPanel.hidden;
   ui.qPanel.hidden = !open;
+  document.body.classList.toggle('q-open', open);
   ui.qBtn.setAttribute('aria-expanded', String(open));
 }
 let hintHidden = false;
@@ -2874,7 +2960,8 @@ const FMT_EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'E
 const ZONE_LABEL = { A: 'côté rue', B: 'côté jardin' };
 const LEVEL_NAME = (k) => (levels && (levels.find((l) => l.key === k) || {}).name) || `Niveau ${k}`;
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const isMobile = () => innerWidth <= 760;
+const MOBILE_MQ = window.matchMedia ? matchMedia('(max-width:760px), (max-height:520px) and (max-width:1000px)') : null;
+const isMobile = () => (MOBILE_MQ ? MOBILE_MQ.matches : innerWidth <= 760);
 
 function statusOf(st) {
   const s = (lotsData && lotsData.statuts && lotsData.statuts[st]) || {};
@@ -3189,6 +3276,7 @@ function animateCut(to, onEnd, durMs) {
 function setCutY(y) {
   cfg.cut.y = y;
   hPlane.constant = y;
+  if (lots && lots.setCutLimit) lots.setCutLimit(y);
   renderer.shadowMap.needsUpdate = true;
 }
 function stepCut(now) {
@@ -3197,6 +3285,7 @@ function stepCut(now) {
   const t = Math.min(1, (now - an.t0) / an.dur);
   cfg.cut.y = cutAt(an, now);
   hPlane.constant = cfg.cut.y;
+  if (lots && lots.setCutLimit) lots.setCutLimit(cfg.cut.y);
   // carte d'ombre : recalculée par updateShadowClip() seulement quand la coupe d'ombre change (franchissement de dalle)
   // l'étage affiché suit la coupe (descente comme montée) : on voit toujours l'étage meublé que la coupe traverse
   if (an.follow && lots && lots.floors) {
@@ -3266,7 +3355,8 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
     document.body.classList.remove('cut-on');
     syncFloorUI();
     renderMinimapLots();
-    if (state.free && !cfg.immersive) setCaption('— / 08', 'Vue extérieure', 'Choisissez une vignette, un étage ou un logement.');
+    if (state.free && !cfg.immersive) ui.views.querySelectorAll('.vbtn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    if (state.free && !cfg.immersive) setCaption('— / 08', UX2 ? 'Résidence entière' : 'Vue extérieure', UX2 ? EXT_HINT() : 'Choisissez une vignette, un étage ou un logement.');
     updateViewOffsetTarget();
     invalidate(1600);
     return;
@@ -3281,6 +3371,7 @@ function setFloor(k, { fly = true, focus = null, view = 'plan' } = {}) {
   if (fromExt) { render(); snapFrame(); }   // image extérieure actuelle, figée pour le fondu
   cfg.floor = k;
   document.body.classList.add('cut-on');
+  if (UX2) { hideWelcome(); if (isMobile() && view !== 'walk') showPane('floors', true); }
   setSections(true);
   cfg.viewMode = view;
   if (lots.setViewMode) lots.setViewMode(view);
@@ -3356,11 +3447,11 @@ function updateOutdoorWalk() {
   cfg.outdoor = out;
   MOTION.graceUntil = performance.now() + 1200;   // bascule (carte d'ombre, étages) : non comptée dans la cadence
   if (M.glass && M.glass.userData.uOut) M.glass.userData.uOut.value = out ? 1 : 0;
-  if (out) { setCutY(1e4); setSections(false); setCaption(`Extérieur · balade`, 'Rue', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.'); }
+  if (out) { setCutY(1e4); setSections(false); setCaption(`Extérieur · à pied`, 'Rue', 'Joystick, ZQSD ou flèches pour marcher · Échap pour sortir.'); }
   else {
     setSections(true); setCutY(walkCeiling(0));
     const r = interiorAt(p.x, p.z, 0);
-    setCaption(`${LEVEL_NAME(0)} · balade`, (r && r.name) || 'Palier', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.');
+    setCaption(`${LEVEL_NAME(0)} · à pied`, (r && r.name) || 'Palier', 'Joystick, ZQSD ou flèches pour marcher · Échap pour sortir.');
   }
   startXFade(state.anim ? XF_SLAB : XF_SLAB_STILL);
   invalidate();
@@ -3375,12 +3466,26 @@ function walkCeiling(k) {
   } catch (e) { /* repli */ }
   return lots.floorY(k) + 2.5;
 }
+// nom d'étage en clair : « R+2 » → « 2e étage »
+function floorLong(f) {
+  const m = /^R\+(\d+)$/.exec(f.name || '');
+  if (m) return +m[1] === 1 ? '1er étage' : `${m[1]}e étage`;
+  if (/^RDC$/i.test(f.name || '')) return 'Rez-de-chaussée';
+  if (/^Toit$/i.test(f.name || '')) return 'Toit-terrasse';
+  return f.name;
+}
 function floorCaption(k) {
   const f = floorInfo(k);
   if (!f) return;
   const fl = allLots().filter((d) => d.level === k);
   const dispo = fl.filter((d) => d.status === 'disponible').length;
   const commun = ((lotsData && lotsData.communs) || []).find((c) => c.level === k);
+  if (UX2) {
+    const nm = floorLong(f);
+    setCaption(`${nm} · vu de dessus`, fl.length ? `${nm} : ${fl.length} logement${fl.length > 1 ? 's' : ''}` : (commun ? commun.label : nm),
+      fl.length ? `${dispo ? `${dispo} disponible${dispo > 1 ? 's' : ''}` : 'Complet'} · ${TOUCH ? 'touchez' : 'cliquez'} un logement pour ouvrir sa fiche.` : (commun ? commun.items.join(' · ') : ''));
+    return;
+  }
   setCaption(`${f.name} · en coupe`, fl.length ? `${f.name} — ${fl.length} logement${fl.length > 1 ? 's' : ''}` : (commun ? commun.label : f.name),
     fl.length ? `${dispo} disponible${dispo > 1 ? 's' : ''} · survolez ou touchez un logement pour sa fiche.` : (commun ? commun.items.join(' · ') : ''));
 }
@@ -3406,6 +3511,7 @@ let floorUiT = 0;
 function syncFloorUI() {
   ui.floorList.classList.add('instant'); clearTimeout(floorUiT); floorUiT = setTimeout(() => ui.floorList.classList.remove('instant'), 1500);
   ui.floorList.querySelectorAll('.lvl').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === String(cfg.floor ?? 'ext'))));
+  syncBack();
   updateLabelSet();
 }
 
@@ -3414,12 +3520,12 @@ function setAvailability(on) {
   cfg.availability = !!on;
   if (on && cfg.floor != null) setFloor(null, { fly: false });
   lots.setMode(on ? 'availability' : 'none');
-  ui.tAvail.setAttribute('aria-pressed', String(cfg.availability));
+  if (ui.tAvail) ui.tAvail.setAttribute('aria-pressed', String(cfg.availability));
   if (on) {
     const n = allLots().filter((d) => d.status === 'disponible').length;
-    setCaption('Disponibilités', `${n} logement${n > 1 ? 's' : ''} disponible${n > 1 ? 's' : ''}`, 'Couleurs en façade : disponible, réservé, vendu. Touchez un volume pour sa fiche.');
+    setCaption('Disponibilités', `${n} logement${n > 1 ? 's' : ''} disponible${n > 1 ? 's' : ''}`, UX2 ? `En façade : vert disponible, orange réservé, rouge vendu. ${TOUCH ? 'Touchez' : 'Cliquez'} un logement pour ouvrir sa fiche.` : 'Couleurs en façade : disponible, réservé, vendu. Touchez un volume pour sa fiche.');
   } else if (cfg.floor == null && ui.capN.textContent === 'Disponibilités') {
-    setCaption('— / 08', 'Vue extérieure', 'Choisissez une vignette, un étage ou un logement.');
+    setCaption('— / 08', UX2 ? 'Résidence entière' : 'Vue extérieure', UX2 ? EXT_HINT() : 'Choisissez une vignette, un étage ou un logement.');
   }
   updateLabelSet();
   invalidate(400);
@@ -3430,10 +3536,12 @@ function selectLot(id, { fly = true, open = true } = {}) {
   const L = lotData(id);
   if (!L) return;
   ui.tip.hidden = true;
+  if (UX2) { hideWelcome(); if (String(id) !== cfg.selected) ui.sheet.classList.remove('full'); }
   if (cfg.immersive) {
     // sélection pendant la vue depuis un lot : on quitte l'interface immersive
     cfg.immersive = null;
     document.body.classList.remove('immersive');
+    syncBack();
     if (nav && !navIsStub && nav.mode === 'look') { const pose = floorPose(L.level, L.center); nav.setMode('orbit', { target: pose.tgt.toArray(), position: pose.pos.toArray() }); fly = false; }
   }
   cfg.selected = String(id);
@@ -3448,10 +3556,16 @@ function selectLot(id, { fly = true, open = true } = {}) {
   updateViewOffsetTarget();
   invalidate(300);
 }
+let sheetOrigin = null;
 function closeSheet() {
   if (ui.sheet.hidden && !cfg.selected) return;
+  const hadFocus = UX2 && !ui.sheet.hidden && ui.sheet.contains(document.activeElement);
   ui.sheet.hidden = true;
+  ui.sheet.classList.remove('full');
   document.body.classList.remove('sheet-open');
+  // le focus revient à l'élément qui a ouvert la fiche (ou à la maquette s'il a disparu)
+  if (hadFocus) { const o = sheetOrigin && sheetOrigin.isConnected && sheetOrigin !== document.body ? sheetOrigin : renderer.domElement; try { o.focus({ preventScroll: true }); } catch (e) { /* sans focus */ } }
+  sheetOrigin = null;
   cfg.selected = null; lots.setSelected(null);
   ui.brand.href = '../index.html';
   ui.lotList.querySelectorAll('.lcard').forEach((c) => c.setAttribute('aria-current', 'false'));
@@ -3486,6 +3600,54 @@ function planSVG(L, rooms, caption) {
     <text x="${((x0 + x1) / 2).toFixed(2)}" y="${(z1 + pad + fsMax * 0.9).toFixed(2)}" font-size="${(fsMax * 0.8).toFixed(2)}" text-anchor="middle" font-family="Jost,sans-serif" letter-spacing="${(fsMax * 0.15).toFixed(2)}" fill="#8a877f">RUE · SUD ↓</text>
   </svg>`;
 }
+// fiche (interface refondue) : une action principale (visiter), la vue en second, le contact ensuite ;
+// sur téléphone en portrait, la poignée déplie la fiche (aperçu → détail)
+function sheetHTML(L, o) {
+  const full = ui.sheet.classList.contains('full');
+  const terr = (L.exterieurs || []).some((e) => /terrasse/i.test(e.type || '')) && !(L.exterieurs || []).some((e) => /balcon/i.test(e.type || ''));
+  const eye = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
+  const man = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"/><path d="M9 21l2.5-6 2.5 2v4M11.5 15l1-5.5 3 3 3 1M12.5 9.5L9 11l-1.5 3"/></svg>';
+  const arrow = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  const visit = `<button class="btn-l ${o.sold ? '' : 'main'}" data-act="walk" ${navIsStub ? 'disabled' : ''}>${man}<span class="lg">Visiter ce logement à pied</span><span class="sm">Visiter à pied</span></button>`;
+  const view = L.viewpoint ? `<button class="btn-l" data-act="view">${eye}<span class="lg">Voir la vue depuis ${terr ? 'la terrasse' : 'le balcon'}</span><span class="sm">Vue ${terr ? 'terrasse' : 'balcon'}</span></button>` : '';
+  const contact = `<a class="btn-l ${o.sold ? 'main' : 'alt'}" href="${o.href}"><span class="lg">${o.sold ? 'Être prévenu·e d’une revente' : `Être recontacté·e pour le lot ${esc(L.id)}`}</span><span class="sm">${o.sold ? 'Être prévenu·e' : 'Être recontacté·e'}</span>${arrow}</a>`;
+  return `
+    <button class="sh-grip" type="button" data-act="grip" aria-expanded="${full}" aria-controls="sheetBody"><i aria-hidden="true"></i><span>${full ? 'Réduire la fiche' : 'Voir le plan et le détail'}</span></button>
+    <div class="sh-in" id="sheetBody">
+    <div class="sh-top">
+      <div>
+        <div class="sh-k">${esc(LEVEL_NAME(L.level))} · ${esc(ZONE_LABEL[L.zone] || '')}${L.attique ? ' · attique' : ''}</div>
+        <h2 id="shT" tabindex="-1">Lot <em>${esc(L.id)}</em></h2>
+        <div class="sh-sub">${esc(L.typo)} · ${esc(L.surface)} m² · <span class="stt" style="--c:${o.st.color}">${esc(o.st.label)}</span></div>
+      </div>
+      <div class="sh-acts">
+        <button class="ib" data-act="close" aria-label="Fermer la fiche" title="Fermer (Échap)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+    ${o.price}
+    <div class="facts">
+      <div><b>${esc(L.surface)} m²</b><span>habitables</span></div>
+      <div><b>${esc(parseInt(String(L.typo || '').replace(/\D/g, ''), 10) || '—')}</b><span>pièces · ${esc(L.typo)}</span></div>
+      <div><b>${o.extTotal ? o.extTotal + ' m²' : '—'}</b><span>extérieurs</span></div>
+    </div>
+    <div class="sh-tools">
+      <button class="chip fav" data-act="fav" aria-pressed="${o.fav}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>${o.fav ? 'Dans mes favoris' : 'Favori'}</button>
+      <button class="chip" data-act="cmp" aria-pressed="${o.cmp}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="7" height="14" rx="1"/><rect x="14" y="5" width="7" height="14" rx="1"/></svg>Comparer</button>
+      <button class="chip d-only" data-act="sun"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2"/></svg>Ensoleillement</button>
+    </div>
+    <div class="sh-h">Plan · ${esc(LEVEL_NAME(L.level))}</div>
+    <div class="plan">${planSVG(L, o.here.length ? o.here : o.all, 'Plan')}</div>
+    ${o.other.length ? `<div class="sh-h">Plan · ${esc(o.otherLevelName === 'Toit' ? 'niveau toit' : o.otherLevelName)}</div><div class="plan">${planSVG(L, o.other, 'Plan du niveau toit')}</div>` : ''}
+    <details class="rooms-d"${isMobile() ? '' : ' open'}><summary>Pièces et surfaces</summary><ul class="rooms">${o.roomsHTML}</ul></details>
+    ${o.ext ? `<div class="sh-h">Extérieurs</div><div class="exts">${o.ext}</div>` : ''}
+    ${L.orientation ? `<div class="sh-h">Orientation</div><p style="font-size:14px">${esc(L.orientation)}</p>` : ''}
+    ${cfg.cmp.length === 2 && o.cmp ? `<div class="cta" style="margin-top:16px"><button class="btn-l" data-act="cmpgo">Comparer les lots ${esc(cfg.cmp[0])} et ${esc(cfg.cmp[1])}</button></div>` : ''}
+    </div>
+    <div class="sh-foot">
+      <div class="cta">${o.sold ? contact + visit + view : visit + view + contact}</div>
+      <p class="sh-note">Plans, surfaces et prix indicatifs, non contractuels.</p>
+    </div>`;
+}
 function openSheet(id) {
   const L = lotData(id);
   if (!L) return;
@@ -3496,7 +3658,7 @@ function openSheet(id) {
   const other = (L.roomsOther && L.roomsOther.length ? L.roomsOther : all.filter((r) => r.level != null && r.level !== L.level));
   const roomRow = (r) => `<li><span>${esc(r.name)}</span><span>${r.surface ? esc(String(r.surface).replace('.', ',')) + ' m²' : ''}</span></li>`;
   const roomsHTML = here.length && here.some((r) => r.surface)
-    ? here.map(roomRow).join('') + (other.length ? `<li style="border:0;padding-top:10px;color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.14em;text-transform:uppercase"><span>Niveau toit</span><span></span></li>${other.map(roomRow).join('')}` : '')
+    ? here.map(roomRow).join('') + (other.length ? `<li style="border:0;padding-top:10px;color:rgba(255,255,255,.6);font-size:12px;letter-spacing:.14em;text-transform:uppercase"><span>Niveau toit</span><span></span></li>${other.map(roomRow).join('')}` : '')
     : (L.pieces || []).map((p) => `<li><span>${esc(p)}</span><span></span></li>`).join('');
   const ext = (L.exterieurs || []).map((e) => `<span>${esc(e.type)} · ${esc(e.surface)} m²</span>`).join('');
   const extTotal = (L.exterieurs || []).reduce((a, e) => a + (e.surface || 0), 0);
@@ -3505,7 +3667,7 @@ function openSheet(id) {
   const fav = cfg.favs.has(String(L.id)), cmp = cfg.cmp.includes(String(L.id));
   const otherLevelName = other.length ? (other[0].level != null ? LEVEL_NAME(other[0].level) : 'Niveau toit') : '';
   const href = sold ? `../index.html?lot=${encodeURIComponent(L.id)}&revente=1#contact` : `../index.html?lot=${encodeURIComponent(L.id)}#contact`;
-  ui.sheet.innerHTML = `
+  ui.sheet.innerHTML = UX2 ? sheetHTML(L, { st, sold, price, fav, cmp, here, all, other, otherLevelName, roomsHTML, ext, extTotal, href }) : `
     <div class="sh-in" id="sheetBody">
     <div class="sh-top">
       <div>
@@ -3551,11 +3713,18 @@ function openSheet(id) {
     else if (a === 'view') viewFromLot(L.id);
     else if (a === 'walk') visitLot(L.id);
     else if (a === 'cmpgo') openCompare();
+    else if (a === 'sun') toggleSun(true);
+    else if (a === 'grip') {
+      const full = !ui.sheet.classList.contains('full');
+      ui.sheet.classList.toggle('full', full);
+      b.setAttribute('aria-expanded', String(full));
+      b.querySelector('span').textContent = full ? 'Réduire la fiche' : 'Voir le plan et le détail';
+    }
   }));
   const wasHidden = ui.sheet.hidden;
   ui.sheet.hidden = false;
   document.body.classList.add('sheet-open');
-  if (wasHidden) { const h = $('shT'); if (h) h.focus({ preventScroll: true }); }
+  if (wasHidden) { sheetOrigin = document.activeElement; const h = $('shT'); if (h) h.focus({ preventScroll: true }); }
   updateViewOffsetTarget();
 }
 function toggleFav(id) {
@@ -3635,6 +3804,7 @@ function enterImmersive(back) {
   cfg.immersive = back;
   document.body.classList.add('immersive');
   ui.backBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Retour au lot ${esc(back.lot)}`;
+  syncBack();
   ui.backBtn.focus({ preventScroll: true });
   updateViewOffsetTarget();
 }
@@ -3643,6 +3813,7 @@ function exitImmersive() {
   if (!back) return;
   cfg.immersive = null;
   document.body.classList.remove('immersive');
+  syncBack();
   updateViewOffsetTarget();
   // retour à l'étage du lot, fiche ouverte
   const L = lotData(back.lot);
@@ -3658,6 +3829,7 @@ function walkFromView(id) {
   if (!L || !nav || navIsStub) return;
   cfg.immersive = null;
   document.body.classList.remove('immersive');
+  cfg.visit = String(L.id);
   updateViewOffsetTarget();
   const c = camera.position, e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
   // niveau de marche = celui du point de vue (attique : le toit-terrasse privatif, niveau 4, et non le R+3 en dessous)
@@ -3711,21 +3883,24 @@ function walkFromView(id) {
   // sur place : aucun vol (l'arc de transition faisait monter la caméra de ~30 cm) ; ailleurs : fondu
   const far = moved && Math.hypot(pos[0] - c.x, pos[2] - c.z) > 0.6;
   nav.teleport({ pos, yaw: e.y, pitch: far ? 0 : THREE.MathUtils.clamp(e.x, -0.2, 0.1), mode: 'walk', duration: 0, fade: far });
-  setCaption(`Lot ${L.id} · balade`, k === 4 ? 'Toit-terrasse' : 'Visite à pied', 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Orbite pour revenir au plan.');
+  setCaption(`Lot ${L.id}`, k === 4 ? 'Toit-terrasse' : 'Visite à pied', UX2 ? 'Parcourez le logement librement. Le bouton « Retour » vous ramène à sa fiche.' : 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Échap pour sortir.');
   closeSheetKeepSelection();
   toggleLots(false);
+  syncBack(); gestureToast('walk', 6000);
   invalidate(2000);
 }
 function visitLot(id) {
   const L = lotData(id);
   if (!L || !L.entry || !nav || navIsStub) return;
+  cfg.visit = String(L.id);
   setFloor(L.level, { fly: false, view: 'walk' });
   cfg.walkFloor = L.level;
   refreshBoxes('walk');
   nav.teleport({ pos: L.entry.pos, yaw: L.entry.yaw || 0, pitch: 0, mode: 'walk', fade: true });
-  setCaption(`Lot ${L.id} · balade`, 'Visite à pied', 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Orbite pour revenir au plan.');
+  setCaption(`Lot ${L.id}`, 'Visite à pied', UX2 ? 'Parcourez le logement librement. Le bouton « Retour » vous ramène à sa fiche.' : 'Joystick, ZQSD ou flèches pour marcher · Maj pour courir · Échap pour sortir.');
   closeSheetKeepSelection();
   toggleLots(false);
+  syncBack(); gestureToast('walk', 6000);
   invalidate(2000);
 }
 function closeSheetKeepSelection() {
@@ -3775,7 +3950,7 @@ function stairSwitch(k) {
   refreshBoxes('walk');
   if (lots.models) { lots.models.request(k); if (k < 3) lots.models.request(k + 1); if (k > 0) lots.models.request(k - 1); }
   syncFloorUI();
-  setCaption(`${LEVEL_NAME(k)} · balade`, 'Escalier', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.');
+  setCaption(`${LEVEL_NAME(k)} · à pied`, 'Escalier', 'Joystick, ZQSD ou flèches pour marcher · Échap pour sortir.');
 }
 function takeLift(k) {
   const s = liftStopOf(k);
@@ -3784,7 +3959,7 @@ function takeLift(k) {
   cfg.walkFloor = k;
   refreshBoxes('walk');
   nav.teleport({ pos: s.pos, yaw: s.yaw ?? Math.PI, pitch: 0, mode: 'walk', fade: true });
-  setCaption(`${LEVEL_NAME(k)} · balade`, 'Palier', 'Joystick, ZQSD ou flèches pour marcher · Orbite pour revenir au plan.');
+  setCaption(`${LEVEL_NAME(k)} · à pied`, 'Palier', 'Joystick, ZQSD ou flèches pour marcher · Échap pour sortir.');
   cfg.liftKey = '';
 }
 
@@ -3874,22 +4049,109 @@ function onNavChange(st) {
     // retour en orbite depuis la balade : l'étage revient en plan (coupe à 1,2 m)
     if (st.mode === 'orbit' && lastNavMode === 'walk' && cfg.floor != null && cfg.viewMode === 'walk') setFloor(cfg.floor, { fly: false, view: 'plan' });
     if (st.mode === 'orbit' && lastNavMode === 'look' && cfg.immersive) exitImmersive();
+    syncBack();
     lastNavMode = st.mode;
   }
   invalidate();
+}
+/* ---------------- interface refondue : gestes, retour, accueil, ensoleillement ---------------- */
+// rappel du geste propre à chaque façon de se déplacer (version tactile et version clavier)
+const GESTURE = (m) => (TOUCH
+  ? { orbit: 'Un doigt pour tourner · deux doigts pour zoomer', drone: 'Joystick pour voler · glissez pour regarder · flèches à droite pour monter et descendre', walk: 'Joystick pour avancer · glissez pour regarder autour de vous' }
+  : { orbit: 'Glissez pour tourner · molette pour zoomer', drone: 'Z Q S D pour voler · E / C pour monter et descendre · glissez pour regarder', walk: 'Z Q S D ou flèches pour marcher · Maj pour courir · glissez pour regarder' })[m] || '';
+let quietMode = false;
+// le rappel permanent sous le sélecteur suffit sur ordinateur et tablette ; sur téléphone (pas de rappel), un message bref
+function gestureToast(m, ms = 4000) { if (UX2 && PARAMS.ui && isMobile()) toast(GESTURE(m), ms); }
+// une seule sortie par état : « Retour à la fiche », « Quitter la promenade », « Quitter le survol », « Résidence entière »
+function backLabel() {
+  if (cfg.immersive) return `Retour au lot ${cfg.immersive.lot}`;
+  const m = nav ? nav.mode : 'orbit';
+  if (m === 'walk') return cfg.visit ? `Retour à la fiche du lot ${cfg.visit}` : 'Quitter la promenade';
+  if (m === 'drone') return 'Quitter le survol';
+  if (cfg.floor != null && !isMobile()) return 'Résidence entière';
+  return '';
+}
+function syncBack() {
+  if (!UX2 || !ui.backBtn) return;
+  const t = backLabel();
+  document.body.classList.toggle('has-back', !!t);
+  document.body.classList.toggle('visiting', !!cfg.visit && !!nav && nav.mode === 'walk');
+  if (t && ui.backBtn.dataset.t !== t) {
+    ui.backBtn.dataset.t = t;
+    ui.backBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>${esc(t)}</span><span class="kbd k-only" aria-hidden="true">Échap</span>`;
+  }
+}
+function goBack() {
+  if (cfg.immersive) { if (nav && nav.mode === 'look' && nav.exitLook) nav.exitLook(); else exitImmersive(); return; }
+  const m = nav ? nav.mode : 'orbit';
+  if (m === 'walk' && cfg.visit) {
+    const id = cfg.visit;
+    quietMode = true; setNavMode('orbit'); quietMode = false;
+    ui.sheet.classList.remove('full');
+    selectLot(id, { fly: false });
+    return;
+  }
+  if (m !== 'orbit') { setNavMode('orbit'); return; }
+  if (UX2 && cfg.floor != null) { closeSheet(); setFloor(null); }
+}
+function showWelcome() {
+  if (!ui.welcome || !PARAMS.ui || PARAMS.lot) return;
+  try { if (sessionStorage.getItem('canopee-accueil')) return; } catch (e) { /* stockage indisponible */ }
+  ui.welcome.hidden = false;
+  document.body.classList.add('welcome-on');
+}
+function hideWelcome() {
+  if (!ui.welcome || ui.welcome.hidden) return;
+  ui.welcome.hidden = true;
+  document.body.classList.remove('welcome-on');
+  try { sessionStorage.setItem('canopee-accueil', '1'); } catch (e) { /* stockage indisponible */ }
+}
+const SEASON_NAME = { hiver: 'hiver', equinoxe: 'mi-saison', ete: 'été' };
+function syncSunSum(h = state.hour) { if (ui.sunSum) ui.sunSum.textContent = `${formatHour(h)} · ${SEASON_NAME[state.season] || ''}`; }
+function toggleSun(force) {
+  if (!ui.sun || !ui.sunToggle) return;
+  const on = force !== undefined ? !!force : !ui.sun.classList.contains('open');
+  ui.sun.classList.toggle('open', on);
+  ui.sunToggle.setAttribute('aria-expanded', String(on));
+}
+function uxStart() {
+  syncBack();
+  if (ui.navTip) ui.navTip.textContent = GESTURE('orbit');
+  // téléphone : les disponibilités se lisent sur la façade dès l'arrivée
+  if (isMobile() && !PARAMS.lot && lots) setAvailability(true);
+  showWelcome();
+}
+function buildUX() {
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  on('qHelp', () => { toggleQPanel(false); openModal(ui.help); });
+  on('qFs', () => { toggleQPanel(false); toggleFullscreen(); });
+  on('qClose', () => toggleQPanel(false));
+  on('wlGo', () => { hideWelcome(); toggleLots(true); });
+  on('wlFree', () => hideWelcome());
+  on('sunToggle', () => toggleSun());
+  if (ui.fToggle) ui.fToggle.addEventListener('click', () => {
+    const o = !ui.lotsPanel.classList.contains('f-open');
+    ui.lotsPanel.classList.toggle('f-open', o);
+    ui.fToggle.setAttribute('aria-expanded', String(o));
+  });
+  const fsBtn = $('qFs'); if (fsBtn && !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) fsBtn.hidden = true;
+  syncSunSum();
 }
 function setNavMode(m) {
   if (!nav || navIsStub) return;
   if (m === nav.mode) return;
   state.anim = null;
   if (cfg.immersive && m !== 'look') { cfg.immersive = null; document.body.classList.remove('immersive'); }
+  if (m !== 'walk') cfg.visit = null;
+  if (UX2 && m !== 'orbit') hideWelcome();
   if (m === 'orbit') {
     cfg.walkFloor = null;
     const tgt = cfg.floor != null ? floorCenter(cfg.floor) : new THREE.Vector3(0, 6, (bounds.minZ + bounds.maxZ) / 2);
     if (cfg.floor != null && cfg.viewMode === 'walk') setFloor(cfg.floor, { fly: false, view: 'plan' });
     const pose = cfg.floor != null ? floorPose(cfg.floor) : null;
     nav.setMode('orbit', pose ? { target: tgt.toArray(), position: pose.pos.toArray() } : { target: tgt.toArray() });
-    if (cfg.floor == null) setCaption('— / 08', 'Orbite', 'Glissez pour tourner autour de la résidence.');
+    if (cfg.floor == null) ui.views.querySelectorAll('.vbtn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    if (cfg.floor == null) setCaption('— / 08', UX2 ? 'Résidence entière' : 'Orbite', UX2 ? EXT_HINT() : 'Glissez pour tourner autour de la résidence.');
     else floorCaption(cfg.floor);
   } else {
     if (m !== 'walk') cfg.walkFloor = null;
@@ -3897,19 +4159,24 @@ function setNavMode(m) {
     refreshBoxes(m);
     nav.setMode(m);
     toggleLots(false);
-    setCaption('—', m === 'drone' ? 'Drone' : 'Balade', m === 'drone'
+    if (UX2) setCaption(m === 'drone' ? 'Survol' : 'Promenade', m === 'drone' ? 'Vous survolez la résidence' : 'Vous vous promenez à pied', m === 'drone' ? 'Prenez de la hauteur pour voir la résidence et ses abords.' : 'Approchez de la résidence à hauteur d’œil.');
+    else setCaption('—', m === 'drone' ? 'Drone' : 'Balade', m === 'drone'
       ? 'Joystick ou ZQSD pour voler · E / C pour monter et descendre · glisser pour regarder.'
       : 'Joystick ou ZQSD pour marcher · Maj pour courir · glisser pour regarder.');
   }
   state.free = true;
   syncModeUI(m);
+  if (!quietMode) gestureToast(m);
   hideHint();
 }
 function syncModeUI(m) {
   refreshBoxes(m);
   ['orbit', 'drone', 'walk', 'look'].forEach((k) => document.body.classList.toggle(`m-${k}`, k === m));
-  ui.navMode.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === m)));
+  ui.navMode.querySelectorAll('[data-mode]').forEach((b) => { b.setAttribute('aria-checked', String(b.dataset.mode === m)); b.tabIndex = b.dataset.mode === (m === 'look' ? 'orbit' : m) ? 0 : -1; });
   if (m !== 'walk') ui.lift.hidden = true, cfg.liftKey = '';
+  if (m !== 'walk' && m !== 'look') cfg.visit = null;
+  if (ui.navTip) ui.navTip.textContent = GESTURE(m === 'look' ? 'orbit' : m);
+  syncBack();
   updateLabelSet();
   invalidate(200);
 }
@@ -4013,7 +4280,7 @@ function updateLabelSet() {
       const st = statusOf(L.status);
       el = document.createElement('button');
       el.className = 'l3 hide'; el.type = 'button';
-      el.innerHTML = `<span class="dot" style="--c:${st.color}"></span>${esc(L.id)} <small>${esc(L.typo)} · ${esc(L.surface)} m²</small>`;
+      el.innerHTML = `<span class="dot" style="--c:${st.color}"></span>${esc(L.id)} <small>${esc(L.typo)} · ${esc(L.surface)} m²</small>${UX2 && L.status !== 'disponible' ? ` <small class="s">${esc(st.label)}</small>` : ''}`;
       el.setAttribute('aria-label', `Lot ${L.id}, ${L.typo}, ${L.surface} m², ${st.label}`);
       el.addEventListener('click', () => selectLot(id, { fly: cfg.availability }));
       el.addEventListener('pointerenter', () => setHover(id));
@@ -4106,6 +4373,12 @@ function updateLabels() {
 /* -------------------- cadrage dans la zone libre (setViewOffset) -------------------- */
 function updateViewOffsetTarget() {
   const W = innerWidth, H = innerHeight, vo = cfg.vo;
+  if (UX2 && isMobile() && !cfg.immersive && !ui.sheet.hidden) {
+    const land = W > H;
+    vo.tx = land ? THREE.MathUtils.clamp(Math.min(360, W * 0.46) / 2, 0, W * 0.3) : 0;
+    vo.ty = land ? 0 : THREE.MathUtils.clamp(H / 2 - (64 + H * 0.54) / 2, 0, H * 0.2);
+    invalidate(800); return;
+  }
   if (isMobile() || cfg.immersive || (cfg.floor == null && ui.sheet.hidden)) { vo.tx = 0; vo.ty = 0; invalidate(600); return; }
   let left = 0, right = W, top = 72, bottom = H - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock-h')) || 110) - 20;
   const rl = document.body.classList.contains('lots-open') ? ui.lotsPanel.getBoundingClientRect() : null;
@@ -4216,13 +4489,15 @@ function renderLotList() {
     return (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3) || b.level - a.level || String(a.id).localeCompare(String(b.id));
   });
   const n = list.filter(lotMatches).length, dispo = list.filter((d) => d.status === 'disponible').length;
+  if (ui.tLotsT) ui.tLotsT.innerHTML = `<span class="xl">Voir les </span>${dispo} logement${dispo > 1 ? 's' : ''} disponible${dispo > 1 ? 's' : ''}`;
+  if (ui.tabLotsT) ui.tabLotsT.innerHTML = `Logements <b>${dispo}</b>`;
   ui.lotsCount.textContent = n === list.length ? `${dispo} disponible${dispo > 1 ? 's' : ''} sur ${list.length} logements` : `${n} logement${n > 1 ? 's' : ''} sur ${list.length} correspond${n > 1 ? 'ent' : ''}`;
   ui.lotList.innerHTML = list.map((d) => {
     const st = statusOf(d.status), ok = lotMatches(d), fav = cfg.favs.has(String(d.id));
     return `<li><button class="lcard${ok ? '' : ' out'}" data-id="${esc(d.id)}" style="--sc:${st.color}" aria-current="${String(d.id) === cfg.selected}"
       aria-label="Lot ${esc(d.id)}, ${esc(d.typo)}, ${esc(d.surface)} m², ${esc(LEVEL_NAME(d.level))}, ${esc(st.label)}${fav ? ', favori' : ''}">
       <span class="num">${esc(d.id)}</span>
-      <span class="ti">${esc(d.typo)} · ${esc(d.surface)} m²${fav ? ' <span aria-hidden="true" style="color:var(--brass-2)">★</span>' : ''}${cfg.cmp.includes(String(d.id)) ? ' <span aria-hidden="true" style="color:var(--brass-2);font-size:11px">⇆</span>' : ''}</span>
+      <span class="ti">${esc(d.typo)} · ${esc(d.surface)} m²${fav ? ' <span aria-hidden="true" style="color:var(--brass-2)">★</span>' : ''}${cfg.cmp.includes(String(d.id)) ? ' <span aria-hidden="true" style="color:var(--brass-2);font-size:12px">⇆</span>' : ''}</span>
       <span class="pr">${d.status === 'vendu' ? '—' : d.prix ? FMT_EUR.format(d.prix) : ''}<small class="stt" style="--c:${st.color}">${esc(st.label)}</small></span>
       <span class="su">${esc(LEVEL_NAME(d.level))} · ${esc(ZONE_LABEL[d.zone] || '')}${d.attique ? ' · attique' : ''}</span>
     </button></li>`;
@@ -4240,24 +4515,34 @@ function renderFloorCounts() {
     const fl = allLots().filter((d) => String(d.level) === k);
     const n = fl.filter((d) => d.status === 'disponible' && lotMatches(d)).length;
     const small = b.querySelector('small');
-    if (small) small.innerHTML = fl.length ? (n ? `<b>${n}</b> dispo. / ${fl.length}` : `0 / ${fl.length} dispo.`) : 'Parties communes';
+    if (small && UX2) small.innerHTML = fl.length ? (n ? `<b><span class="lg">${n} disponible${n > 1 ? 's' : ''}</span><span class="sm">${n} dispo.</span></b><span class="lg"> sur ${fl.length}</span>` : 'Complet') : '<span class="lg">Parties communes</span><span class="sm">Commun</span>';
+    else if (small) small.innerHTML = fl.length ? (n ? `<b>${n}</b> dispo. / ${fl.length}` : `0 / ${fl.length} dispo.`) : 'Parties communes';
   });
 }
 function toggleLots(force) {
   const on = force !== undefined ? !!force : !document.body.classList.contains('lots-open');
   document.body.classList.toggle('lots-open', on);
   ui.tLots.setAttribute('aria-pressed', String(on));
+  if (UX2) {
+    if (on) hideWelcome();
+    // la liste et la façade colorée vont ensemble : ouvrir l'une allume l'autre (vue extérieure seulement)
+    if (!isMobile()) {
+      if (on && cfg.floor == null && !cfg.availability && (!nav || nav.mode === 'orbit') && !cfg.immersive) { setAvailability(true); cfg.availAuto = true; }
+      else if (!on && cfg.availAuto) { cfg.availAuto = false; if (cfg.availability) setAvailability(false); }
+    }
+  }
   if (isMobile() && on) showPane('lotsPanel');
   if (nav && nav.setInsets) nav.setInsets(on && !isMobile() ? { left: 352 } : {});
   updateViewOffsetTarget();
   invalidate(100);
 }
 // mobile : un seul volet ouvert à la fois ; retoucher l'onglet actif replie le volet
-function showPane(id) {
+function showPane(id, keepSheet = false) {
   const tabs = document.querySelectorAll('.tab');
   tabs.forEach((x) => x.setAttribute('aria-expanded', String(x.dataset.pane === id)));
   document.querySelectorAll('.dock .pane').forEach((p) => p.classList.toggle('on', p.id === id));
-  if (id) closeSheetKeepSelection();
+  if (id && id !== 'lotsPanel') document.body.classList.remove('lots-open');
+  if (id && !keepSheet) closeSheetKeepSelection();
 }
 
 /* ------------------------- course du soleil (UI) ------------------------- */
@@ -4278,7 +4563,8 @@ function buildConfiguratorUI() {
     const b = document.createElement('button');
     b.className = 'lvl'; b.type = 'button'; b.dataset.key = String(f.key);
     b.setAttribute('aria-pressed', 'false');
-    b.setAttribute('aria-label', `${f.name} en coupe`);
+    b.setAttribute('aria-label', UX2 ? `${floorLong(f)} : voir l'intérieur` : `${f.name} en coupe`);
+    if (UX2) b.title = floorLong(f);
     b.innerHTML = `<span>${esc(f.name)}</span><i aria-hidden="true"></i><small></small>`;
     b.addEventListener('click', () => onFloorButton(f.key));
     ui.floorList.appendChild(b);
@@ -4286,11 +4572,11 @@ function buildConfiguratorUI() {
   const ext = document.createElement('button');
   ext.className = 'lvl ext'; ext.type = 'button'; ext.dataset.key = 'ext';
   ext.setAttribute('aria-pressed', 'true');
-  ext.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11z"/></svg>Extérieur';
-  ext.setAttribute('aria-label', 'Quitter la coupe : vue extérieure');
-  ext.title = 'Vue extérieure (0)';
+  ext.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11z"/></svg>${UX2 ? 'Résidence entière' : 'Extérieur'}`;
+  ext.setAttribute('aria-label', UX2 ? 'Résidence entière : revenir à la vue extérieure' : 'Quitter la coupe : vue extérieure');
+  ext.title = UX2 ? 'Résidence entière (0)' : 'Vue extérieure (0)';
   ext.addEventListener('click', () => { closeSheet(); setFloor(null); if (nav && nav.mode !== 'orbit') setNavMode('orbit'); });
-  ui.floorList.appendChild(ext);
+  if (UX2) ui.floorList.prepend(ext); else ui.floorList.appendChild(ext);
 
   // légende des statuts et filtres
   const sts = Object.keys((lotsData && lotsData.statuts) || {});
@@ -4334,19 +4620,31 @@ function buildConfiguratorUI() {
   // outils
   ui.tLots.addEventListener('click', () => toggleLots());
   ui.lotsClose.addEventListener('click', () => toggleLots(false));
-  ui.tAvail.addEventListener('click', () => setAvailability(!cfg.availability));
+  if (ui.tAvail) ui.tAvail.addEventListener('click', () => setAvailability(!cfg.availability));
   ui.tHelp.addEventListener('click', () => openModal(ui.help));
-  ui.backBtn.addEventListener('click', () => { if (nav && nav.mode === 'look' && nav.exitLook) nav.exitLook(); else exitImmersive(); });
+  ui.backBtn.addEventListener('click', () => { if (UX2) goBack(); else if (nav && nav.mode === 'look' && nav.exitLook) nav.exitLook(); else exitImmersive(); });
   for (const d of [ui.help, ui.cmpDlg]) {
     d.addEventListener('close', () => { if (nav && nav.setEnabled) nav.setEnabled(true); });
     d.addEventListener('click', (e) => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
   }
   ui.navMode.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setNavMode(b.dataset.mode)));
+  // groupe radio : flèches pour passer d'un mode à l'autre (un seul arrêt de tabulation)
+  ui.navMode.addEventListener('keydown', (e) => {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!d) return;
+    const bs = [...ui.navMode.querySelectorAll('[data-mode]:not(:disabled)')], i = bs.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const b = bs[(i + d + bs.length) % bs.length];
+    setNavMode(b.dataset.mode); b.focus();
+  });
+  if (UX2) buildUX();
 
   // saisons (course du soleil)
   ui.seasons.forEach((b) => b.addEventListener('click', () => {
     state.season = b.dataset.season;
     ui.seasons.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    syncSunSum();
     renderSunBar();
     applyHour(state.hour, true);
   }));
@@ -4356,6 +4654,7 @@ function buildConfiguratorUI() {
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
     const open = t.getAttribute('aria-expanded') === 'true';
     showPane(open ? null : t.dataset.pane);
+    if (UX2) hideWelcome();
     if (t.dataset.pane === 'lotsPanel') document.body.classList.toggle('lots-open', !open);
   }));
 
@@ -4395,7 +4694,8 @@ function onKey(e) {
     if (!ui.qPanel.hidden) { toggleQPanel(false); ui.qBtn.focus(); }
     else if (cfg.immersive) { if (!(nav && nav.mode === 'look')) exitImmersive(); }
     else if (!ui.sheet.hidden) closeSheet();
-    else if (nav && nav.mode !== 'orbit') setNavMode('orbit');
+    else if (nav && nav.mode !== 'orbit') { if (UX2) goBack(); else setNavMode('orbit'); }
+    else if (UX2 && cfg.floor != null) goBack();
   }
 }
 
@@ -4412,7 +4712,7 @@ function api() {
     views: VIEWS,
     get lots() { return lots; }, get nav() { return nav; }, cfg, motion: MOTION,
     setFloor: (k, o) => setFloor(k, o), selectLot: (id, o) => selectLot(id, o), closeSheet, setAvailability, setNavMode,
-    viewFromLot, visitLot, toggleLots, pickAt, takeLift, exitImmersive, solarPosition, updateLift,
+    viewFromLot, visitLot, toggleLots, goBack, toggleSun, pickAt, takeLift, exitImmersive, solarPosition, updateLift,
     projectLot: (id) => { const L = lotData(id); if (!L) return null; const v = L.labelAnchor.clone().project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, z: v.z }; },
     // éclairage intérieur : état et réglages en direct
     interior: () => ({ k: IN.k, lot: IN.lotId, floor: IN.floor, windows: (IN.skyWins || []).map((w) => ({ axis: w.axis, p: +w.p.toFixed(2), cu: +w.cu.toFixed(2), w: +w.w.toFixed(2), h: +w.h.toFixed(2), inDir: w.inDir, room: w.room && w.room.name })), lamps: IN.lampList, downs: IN.downList, sky: IN.sky.map((L) => +L.intensity.toFixed(3)), meter: { log: meterPass && meterPass.value, model: IN.modelExp, t: IN.meterT, c: IN.meterC, exp: renderer.toneMappingExposure }, bounce: IN.bounce.map((B) => +B.intensity.toFixed(2)), look: { ...IN_LOOK } }),

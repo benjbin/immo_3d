@@ -1,8 +1,10 @@
 // Canopée — texworker.js
 // Worker de textures (voir texpool.js) : exécute une tâche nommée de materials.js ou decortex.js et renvoie ses
 // tableaux de pixels, transférés sans copie.
-import { TEX_TASKS } from './materials.js';
-import { DECOR_TASKS } from './decortex.js';
+// Import versionné comme le reste de la maquette : l'importmap de la page ne s'applique pas dans un worker, et un
+// import nu reprenait l'ancien module du cache HTTP (textures d'une version précédente sur une géométrie à jour).
+const V = self.location.search;
+const [{ TEX_TASKS }, { DECOR_TASKS }] = await Promise.all([import('./materials.js' + V), import('./decortex.js' + V)]);
 
 const TASKS = { ...TEX_TASKS, ...DECOR_TASKS };
 // la prairie (traits Path2D anticrénelés) ne sort pas au bit près d'un OffscreenCanvas de worker : fil principal

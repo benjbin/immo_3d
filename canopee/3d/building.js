@@ -242,6 +242,7 @@ export function createBuilding(THREE, M) {
     }
   }
 
+  const leaves = [];   // vantaux coulissants (groupes animés par viewer.js)
   // Menuiserie complète : cadre, meneaux, vitrage en retrait, fond d'intérieur, appui
   function windowUnit(F, o) {
     const { s0, s1, y0, y1 } = o;
@@ -254,14 +255,33 @@ export function createBuilding(THREE, M) {
     fbox(F, 'frameDark', s1 - fw, s1, y0, y1, a, b);
     fbox(F, 'frameDark', s0 + fw, s1 - fw, y0, y0 + fw, a, b);
     fbox(F, 'frameDark', s0 + fw, s1 - fw, y1 - fw, y1, a, b);
+    // baie coulissante : chaque vantail (cadre + vitrage) forme son propre groupe, pour s'ouvrir à l'approche du
+    // visiteur (viewer.js). Vantaux alternés en profondeur, montants qui se recouvrent, pas de meneau fixe.
+    const slid = !!(o.sliding && (o.mull || []).length);
+    if (slid) {
+      const e = [s0 + fw, ...o.mull, s1 - fw], n = e.length - 1, sw = 0.045, ya = y0 + fw, yb = y1 - fw, prevGrp = grp;
+      const o0 = F(0, 0, 0), ts = F(1, 0, 0), ti = F(0, 0, 1);
+      for (let i = 0; i < n; i++) {
+        const a = e[i] - (i ? sw / 2 : 0), b = e[i + 1] + (i < n - 1 ? sw / 2 : 0), off = i % 2 ? 0.024 : -0.024;
+        const za = gd - 0.02 + off, zb = gd + 0.02 + off;
+        grp = 'vantail' + leaves.length;
+        fbox(F, 'frameDark', a, a + sw, ya, yb, za, zb);
+        fbox(F, 'frameDark', b - sw, b, ya, yb, za, zb);
+        fbox(F, 'frameDark', a + sw, b - sw, ya, ya + sw, za, zb);
+        fbox(F, 'frameDark', a + sw, b - sw, yb - sw, yb, za, zb);
+        fquad(F, 'glass', a + sw, b - sw, ya + sw, yb - sw, gd + off);
+        leaves.push({ name: grp, c: F((a + b) / 2, (ya + yb) / 2, gd), dir: [ts[0] - o0[0], ts[1] - o0[1], ts[2] - o0[2]], inward: [ti[0] - o0[0], ti[1] - o0[1], ti[2] - o0[2]], w: b - a, slide: i === n - 1 ? -1 : 1 });
+      }
+      grp = prevGrp;
+    }
     // ouvrants : meneaux (alternés en profondeur pour les coulissants)
-    (o.mull || []).forEach((m, i) => {
+    if (!slid) (o.mull || []).forEach((m, i) => {
       const off = o.sliding ? (i % 2 ? 0.02 : -0.02) : 0;
       fbox(F, 'frameDark', m - fw * 0.5, m + fw * 0.5, y0 + fw, y1 - fw, gd - 0.035 + off, gd + 0.035 + off);
     });
     (o.trans || []).forEach(t => fbox(F, 'frameDark', s0 + fw, s1 - fw, t - fw * 0.4, t + fw * 0.4, gd - 0.03, gd + 0.03));
     // ouvrants : un cadre fin par vantail, légèrement devant le vitrage
-    if (o.sash !== false) {
+    if (o.sash !== false && !slid) {
       const cuts = [s0 + fw, ...(o.mull || []).flatMap(m => [m - fw * 0.5, m + fw * 0.5]), s1 - fw];
       const sw = 0.042, ya = y0 + fw, yb = y1 - fw;
       for (let i = 0; i < cuts.length; i += 2) {
@@ -275,7 +295,7 @@ export function createBuilding(THREE, M) {
       }
     }
     // vitrage
-    fquad(F, 'glass', s0 + fw * 0.5, s1 - fw * 0.5, y0 + fw * 0.5, y1 - fw * 0.5, gd);
+    if (!slid) fquad(F, 'glass', s0 + fw * 0.5, s1 - fw * 0.5, y0 + fw * 0.5, y1 - fw * 0.5, gd);
     // intérieur : pièce modélisée (o.room) ou pièce simulée posée juste derrière le vitrage
     if (!o.room) {
       const lvl = Math.floor((y0 + 0.01) / 3) * 3;
@@ -489,7 +509,7 @@ export function createBuilding(THREE, M) {
         const s0 = -zb, s1 = -za, d0 = s0 + 0.25, d1 = d0 + 1.1;
         wall(FB, 'woodSoffit', s0, s1, y + SLAB, y + CEIL, 0, T, [[d0, d1, y + SLAB, y + 2.6]]);
         // loggia A : la porte donne sur le séjour modélisé ; loggia B : chambre (pièce simulée)
-        windowUnit(FB, { s0: d0, s1: d1, y0: y + SLAB, y1: y + 2.6, gd: 0.1, mull: [(d0 + d1) / 2], threshold: true, room: za === LOG_A[0] });
+        windowUnit(FB, { s0: d0, s1: d1, y0: y + SLAB, y1: y + 2.6, gd: 0.1, mull: [(d0 + d1) / 2], sliding: true, threshold: true, room: za === LOG_A[0] });
         downlight((RET_X + HW) / 2, y + CEIL, (za + zb) / 2);
         planter(SLAB_X1 - 0.40, SLAB_X1 - 0.12, za + 0.35, zb - 0.35, y + SLAB, 0.45, 'balcony');   // jardinière fine : la coursive reste praticable
       }
@@ -502,7 +522,7 @@ export function createBuilding(THREE, M) {
       box('woodSoffit', RET_X, HW - T, yt, yt + 0.2, za, zb);
       const s0 = -zb, s1 = -za, d0 = s0 + 0.3, d1 = d0 + 1.1;
       wall(FB, 'woodSoffit', s0, s1, yb, yt, 0, T, [[d0, d1, yb, yt - 0.12]]);
-      windowUnit(FB, { s0: d0, s1: d1, y0: yb, y1: yt - 0.12, gd: 0.1, mull: [(d0 + d1) / 2], threshold: true, room: true });
+      windowUnit(FB, { s0: d0, s1: d1, y0: yb, y1: yt - 0.12, gd: 0.1, mull: [(d0 + d1) / 2], sliding: true, threshold: true, room: true });
       downlight((RET_X + HW) / 2, yt, (za + zb) / 2);
       planter(HW - 0.50, HW - 0.22, za + 0.08, zb - 0.08, yb + 0.012, 0.42, 'loggia');
       railing([[HW - 0.06, za + 0.04], [HW - 0.06, zb - 0.04]], yb + 0.012, 1.0);
@@ -872,12 +892,14 @@ export function createBuilding(THREE, M) {
     for (const g of list) if (g !== geo) g.dispose();
   }
 
+  for (const L of leaves) { L.group = sub.get(L.name) || null; L.k = 0; }
   // intérieurs : pièces modélisées + pièces simulées
   const interiors = createInteriors(THREE, M, { rooms, windows: imWindows });
   group.add(interiors);
   tris += interiors.userData.triangles || 0;
 
   group.userData = {
+    leaves: leaves.filter((L) => L.group),
     levels: [
       { key: 0, name: 'RDC', y0: 0, y1: 3 },
       { key: 1, name: 'R+1', y0: 3, y1: 6 },

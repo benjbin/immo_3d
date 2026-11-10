@@ -50,21 +50,83 @@ export const DECOR_TASKS = {
     const l = 0.86 + 0.09 * g + 0.05 * fine - 0.08 * pore + 0.04 * ray + 0.05 * (w - 0.5);
     o[0] = 208 * l; o[1] = 172 * l; o[2] = 128 * l; o[3] = g * 0.4 + fine * 0.2 - pore * 0.6; o[4] = 0.6 + 0.12 * pore - 0.08 * g;
   }),
-  'deco:linen': () => paintData(512, 512, (u, v, o) => {
-    const wx = Math.sin(u * 512 * Math.PI * 0.5), wy = Math.sin(v * 512 * Math.PI * 0.5);
-    const slubX = fbmP(u, v, 2, 64, 2, 3), slubY = fbmP(u, v, 64, 2, 2, 7);
-    const h = (wx > 0 ? 0.5 + 0.5 * slubX : 0.5 + 0.5 * slubY) * (0.6 + 0.4 * Math.abs(wx * wy));
-    const l = 0.86 + 0.08 * (slubX - 0.5) + 0.08 * (slubY - 0.5) + 0.06 * h + 0.03 * fbmP(u, v, 6, 6, 3, 1);
-    o[0] = o[1] = o[2] = 236 * l; o[1] *= 0.995; o[2] *= 0.985; o[3] = h; o[4] = 0.95;
-  }),
-  'deco:boucle': () => {
-    const R = rng(41), loops = new Float32Array(256 * 256);
-    for (let k = 0; k < 2600; k++) {
-      const cx = R() * 256, cy = R() * 256, r = 2.2 + R() * 2.6;
-      for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) { const d = Math.hypot(x, y); if (d > r + 1.2) continue; const v = Math.max(0, 1 - Math.abs(d - r * 0.7) / 1.3); const i = (((cy + y) | 0) & 255) * 256 + (((cx + x) | 0) & 255); loops[i] = Math.max(loops[i], v * (0.6 + 0.4 * R())); }
-    }
-    return paintData(256, 256, (u, v, o) => { const h = loops[((v * 256) | 0) * 256 + ((u * 256) | 0)]; const l = 0.9 + 0.08 * h + 0.03 * fbmP(u, v, 8, 8, 2, 3); o[0] = 240 * l; o[1] = 234 * l; o[2] = 222 * l; o[3] = h; o[4] = 1; });
+  // lin lavé : toile (fil de 1,6 mm, 128 fils par répétition de 0,2 m). Ce qui se lit à 1–2 m n'est pas l'armure
+  // mais l'irrégularité des fils : chaque fil a son ton et son épaisseur, avec des flammes (surépaisseurs claires).
+  'deco:linen': () => {
+    const S = 512, P = 4, N = S / P;
+    return paintData(S, S, (u, v, o) => {
+      const x = u * S / P, y = v * S / P, i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+      // fil de chaîne i (court le long de v), fil de trame j (le long de u) : ton propre + flammes
+      const sw = pn(i, v * 5 + hash2(i, 1, 2) * 7, N, 5, 9), sf = pn(u * 5 + hash2(j, 3, 4) * 7, j, 5, N, 12);
+      const flW = clamp((sw - 0.66) / 0.2), flF = clamp((sf - 0.66) / 0.2);
+      const tW = 0.94 + 0.05 * hash2(i, 7, 3) + 0.06 * flW + 0.03 * (pn(i, v * 24, N, 24, 31) - 0.5);
+      const tF = 0.94 + 0.05 * hash2(j, 11, 5) + 0.06 * flF + 0.03 * (pn(u * 24, j, 24, N, 33) - 0.5);
+      const top = ((i + j) & 1) === 0, aW = Math.sin(Math.PI * fx), aF = Math.sin(Math.PI * fy);
+      // relief : le fil du dessus bombe en travers et plonge aux croisements ; creux sombres entre quatre fils
+      const h = top ? (0.45 + 0.55 * aW) * (0.7 + 0.3 * aF) * (1 + 0.5 * flW) : (0.45 + 0.55 * aF) * (0.7 + 0.3 * aW) * (1 + 0.5 * flF);
+      const hole = Math.sqrt(aW * aF);
+      const l = (top ? 0.68 * tW + 0.32 * tF : 0.68 * tF + 0.32 * tW) * (0.84 + 0.1 * Math.min(1, h) + 0.08 * hole);
+      o[0] = 244 * l; o[1] = 242 * l; o[2] = 237 * l; o[3] = h; o[4] = 0.95;
+    });
   },
+  // bouclé fin chiné (tissu d'ameublement) : brins frisés de 1,5–2,5 mm jetés en tous sens, serrés par touffes ;
+  // un brin sur cinq un ton plus soutenu (chiné), creux entre les brins assombris. Peu contrasté : 0,3 m.
+  'deco:boucle': () => {
+    const S = 512, R = rng(41), H = new Float32Array(S * S), Tn = new Float32Array(S * S);
+    // fond feutré : les creux entre brins restent peu profonds (pas de piqué sombre)
+    for (let i = 0; i < S * S; i++) H[i] = 0.34 + 0.2 * hash2(i % S, (i / S) | 0, 6);
+    for (let k = 0; k < 15000; k++) {
+      let x = R() * S, y = R() * S, a = R() * 6.2832;
+      const cur = (R() - 0.5) * 1.3, len = 5 + ((R() * 9) | 0), r = 1.25 + R() * 0.9, r2 = r * r, rc = Math.ceil(r);
+      const lvl = (0.55 + 0.45 * R()) * (0.78 + 0.44 * fbmP(x / S, y / S, 14, 14, 2, 5));
+      const tone = R() < 0.16 ? -(0.03 + 0.045 * R()) : (R() - 0.5) * 0.045;
+      for (let s = 0; s < len; s++) {
+        const cx = Math.floor(x), cy = Math.floor(y);
+        for (let dy = -rc; dy <= rc; dy++) for (let dx = -rc; dx <= rc; dx++) {
+          const ex = cx + dx + 0.5 - x, ey = cy + dy + 0.5 - y, d2 = ex * ex + ey * ey; if (d2 >= r2) continue;
+          const i = (((cy + dy) % S + S) % S) * S + (((cx + dx) % S + S) % S), h = lvl * (0.5 + 0.5 * Math.sqrt(1 - d2 / r2));
+          if (h > H[i]) { H[i] = h; Tn[i] = tone; }
+        }
+        x += Math.cos(a); y += Math.sin(a); a += cur;
+      }
+    }
+    // relief adouci (brins ronds, pas d'arêtes de pastilles)
+    const B = new Float32Array(S * S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const xm = (x + S - 1) % S, xp = (x + 1) % S, ym = ((y + S - 1) % S) * S, yp = ((y + 1) % S) * S, yy = y * S;
+      B[yy + x] = (H[yy + x] * 4 + (H[yy + xm] + H[yy + xp] + H[ym + x] + H[yp + x]) * 2 + H[ym + xm] + H[ym + xp] + H[yp + xm] + H[yp + xp]) / 16;
+    }
+    return paintData(S, S, (u, v, o) => {
+      const i = ((v * S) | 0) * S + ((u * S) | 0), h = B[i], t = Tn[i];
+      const l = 0.86 + 0.13 * Math.min(1, h * 1.2) + t + 0.065 * (fbmP(u, v, 16, 16, 2, 3) - 0.5);
+      // brins chinés : à peine plus chauds que le fond écru
+      const w = t < -0.03 ? 1 : 0;
+      o[0] = 246 * l; o[1] = (241 - 1.5 * w) * l; o[2] = (233 - 5 * w) * l; o[3] = h; o[4] = 1;
+    });
+  },
+  // velours ras : poil très fin, presque uni (le caractère vient du duvet rasant et du sens du poil, dans le shader)
+  'deco:velvet': () => paintData(256, 256, (u, v, o) => {
+    const t = fbmP(u, v, 72, 72, 2, 51), s = fbmP(u, v, 10, 60, 2, 52);
+    const l = 0.93 + 0.06 * (t - 0.5) + 0.04 * (s - 0.5); o[0] = o[1] = o[2] = 244 * l; o[3] = 0.7 * t + 0.3 * s; o[4] = 1;
+  }),
+  // variations lentes des tissus (R, G, B : trois bruits indépendants), lues en coordonnées monde par le shader
+  'deco:fablo': () => paintData(128, 128, (u, v, o) => {
+    o[0] = 255 * fbmP(u, v, 3, 3, 4, 101); o[1] = 255 * fbmP(u, v, 5, 5, 3, 102); o[2] = 255 * fbmP(u, v, 4, 4, 4, 103);
+  }),
+  // surfaces lisses (laque, émail, métal thermolaqué, vitrocéramique) : peau d'orange très fine en relief,
+  // rugosité inégale (traces d'essuyage, zones plus mates) — ce sont elles qui cassent les reflets « plastique »
+  'deco:satin': () => paintData(512, 512, (u, v, o) => {
+    const peel = fbmP(u, v, 110, 110, 2, 71), sm = fbmP(u, v, 4, 4, 4, 72), wipe = fbmP(u, v, 3, 36, 2, 73), dust = fbmP(u, v, 40, 40, 2, 74);
+    const l = 0.985 + 0.02 * (sm - 0.5);
+    o[0] = o[1] = o[2] = 250 * l; o[3] = peel;
+    o[4] = clamp(0.76 + 0.42 * (sm - 0.5) + 0.16 * (wipe - 0.5) + 0.08 * (peel - 0.5) + (dust > 0.72 ? 0.5 * (dust - 0.72) : 0));
+  }),
+  // métal brossé (laiton, inox) : stries serrées dans le sens du brossage, patine lente
+  'deco:brushed': () => paintData(256, 256, (u, v, o) => {
+    const st = fbmP(u, v, 2, 128, 3, 81), lo = fbmP(u, v, 3, 3, 3, 82);
+    const l = 0.95 + 0.05 * st + 0.04 * (lo - 0.5);
+    o[0] = o[1] = o[2] = 250 * l; o[3] = st; o[4] = clamp(0.74 + 0.3 * (st - 0.5) + 0.22 * (lo - 0.5));
+  }),
   'deco:rug': () => paintData(512, 512, (u, v, o) => {
     const tuft = fbmP(u, v, 96, 96, 2, 13), big = fbmP(u, v, 4, 4, 3, 2);
     const x = (u - 0.5) * 2, y = (v - 0.5) * 2, dia = Math.abs(Math.abs(x) + Math.abs(y) - 0.9), dia2 = Math.abs(Math.abs(x) + Math.abs(y) - 0.15);
@@ -74,7 +136,12 @@ export const DECOR_TASKS = {
     if (line) { o[0] = 70 * l; o[1] = 60 * l; o[2] = 52 * l; } else { o[0] = 238 * l; o[1] = 230 * l; o[2] = 214 * l; }
     o[3] = tuft; o[4] = 1;
   }),
-  'deco:wool': () => paintData(256, 256, (u, v, o) => { const t = fbmP(u, v, 48, 48, 3, 77); const l = 0.85 + 0.15 * t; o[0] = o[1] = o[2] = 235 * l; o[3] = t; o[4] = 1; }),
+  // laine (plaids, manteaux, tapis unis) : feutre fin à fibres couchées, mèches plus claires — pas de bosses
+  'deco:wool': () => paintData(256, 256, (u, v, o) => {
+    const f = fbmP(u, v, 100, 100, 2, 77), fib = fbmP(u, v, 20, 128, 2, 78), tuft = fbmP(u, v, 14, 14, 2, 79);
+    const t = 0.45 * f + 0.35 * fib + 0.2 * tuft, l = 0.86 + 0.16 * t;
+    o[0] = o[1] = o[2] = 238 * l; o[3] = t; o[4] = 1;
+  }),
   'deco:jute': () => paintData(256, 256, (u, v, o) => {
     const n = 8, cu = Math.floor(u * n), cv = Math.floor(v * n), fu = (u * n) % 1, fv = (v * n) % 1, hor = (cu + cv) % 2 === 0;
     const across = hor ? fv : fu, along = hor ? fu : fv, k = (across * 3) % 1;
@@ -100,8 +167,10 @@ export const DECOR_TASKS = {
   'deco:qz': () => paintData(1024, 1024, (u, v, o) => {
     const n = fbmP(u, v, 3, 3, 5, 61), m = fbmP(u, v, 5, 5, 4, 62);
     const vein = Math.exp(-Math.abs(Math.sin((u * 2 + v * 1.2 + n * 1.8) * Math.PI * 2)) * 18) * 0.5 + Math.exp(-Math.abs(Math.sin((u * 3.1 - v * 2 + m * 2.2) * Math.PI * 2)) * 30) * 0.25;
-    const l = 0.94 + 0.03 * n - 0.22 * vein;
-    o[0] = 240 * l; o[1] = 236 * l; o[2] = 228 * l; o[3] = -0.6 * vein; o[4] = 0.22 + 0.08 * n + 0.2 * vein;
+    // grain minéral fin, cristaux clairs épars, zones un peu moins polies (traces d'usage)
+    const gr = pn(u * 180, v * 180, 180, 180, 63), fl = hash2((u * 1024) | 0, (v * 1024) | 0, 9), use = fbmP(u, v, 6, 6, 2, 64);
+    const l = 0.93 + 0.03 * n - 0.22 * vein + 0.035 * (gr - 0.5) + (fl > 0.985 ? 0.03 : fl < 0.012 ? -0.05 : 0);
+    o[0] = 240 * l; o[1] = 236 * l; o[2] = 228 * l; o[3] = -0.6 * vein + 0.25 * (gr - 0.5); o[4] = 0.2 + 0.08 * n + 0.2 * vein + 0.16 * (use - 0.5) + 0.06 * (gr - 0.5);
   }),
   'deco:zel': () => paintData(512, 512, (u, v, o) => {
     const N = 4, i = Math.floor(u * N), j = Math.floor(v * N), fu = u * N - i, fv = v * N - j;
