@@ -211,7 +211,10 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     if (e.pointerId === lookPtr) lookPtr = null;
   };
   const onWheel = e => {
-    if (S.mode !== 'look' || !S.enabled || S.flight) return;
+    if (!S.enabled || S.flight) return;
+    // promenade : vrai zoom optique (l'image est recalculée avec ses détails, au lieu d'agrandir des pixels)
+    if (S.mode === 'walk') { e.preventDefault(); S.walkZoom = clamp((S.walkZoom || 1) * Math.exp(e.deltaY * 0.0012), 0.22, 1); return; }
+    if (S.mode !== 'look') return;
     e.preventDefault();
     S.fovTarget = clamp(S.fovTarget * Math.exp(e.deltaY * 0.0012), S.look.fovMin, S.look.fovMax);
   };
@@ -224,6 +227,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
   domElement.addEventListener('contextmenu', onCtx);
   function look(dx, dy, k) {
     if (S.mode === 'look') k *= S.fovTarget / 60;   // plus fin quand on zoome
+    else if (S.mode === 'walk') k *= S.walkZoom || 1;
     S.tYaw -= dx * k;
     S.tPitch = clamp(S.tPitch - dy * k, -1.35, 1.35);
     clampLook();
@@ -369,7 +373,7 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
     S.mode = m; S.look = m === 'look' ? look : null; refreshUI();
     const fov1 = fov ?? (m === 'walk' ? (S.indoorFloor != null ? opt.indoorFov : opt.walkFov) : m === 'drone' ? opt.droneFov : S.orbitFov);
     const arrive = () => {
-      S.yaw = S.tYaw = yaw; S.pitch = S.tPitch = pitch; S.eyeY = p.y; S.fovTarget = camera.fov; S.vel.set(0, 0, 0);
+      S.yaw = S.tYaw = yaw; S.pitch = S.tPitch = pitch; S.eyeY = p.y; S.fovTarget = camera.fov; S.vel.set(0, 0, 0); S.walkZoom = 1;
       if (m === 'orbit') enterOrbit();
     };
     if (fade) {
@@ -559,7 +563,8 @@ export function createNavigation({ THREE, camera, controls = null, domElement, u
 
   function updateWalk(a, dt) {
     smoothLook(dt, a.turn);
-    S.fovTarget = S.indoor ? opt.indoorFov : opt.walkFov;
+    S.fovTarget = (S.indoor ? opt.indoorFov : opt.walkFov) * (S.walkZoom || 1);
+    if ((a.mx || a.my) && S.walkZoom < 1) S.walkZoom = Math.min(1, S.walkZoom + dt * 1.6);   // on dézoome en se remettant à marcher
     fwd.set(-Math.sin(S.yaw), 0, -Math.cos(S.yaw)); right.set(-fwd.z, 0, fwd.x);
     const sp = a.run ? (S.indoor ? opt.indoorRun : opt.runSpeed) : (S.indoor ? opt.indoorWalk : opt.walkSpeed);
     want.copy(fwd).multiplyScalar(a.my * sp).addScaledVector(right, a.mx * sp); want.y = 0;

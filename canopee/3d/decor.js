@@ -1692,7 +1692,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
   function furnishA(V) {
     // --- séjour : canapé 2,20 m recentré (passage îlot / canapé ≈ 70 cm), fauteuil tourné vers le canapé près de la baie
     at(3.6, -4.45, 0, () => D.rugF(2.0, 1.8, V.rug[0], V.rug[1], V.rug[2]));
-    at(3.6, -5.38, 0, () => D.sofa(2.2, V.sofa));
+    at(3.6, -5.38, 0, () => M3('canopee_sofa', { w: 2.2 }, () => D.sofa(2.2, V.sofa)));
     // table basse : béton ciré et chêne (101, 201), marbre et métal noir (302) ; composition posée dessus
     at(3.6, -4.22, 0, () => {
       if (lv === 3) M3('coffee_table_round_01', { w: 0.9, d: 0.9, h: 0.36 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false }));
@@ -1771,7 +1771,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       face(-5.565, -2.4, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
       D.pendant(bx, -2.85, suite ? 1.95 : 1.98, c1.pend[0], c1.pend[1], c1.pend[2]);
       if (suite) { // coin lecture : fauteuil bouclé, lampadaire, guéridon
-        at(-2.32, -1.05, -2.68, () => D.armchair({ pillow: PAL.ochre }));
+        at(-2.32, -1.05, -2.68, () => M3('canopee_fauteuil', { w: 0.92 }, () => D.armchair({ pillow: PAL.ochre })));
         at(-1.72, -0.7, 0, () => D.floorLamp(0, 0, 1.5));
         D.sideTable(-1.75, -1.35, {});
       }
@@ -1919,14 +1919,14 @@ export function furnishUpper(THREE, P, D, o = {}) {
     }));
     D.akari(TX, TZ, 1.62, 0.25, 0.34);
     at(3.1, -16.4, PI / 2, () => D.rugF(2.4, 1.9, V.rug[0], V.rug[1], V.rug[2]));
-    at(1.86, -16.4, PI / 2, () => D.sofa(2.4, V.sofa));
+    at(1.86, -16.4, PI / 2, () => M3('canopee_sofa', { w: 2.4 }, () => D.sofa(2.4, V.sofa)));
     // table basse : marbre et métal noir (102), béton et chêne (202), travertin procédural (301)
     at(3.15, -16.4, PI / 2, () => {
       if (lv === 1) { M3('coffee_table_round_01', { w: 0.95, d: 0.95, h: 0.36 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false })); D.coffeeTable({ w: 0.95, d: 0.56, h: 0.36, table: false }); }
       else if (lv === 2) { M3('modern_coffee_table_01', { w: 1.1, h: 0.36, d: 0.56 }, () => D.coffeeTable({ w: 1.1, d: 0.6, decor: false })); D.coffeeTable({ w: 1.0, d: 0.56, h: 0.36, table: false }); }
       else D.coffeeTable({ w: 1.1, d: 0.6 });
     });
-    at(3.95, -17.95, -0.55, () => lv === 1 ? M3('mid_century_lounge_chair', { h: 0.95 }, () => D.armchair(V.arm)) : lv === 2 ? M3('modern_arm_chair_01', { h: 0.9 }, () => D.armchair(V.arm)) : D.armchair(V.arm));
+    at(3.95, -17.95, -0.55, () => lv === 1 ? M3('mid_century_lounge_chair', { h: 0.95 }, () => D.armchair(V.arm)) : lv === 2 ? M3('modern_arm_chair_01', { h: 0.9 }, () => D.armchair(V.arm)) : M3('canopee_fauteuil', { w: 0.92 }, () => D.armchair(V.arm)));
     at(1.74, -14.9, 0, () => D.floorLamp(0, 0));          // lampadaire au bout du canapé (plus en contre-jour devant la fenêtre)
     D.sideTable(1.66, -17.9, {});
     const plant = (k, x, z) => at(x, z, 0, () => plantK(k, k === 'pp01' ? 1.6 : 1.0, () => k === 'olive' ? D.oliveTree(0, 0, 1.85, 0xb9b2a6) : k === 'fig' || k === 'pp01' ? D.figTree(0, 0, 1.75, 0xd9cfbf) : k === 'snake' || k === 'pp02' ? D.snakePlant(0, 0, 1.0, 0x3d3a36) : D.strelitzia(0, 0, 1.75, 0xb8684a)));
@@ -1944,7 +1944,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       at(-3.95, -15.95, PI, () => D.bed(1.6, 1.95, { head: c1.head, headMk: c1.headMk, z0: c1.headMk ? 0.05 : 0.08, duvet: PAL.linenWhite, pillow2: PAL.linenStone, accent: c1.accent, throw: c1.throw, tuck: true, bolster: lv === 2 ? PAL.sage : null }));
       for (const [x, cup] of [[-5.09, false], [-2.81, true]]) at(x, -16.16, PI, () => { if (lv === 2) D.nightstand({ lampC: 0x3d3a36, cup }); else { NS(0.46, 0.4)(() => D.nightstand({ lamp: false, books: false })); D.nightstand({ lampC: 0x3d3a36, cup, body: false }); } });
       face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
-      at(-1.35, -17.85, -1.07, () => D.armchair({ pillow: c1.accent }));
+      at(-1.35, -17.85, -1.07, () => M3('canopee_fauteuil', { w: 0.92 }, () => D.armchair({ pillow: c1.accent })));
       if (lv !== 3) D.shoes(-2.55, -17.3, PI - 0.4, lv === 1 ? 1 : 0);
       at(-1.05, -18.3, 0, () => lv === 2 ? M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)) : D.snakePlant(0, 0, 0.75, 0x3d3a36));
       face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));

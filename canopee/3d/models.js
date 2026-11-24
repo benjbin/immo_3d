@@ -24,6 +24,8 @@
 export const CATALOG = {
   modern_arm_chair_01:      { size: [0.82, 1.023, 0.987], rot: 0, kind: 'meuble' },
   mid_century_lounge_chair: { size: [1.009, 1.169, 1.19], rot: 0, kind: 'meuble' },
+  canopee_sofa:             { size: [2.212, 0.933, 1.004], rot: 0, kind: 'meuble' },   // sculpté dans Blender (outils/meubles/sofa.py)
+  canopee_fauteuil:         { size: [0.992, 0.921, 1.02], rot: 0, kind: 'meuble' },
   modern_coffee_table_01:   { size: [1.202, 0.39, 0.6], rot: Math.PI / 2, kind: 'meuble' },
   coffee_table_round_01:    { size: [1.301, 0.491, 1.301], rot: 0, kind: 'meuble' },
   side_table_01:            { size: [0.55, 0.551, 0.45], rot: 0, kind: 'meuble' },
@@ -77,7 +79,8 @@ export function createModels(THREE) {
       normalMap: src.normalMap || FLAT_N,
       roughnessMap: arm || ARM1, metalnessMap: arm || ARM1,
       // canal R de la carte ARM de Poly Haven : occlusion de détail (plis, joints) ; la GTAO fait le reste
-      aoMap: arm || WHITE, aoMapIntensity: 0.75,
+      // modèles sculptés (canopee_*) : leur lumière vient du calcul Blender par sommet, qui contient déjà l'occlusion
+      aoMap: arm || WHITE, aoMapIntensity: /^canopee_/.test(src.name || '') ? 0 : 0.75,
       roughness: src.roughness, metalness: src.metalness,
       normalScale: src.normalScale ? src.normalScale.clone() : new THREE.Vector2(1, 1),
       side: foliage ? THREE.DoubleSide : THREE.FrontSide,
@@ -108,7 +111,7 @@ export function createModels(THREE) {
         if (!src || /glass/i.test(src.name || '') || src.transparent) return;          // vitres des cadres : omises
         const foliage = src.alphaTest > 0 || /leaves|leaf|foliage/i.test(src.name || '');
         let geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
-        for (const n of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(n)) geo.deleteAttribute(n);
+        for (const n of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv', 'uv1'].includes(n)) geo.deleteAttribute(n);   // uv1 : grain répété (canapé sculpté)
         geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld));
         const mat = material(src, foliage);
         if (!parts.has(mat)) parts.set(mat, []);

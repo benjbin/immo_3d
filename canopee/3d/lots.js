@@ -229,6 +229,12 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
     // logements vus de dehors (derrière les vitrages) : même matériau, lumière ramenée à celle d'une pièce vue de la
     // rue (cnpOut.x : part de l'éclairage extérieur ; cnpOutLamp : ambiance propre, lampes le soir). Nul en visite.
+    lightPatch(m);
+    return (WALK[k] = m);
+  };
+  // lecture de la lumière précalculée (texture ou par sommet) dans le shader d'un matériau : variantes « visite », et
+  // matières des modèles sculptés (canapé, fauteuil), branchées par viewer.js à leur création (patchLight)
+  function lightPatch(m) {
     const prevC = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile') ? m.onBeforeCompile : null;
     const prevK = Object.prototype.hasOwnProperty.call(m, 'customProgramCacheKey') ? m.customProgramCacheKey() : '';
     m.onBeforeCompile = function (sh, r) {
@@ -263,6 +269,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     vec3 cnpLmV; float cnpLmR;
     if ( ! cnpLmT ) {   // tissus : lumière par sommet (racine)
       cnpLmV = vCnpLv * vCnpLv * cnpLmP.w; cnpLmR = ( cnpLmRef.x + cnpLmRef.y + cnpLmRef.z ) / 3.0;
+      // calage sur le rendu Blender de référence (outils/pano) : le rebond du parquet teintait trop les tissus
+      cnpLmV = mix( vec3( dot( cnpLmV, vec3( 0.2126, 0.7152, 0.0722 ) ) ), cnpLmV, 0.4 ) * 1.3;   // × 1,3 : les sommets tombent dans les creux, plus sombres que la surface
       // de jour, plus de reflet temps réel des projecteurs de ciel : sur le relief du bouclé il scintille près des baies
       reflectedLight.directSpecular *= 1.0 - cnpLmP.z;
       #ifdef USE_SHEEN
@@ -272,15 +280,25 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     else if ( vCnpLm.x < 1.0 ) { cnpLmV = textureGrad( cnpLmMap0, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.x; cnpLmR = cnpLmRef.x; }
     else if ( vCnpLm.x < 2.0 ) { cnpLmV = textureGrad( cnpLmMap1, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.y; cnpLmR = cnpLmRef.y; }
     else { cnpLmV = textureGrad( cnpLmMap2, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.z; cnpLmR = cnpLmRef.z; }
+    // relief des matières : la lumière précalculée ignore les cartes de normales (grain du tissu, veinage, enduit) ;
+    // on la module par l'inclinaison du grain face à une lumière venant d'en haut et des baies, sinon tout paraît lisse
+    #ifdef USE_NORMALMAP_TANGENTSPACE
+    {
+      vec3 cnpUp = normalize( ( viewMatrix * vec4( 0.25, 1.0, 0.35, 0.0 ) ).xyz );
+      vec3 cnpL = normalize( nonPerturbedNormal * 0.55 + cnpUp );
+      float cnpB = dot( normal, cnpL ) / max( dot( nonPerturbedNormal, cnpL ), 0.35 );
+      cnpLmV *= clamp( 1.0 + ( cnpB - 1.0 ) * ( cnpLmT ? 0.3 : 1.0 ), 0.5, 1.45 );
+    }
+    #endif
     float cnpLmF = mix( 1.0, clamp( sqrt( dot( cnpLmV, vec3( 0.2126, 0.7152, 0.0722 ) ) / cnpLmR ), 0.3, 1.0 ), cnpGiK );
     totalDiffuse = mix( totalDiffuse * cnpLmF, cnpSun + material.diffuseColor * cnpLmV, cnpLmP.z );
   }`);
         } else sh.fragmentShader = 'varying vec2 vCnpLm;\nvarying vec3 vCnpLv;\n' + sh.fragmentShader;
       }
     };
-    m.customProgramCacheKey = () => prevK + ':walk-out-gi-lm5';
-    return (WALK[k] = m);
-  };
+    m.customProgramCacheKey = () => prevK + ':walk-out-gi-lm12';
+    m.needsUpdate = true;
+  }
 
   // ---------------------------------------------------------------- constructeur d'un étage
   function FloorBuilder(key) {
@@ -1484,15 +1502,26 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       }
       off += e.n;
     }
-    // tissus d'ameublement : même lumière, par sommet (3 octets, racine de E / vmax)
-    if (vc && info.vlist) {
+    done += applyLV(key, info, vc, by);
+    if (done) { const u = OUT.lm[slot]; if (u.value && u.value !== texture && u.value !== OUT.lmBlank) u.value.dispose(); u.value = texture; OUT.lmMax.value.setComponent(slot, info.max || 1); OUT.lmRef.value.setComponent(slot, info.ref || 1); OUT.lmOn = true; }
+    return done;
+  }
+  // tissus d'ameublement : même lumière, par sommet (3 octets, racine de E / vmax). Rappelée quand les modèles chargés
+  // remplacent leur doublure (canapé et fauteuil sculptés : pas d'occlusion analytique à retirer, la lumière seule).
+  function applyLV(key, info, vc, by0) {
+    const p = plans.get(+key); let done = 0; if (!p || !vc || !info || !info.vlist) return 0;
+    const by = by0 || new Map(); if (!by0) p.group.traverse((o) => { if (o.isMesh) by.set(o.name, o); });
+    {
       let o2 = 0;
       for (const e of info.vlist) {
         const o = by.get(e.name), g = o && o.geometry, occ = g && g.userData.occ, col = g && g.attributes.color;
-        if (g && occ && col && g.attributes.position.count === e.n && (o2 + e.n) * 3 <= vc.length) {
+        const model = !!(o && o.material && o.material.userData && o.material.userData.model);
+        if (g && ((occ && col) || (model && !g.attributes.cnpLv)) && g.attributes.position.count === e.n && (o2 + e.n) * 3 <= vc.length) {
+          if (!model) {
           const c = col.array;
           for (let i = 0; i < e.n; i++) { const k = 255 / Math.max(13, occ[i]); c[i * 3] *= k; c[i * 3 + 1] *= k; c[i * 3 + 2] *= k; }
           col.needsUpdate = true; g.userData.occ = null;
+          }
           if (g.attributes.cnpGi) g.deleteAttribute('cnpGi');
           const a = vc.slice(o2 * 3, (o2 + e.n) * 3); for (let i = 0; i < a.length; i += 3) if (a[i] + a[i + 1] + a[i + 2] === 0) a[i + 1] = 1;
           g.setAttribute('cnpLv', new THREE.BufferAttribute(a, 3, true));
@@ -1502,7 +1531,6 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
       }
       if (info.vmax) OUT.lmP.value.w = info.vmax;
     }
-    if (done) { const u = OUT.lm[slot]; if (u.value && u.value !== texture && u.value !== OUT.lmBlank) u.value.dispose(); u.value = texture; OUT.lmMax.value.setComponent(slot, info.max || 1); OUT.lmRef.value.setComponent(slot, info.ref || 1); OUT.lmOn = true; }
     return done;
   }
   function stageOutside(k) { const p = plans.get(k); if (!p) return null; p.staged = true; applyVisibility(); return p.group; }
@@ -1677,7 +1705,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
-    stageOutside, setOutside, setCutLimit, applyGI, applyLM, outdoor: OUT, get outside() { return outTop; },
+    stageOutside, setOutside, setCutLimit, applyGI, applyLM, applyLV, patchLight: lightPatch, outdoor: OUT, get outside() { return outTop; },
     models: MODELS, commonRooms, stairFloor, stairLevel, inCage, get stair() { return STAIR; },
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },

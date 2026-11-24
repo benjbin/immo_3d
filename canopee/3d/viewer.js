@@ -160,8 +160,9 @@ const QUALITY = {
   // MSAA 2× (la définition native suffit à lisser) : ~0,55 Go de cibles en 3456 × 2234 (2 × [couleur MSAA + profondeur
   // MSAA + couleur résolue + profondeur résolue]) contre ~1 Go en 4×
   native: { label: 'Native', realRooms: true, pr: Math.min(DPR, 2),   shadow: 4096, ao: true, aoScale: 0.4, aoSamples: 10, pdSamples: 10, msaa: 2, bloom: true,  cheapGlass: false, sharp: 0.18 },
-  high:   { label: 'Haute',   realRooms: true, pr: Math.min(DPR, 1.5),  shadow: 4096, ao: true, aoScale: 0.75, aoSamples: 16, pdSamples: 16, msaa: 4, bloom: true,  cheapGlass: false },
-  medium: { label: 'Moyenne', pr: Math.min(DPR, 1.25), shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 12, pdSamples: 12, msaa: 4, bloom: true,  cheapGlass: true },
+  // écrans ordinaires (DPR 1) : image calculée plus grande que l'écran (1,5× / 1,25×) puis réduite → traits et textures plus nets
+  high:   { label: 'Haute',   realRooms: true, pr: DPR < 1.5 ? 1.5 : Math.min(DPR, 1.5),  shadow: 4096, ao: true, aoScale: 0.75, aoSamples: 16, pdSamples: 16, msaa: 4, bloom: true,  cheapGlass: false },
+  medium: { label: 'Moyenne', pr: DPR < 1.25 ? 1.25 : Math.min(DPR, 1.25), shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 12, pdSamples: 12, msaa: 4, bloom: true,  cheapGlass: true },
   low:    { label: 'Basse',   pr: 1,                   shadow: 2048, ao: true, aoScale: 0.5, aoSamples: 8,  pdSamples: 8,  msaa: 2, bloom: false, cheapGlass: true, aoFoliage: false },
 };
 const QUALITY_ORDER = ['native', 'high', 'medium', 'low'];
@@ -712,7 +713,7 @@ function setupModels() {
   const Mo = lots && lots.models; if (!Mo) return;
   Mo.hooks.renderer = renderer;
   Mo.hooks.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  Mo.hooks.prepare = (m) => patchDim(m);
+  Mo.hooks.prepare = (m) => { patchDim(m); if (/^model:canopee_/.test(m.name || '') && lots && lots.patchLight) lots.patchLight(m); };   // modèles sculptés : lumière Blender par sommet
   Mo.hooks.busy = () => !!(state.anim || cfg.cut.anim || (xfadePass && xfadePass.enabled));
   Mo.hooks.compile = async (obj) => {
     // même environnement « pièce » que les autres matériaux d'intérieur (sinon recompilation à la permutation)
@@ -720,7 +721,7 @@ function setupModels() {
     obj.traverse((o) => { if (o.isMesh && o.material.envMap !== cur) o.material.envMap = cur; });
     await compileForComposer(obj, camera, scene);
   };
-  Mo.hooks.onSwap = () => { IN.envMats = null; lampMats = null; renderer.shadowMap.needsUpdate = true; invalidate(300); };
+  Mo.hooks.onSwap = () => { IN.envMats = null; lampMats = null; renderer.shadowMap.needsUpdate = true; if (lots && lots.applyLV) LM.vc.forEach((d, k) => lots.applyLV(k, d.info, d.vc)); invalidate(300); };
   Mo.arm();
   if (lots.floor != null) Mo.request(lots.floor);
 }
@@ -1081,7 +1082,7 @@ async function loadGI() {
 }
 // Grandes surfaces : texture de lumière calculée par Blender (outils/gi/blender_lm.py), une par étage, décodée hors du fil
 // principal. L'étage affiché d'abord ; les autres ensuite, sauf sur téléphone et tablette (mémoire : chargés à la demande).
-const LM = { req: new Set(), busy: false };
+const LM = { req: new Set(), busy: false, vc: new Map() };
 function lmTick() {
   if (LM.busy || !GI.ready || PARAMS.lm === false || !lots || !lots.applyLM) return;
   const k = (TOUCH ? [+cfg.floor] : [+cfg.floor, ...LM_FLOORS]).find((f) => LM_FLOORS.includes(f) && !LM.req.has(f));
@@ -1103,12 +1104,13 @@ async function loadLM(k) {
       let vc = null;
       if (info.vlist) { try { const vr = await fetch(u('vc.bin')); if (vr.ok) vc = new Uint8Array(await vr.arrayBuffer()); } catch (e) { /* tissus : lumière par sommet facultative */ } }
       await rest();
+      LM.vc.set(k, { info, vc });   // gardé : les modèles chargés plus tard reçoivent leur lumière au remplacement de la doublure
       if (lots.applyLM(k, index, uv, tex, info, vc)) { GI.lm.push(k); invalidate(300); } else tex.dispose();
     }
   } catch (e) { /* texture de lumière facultative */ }
   LM.busy = false; invalidate(300);
 }
-const GI_V = '13', LM_FLOORS = [2, 1, 3];
+const GI_V = '17', LM_FLOORS = [2, 1, 3];
 // Baies coulissantes (building.js : userData.leaves) : en promenade, le vantail devant le visiteur glisse derrière
 // son voisin quand on s'en approche, et se referme quand on s'éloigne.
 const _leafV = new THREE.Vector3();
@@ -1992,12 +1994,14 @@ const IN = {
   mats: new Set(), lastCheck: 0, skyColor: new THREE.Color(), on: false, roomEnvKey: '',
 };
 const IN_LOOK = {
-  exposure: 2.5,        // × exposition extérieure (l'appareil s'expose pour la pièce)
+  // Calé le 24/11/2026 sur le rendu Blender de référence (outils/pano, même vue du séjour 201, mesures mur / parquet /
+  // tapis) : exposition 2,5 → 1,3, cellule moins active, image moins chaude et plus contrastée.
+  exposure: 1.3,        // × exposition extérieure (l'appareil s'expose pour la pièce)
   sky: 4.0,             // luminance du ciel vue par les baies (passe 7 : murs plus clairs près des baies)
   sun: 1.45,            // soleil direct (identique : la tache au sol doit « brûler » légèrement)
   hemi: 0.05,           // part de l'hémisphérique conservée (sans ombre : fuit partout)
   env: 0.6,             // gain (passe 6 : la sonde par pièce apporte le rebond coloré) de l'environnement « pièce »
-  lift: 0.1, contrast: 0.27, sat: 1.12, warm: 0.38, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
+  lift: 0.0, contrast: 0.55, sat: 1.02, warm: 0.12, vignette: 0.2,   // passe 2 : moins plat (contraste, occlusion, taches de soleil, flaques des lampes)
   lamp: 3.2, down: 6.5,   // passe nuit : flaques maîtrisées (5 / 10 surexposaient l'hiver)  // lampes (cd) et spots de plafond (cd) en soirée
   ao: 0.8, aoRadius: 0.55,
   bounce: 0.8,          // rebond sol → plafond (× lumière de la baie)
@@ -2008,9 +2012,9 @@ const IN_LOOK = {
           // rebond par pièce (sonde SH capturée au repos), en plus de l'environnement « pièce »
   nightOut: 0.9,       // extérieur vu des baies la nuit : bleu-noir (0 = inchangé)
   night: 0.42,          // fermeture de l'exposition la nuit (× (1 − night) dans le noir complet)
-  meter: 0.6,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
+  meter: 0.8,           // part d'adaptation de la cellule (0 = exposition « modèle » seule, 1 = pleine)
   bloom: 0.13,          // halo des baies vues de l'intérieur
-  key: 0.3,             // clé de la cellule (luminance moyenne visée après exposition)
+  key: 0.2,             // clé de la cellule (luminance moyenne visée après exposition)
 };
 // ombres de ciel PCSS : qualité haute seulement (moyenne et basse : PCF de three, moins coûteux)
 const softShadowsOn = () => IN_LOOK.skySoft > 0 && state.quality === 'high';
@@ -2664,7 +2668,7 @@ function stepInterior(dt) {
     if (meterPass.value != null && IN.modelExp) {
       const ev = Math.log2(IN_LOOK.key) - (meterPass.value + Math.log2(IN.modelExp));
       const nightK = IN.nightK || 0;   // la nuit, la cellule ne rouvre pas (sinon brouillard laiteux) et peut fermer davantage
-      IN.meterT = THREE.MathUtils.clamp(Math.pow(2, ev * IN_LOOK.meter), 0.72 - 0.22 * nightK, 1.7 - 0.7 * nightK);
+      IN.meterT = THREE.MathUtils.clamp(Math.pow(2, ev * IN_LOOK.meter), 0.72 - 0.22 * nightK, 3.0 - 2.0 * nightK);   // jour : jusqu'à × 3 dans les pièces côté ombre (comme un photographe qui ouvre)
     }
   } else if (IN.k <= 0.01) { IN.meterT = 1; IN.meterC = 1; if (meterPass) meterPass.value = null; }
   const c0 = IN.meterC ?? 1, cT = IN.meterT ?? 1;

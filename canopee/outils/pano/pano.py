@@ -7,10 +7,19 @@ import bpy, sys, os, json, math, time
 from mathutils import Vector
 A = sys.argv[sys.argv.index('--') + 1:]
 GLB, OUT = A[0], A[1]
-X, Y, Z = float(A[2]), float(A[3]), float(A[4])
-YAW = float(A[5]) if len(A) > 5 else 0.0; PITCH = float(A[6]) if len(A) > 6 else 0.0
-MODE = A[7] if len(A) > 7 else 'vue'; W = int(A[8]) if len(A) > 8 else 1600; SPP = int(A[9]) if len(A) > 9 else 256
-EXP = float(os.environ.get('PANO_EXP', '0')); FOV = float(os.environ.get('PANO_FOV', '75'))
+# lot de vues : Blender -b -P pano.py -- <scene.glb> <dossier de sortie> <vues.json> [mode] [largeur] [échantillons]
+#   vues.json = [{"id": "201-sejour", "lot": "201", "name": "Séjour", "pos": [x, y, z] ou "poly": [[x, z], …] + "y", "n": 1}, …]
+#   Avec "poly" (contour de la pièce), l'appareil est posé à l'endroit le plus dégagé (loin des murs et des meubles).
+#   Écrit <dossier>/<id>.jpg et <dossier>/vues-<étage>.json (positions retenues, lacet, vues visibles l'une de l'autre).
+#   Une image déjà écrite est sautée (reprise possible).
+BATCH = len(A) > 2 and A[2].endswith('.json')
+if BATCH:
+    SPEC = json.load(open(A[2])); VIEWS = []
+    MODE = A[3] if len(A) > 3 else 'pano'; W = int(A[4]) if len(A) > 4 else 6000; SPP = int(A[5]) if len(A) > 5 else 400
+else:
+    VIEWS = [(OUT, float(A[2]), float(A[3]), float(A[4]), float(A[5]) if len(A) > 5 else 0.0, float(A[6]) if len(A) > 6 else 0.0)]
+    MODE = A[7] if len(A) > 7 else 'vue'; W = int(A[8]) if len(A) > 8 else 1600; SPP = int(A[9]) if len(A) > 9 else 256
+EXP = float(os.environ.get('PANO_EXP', '0')); METER = float(os.environ.get('PANO_METER', '0.325')); DAMP = float(os.environ.get('PANO_DAMP', '0.7')); FOV = float(os.environ.get('PANO_FOV', '75'))
 T0 = time.time()
 def log(*a): print('[pano %6.1fs]' % (time.time() - T0), *a, flush=True)
 meta = json.load(open(GLB[:-4] + '.json'))
@@ -56,7 +65,7 @@ for o in list(bpy.data.objects):
 # couleurs par sommet : multipliées à la teinte si l'import ne l'a pas fait
 done = set()
 for o in bpy.data.objects:
-    if o.type != 'MESH' or not o.data.color_attributes: continue
+    if o.type != 'MESH' or not o.data.color_attributes or os.environ.get('PANO_VC', '1') == '0': continue   # PANO_VC=0 : sans l'ombrage par sommet de la maquette (référence physique)
     ca = o.data.color_attributes[0].name
     for s in o.material_slots:
         m = s.material
@@ -250,18 +259,7 @@ log('ciel', sky.sky_type, 'élévation %.1f°' % math.degrees(sky.sun_elevation)
 
 # --- caméra
 cam = bpy.data.cameras.new('cam'); co = bpy.data.objects.new('cam', cam); scene.collection.objects.link(co); scene.camera = co
-co.location = (X, -Z, Y)
-f = Vector((-math.sin(YAW) * math.cos(PITCH), math.cos(YAW) * math.cos(PITCH), math.sin(PITCH)))   # avant maquette (−sin, ·, −cos) → Blender
 cam.clip_start = 0.02; cam.clip_end = 5000
-if MODE == 'pano':
-    cam.type = 'PANO'; cam.panorama_type = 'EQUIRECTANGULAR'
-    co.rotation_euler = (math.pi / 2, 0, -YAW)        # centre de l'image = direction du lacet
-    scene.render.resolution_x = W; scene.render.resolution_y = W // 2
-else:
-    co.rotation_euler = f.to_track_quat('-Z', 'Y').to_euler()
-    cam.sensor_width = 36; cam.lens = 18 / math.tan(math.radians(FOV) / 2) * (9 / 16) if False else 18 / math.tan(math.radians(FOV) / 2)
-    scene.render.resolution_x = W; scene.render.resolution_y = W * 9 // 16
-    cam.sensor_fit = 'VERTICAL'; cam.sensor_height = 36          # FOV vertical, comme la maquette
 scene.render.resolution_percentage = 100
 
 # --- Cycles
@@ -279,8 +277,8 @@ cy.use_denoising = True
 try: cy.denoiser = 'OPENIMAGEDENOISE'; cy.denoising_input_passes = 'RGB_ALBEDO_NORMAL'
 except Exception: pass
 vs = scene.view_settings
-try: vs.view_transform = 'AgX'; vs.look = 'AgX - Medium High Contrast'
-except Exception: pass
+try: vs.view_transform = os.environ.get('PANO_VIEW', 'AgX'); vs.look = os.environ.get('PANO_LOOK', 'AgX - Medium High Contrast')   # PANO_VIEW=Standard PANO_LOOK=None : image brute, pour mesurer
+except Exception as ex: log('rendu de vue :', ex)
 vs.exposure = EXP
 # balance des blancs : le ciel et la végétation teintent la pièce, comme un appareil photo on la neutralise
 try:
@@ -288,7 +286,115 @@ try:
     vs.white_balance_temperature = float(os.environ.get('PANO_WB', '5900')); vs.white_balance_tint = float(os.environ.get('PANO_TINT', '12'))
 except Exception as ex: log('balance des blancs indisponible :', ex)
 scene.render.image_settings.file_format = 'JPEG'; scene.render.image_settings.quality = 93
-scene.render.filepath = OUT
-log('rendu', scene.render.resolution_x, 'x', scene.render.resolution_y, SPP, 'éch.')
-bpy.ops.render.render(write_still=True)
-log('écrit', OUT)
+if BATCH:
+    dg = bpy.context.evaluated_depsgraph_get()
+    def hit(o, d, far):
+        ok, loc, nrm, idx, ob, mat = scene.ray_cast(dg, Vector(o), Vector(d), distance=far)
+        return (loc, ob) if ok else None
+    def in_poly(x, z, P):
+        c = False; j = len(P) - 1
+        for i in range(len(P)):
+            xi, zi = P[i]; xj, zj = P[j]
+            if (zi > z) != (zj > z) and x < (xj - xi) * (z - zi) / (zj - zi) + xi: c = not c
+            j = i
+        return c
+    def d_edge(x, z, P):
+        m = 1e9; j = len(P) - 1
+        for i in range(len(P)):
+            ax, az = P[j]; bx, bz = P[i]; dx, dz = bx - ax, bz - az
+            t = max(0, min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)))
+            m = min(m, math.hypot(x - ax - t * dx, z - az - t * dz)); j = i
+        return m
+    man = []
+    for v in SPEC:          # plafonnier allumé dans les pièces sans fenêtre ("lamp" : puissance en watts)
+        if not v.get('lamp') or 'poly' not in v: continue
+        xs = [q[0] for q in v['poly']]; zs = [q[1] for q in v['poly']]; cx = (min(xs) + max(xs)) / 2; cz = (min(zs) + max(zs)) / 2; fy = v['y'] - 1.6
+        h = hit((cx, -cz, fy + 1.9), (0, 0, 1), 3.0); top = h[0].z if h else fy + 2.5
+        ld = bpy.data.lights.new('plafonnier', 'AREA'); ld.shape = 'DISK'; ld.size = 0.45; ld.energy = float(v['lamp']) * float(os.environ.get('PANO_LAMP', '1')); ld.color = (1.0, 0.86, 0.70)
+        lo = bpy.data.objects.new('plafonnier', ld); scene.collection.objects.link(lo); lo.location = (cx, -cz, top - 0.04)
+        try: lo.visible_camera = False
+        except Exception: pass
+    bpy.context.view_layer.update(); dg = bpy.context.evaluated_depsgraph_get()
+    for v in SPEC:
+        if v.get('skip'): continue
+        picks = []
+        if 'pos' in v: picks = [(v['pos'][0], v['pos'][2], v.get('yaw'))]; ey = v['pos'][1]
+        else:
+            P = v['poly']; ey = v['y']; fy = ey - 1.6; pts = []
+            xs = [q[0] for q in P]; zs = [q[1] for q in P]; x = min(xs) + v.get('edge', 0.3)
+            while x < max(xs) - v.get('edge', 0.3) + 0.05:
+                z = min(zs) + v.get('edge', 0.3)
+                while z < max(zs) - v.get('edge', 0.3) + 0.05:
+                    if in_poly(x, z, P):
+                        de = d_edge(x, z, P)
+                        if de >= v.get('edge', 0.3):
+                            h = hit((x, -z, fy + 2.05), (0, 0, -1), 2.2)
+                            pts.append([x, z, de, bool(h) and h[0].z < fy + 0.12])
+                    z += 0.2
+                x += 0.2
+            free = [q for q in pts if q[3]]; busy = [q for q in pts if not q[3]]
+            for q in free: q.append(min([q[2]] + [math.hypot(q[0] - b_[0], q[1] - b_[1]) for b_ in busy]))
+            free.sort(key=lambda q: -q[4])
+            if not free: log('!! aucune place libre pour', v['id']); continue
+            sel = [free[0]]
+            if v.get('n', 1) > 1:
+                sec = next((q for q in free if math.hypot(q[0] - free[0][0], q[1] - free[0][1]) > 2.6 and q[4] > 0.45), None)
+                if sec: sel.append(sec)
+            for q in sel:
+                far = max(free, key=lambda r: math.hypot(r[0] - q[0], r[1] - q[1]))      # regard vers la plus grande profondeur
+                picks.append((q[0], q[1], math.atan2(-(far[0] - q[0]), -(far[1] - q[1]))))
+        for i, (x, z, yaw) in enumerate(picks):
+            vid = v['id'] + ('-2' if i else '')
+            man.append({'id': vid, 'lot': v['lot'], 'name': v['name'] + (' (2)' if i else ''), 'pos': [round(x, 3), round(ey, 3), round(z, 3)], 'yaw': round(yaw or 0.0, 4), 'out': v.get('out', 1)})
+    for a_ in man:          # vues en ligne de mire (les vitrages ne comptent pas) : flèches de passage dans la visite
+        a_['links'] = []
+        for b_ in man:
+            if b_ is a_ or b_['lot'] != a_['lot']: continue
+            o = Vector((a_['pos'][0], -a_['pos'][2], a_['pos'][1])); e = Vector((b_['pos'][0], -b_['pos'][2], b_['pos'][1])); d = e - o; L = d.length; d.normalize(); seen = True; t = 0.0
+            while t < L:
+                h = hit(o + d * (t + 0.01), d, L - t - 0.01)
+                if not h: break
+                mn = h[1].material_slots[0].material.name if h[1].material_slots and h[1].material_slots[0].material else ''
+                if not mn.startswith('glass') and not mn.startswith('curtain'): seen = False; break
+                t = (h[0] - o).length + 0.02
+            if seen: a_['links'].append(b_['id'])
+    json.dump(man, open(os.path.join(OUT, 'vues-' + os.path.basename(A[2])), 'w'), ensure_ascii=False, indent=1)
+    for m_ in man: log('vue', m_['id'], m_['pos'], 'lacet %.2f' % m_['yaw'], '→', ' '.join(m_['links']))
+    VIEWS = [(os.path.join(OUT, m_['id'] + '.jpg'), m_['pos'][0], m_['pos'][1], m_['pos'][2], 0.0, 0.0) for m_ in man]
+    if os.environ.get('PANO_DRY') == '1': VIEWS = []
+for OUT, X, Y, Z, YAW, PITCH in VIEWS:
+    if len(VIEWS) > 1 and os.path.exists(OUT): continue
+    co.location = (X, -Z, Y)
+    f = Vector((-math.sin(YAW) * math.cos(PITCH), math.cos(YAW) * math.cos(PITCH), math.sin(PITCH)))   # avant maquette (−sin, ·, −cos) → Blender
+    if MODE == 'pano':
+        cam.type = 'PANO'; cam.panorama_type = 'EQUIRECTANGULAR'
+        co.rotation_euler = (math.pi / 2, 0, -YAW)        # centre de l'image = direction du lacet
+        scene.render.resolution_x = W; scene.render.resolution_y = W // 2
+    else:
+        co.rotation_euler = f.to_track_quat('-Z', 'Y').to_euler()
+        cam.sensor_width = 36; cam.lens = 18 / math.tan(math.radians(FOV) / 2) * (9 / 16) if False else 18 / math.tan(math.radians(FOV) / 2)
+        scene.render.resolution_x = W; scene.render.resolution_y = W * 9 // 16
+        cam.sensor_fit = 'VERTICAL'; cam.sensor_height = 36          # FOV vertical, comme la maquette
+    if BATCH:           # mesure de lumière : petit rendu brut, puis exposition qui ramène la moyenne au niveau du séjour de référence
+        rx, ry, sp = scene.render.resolution_x, scene.render.resolution_y, cy.samples
+        scene.render.resolution_x = 256; scene.render.resolution_y = 128; cy.samples = 32; cy.use_denoising = False
+        scene.render.image_settings.file_format = 'OPEN_EXR'; tmp = OUT[:-4] + '-mesure.exr'; scene.render.filepath = tmp
+        bpy.ops.render.render(write_still=True)
+        im = bpy.data.images.load(tmp); px = list(im.pixels); acc = 0.0; wt = 0.0; lin = 0.0
+        for j in range(16, 112):                      # hors pôles
+            cw = math.cos((j + 0.5 - 64) / 128 * math.pi)
+            for i in range(256):
+                k = (j * 256 + i) * 4; lum = 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2]
+                acc += cw * math.log(min(max(lum, 1e-4), 4.0)); lin += cw * min(lum, 2.0); wt += cw
+        geo = math.exp(acc / wt); avg = (geo * (lin / wt)) ** 0.5; bpy.data.images.remove(im); os.remove(tmp)   # entre moyenne géométrique et arithmétique
+        auto = math.log2(METER / avg); vs.exposure = max(EXP - 0.8, min(EXP + 2.4, EXP + DAMP * (auto - EXP)))
+        log('mesure', os.path.basename(OUT), 'géo %.4f lin %.4f' % (geo, lin / wt), 'exposition %.2f' % vs.exposure)
+        if os.environ.get('PANO_DRY') == 'mesure':
+            scene.render.resolution_x = rx; scene.render.resolution_y = ry; cy.samples = sp; cy.use_denoising = True
+            scene.render.image_settings.file_format = 'JPEG'; continue
+        scene.render.resolution_x = rx; scene.render.resolution_y = ry; cy.samples = sp; cy.use_denoising = True
+        scene.render.image_settings.file_format = 'JPEG'; scene.render.image_settings.quality = 93
+    scene.render.filepath = OUT
+    log('rendu', OUT, scene.render.resolution_x, 'x', scene.render.resolution_y, SPP, 'éch.')
+    bpy.ops.render.render(write_still=True)
+    log('écrit', OUT)

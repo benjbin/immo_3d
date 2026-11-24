@@ -42,7 +42,7 @@ try {
       if (!ok) { bad.push((o.material.name || '?') + ':' + o.name + ':' + n); o.visible = false; hidden.push(o); } });
     // attributs propres à la maquette (aCrownN, aLamp…) : retirés le temps de l'export (inutiles, et refusés par Blender)
     const stash = [];
-    v.scene.traverseVisible((o) => { if (!o.isMesh) return; const g = o.geometry; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) { stash.push([g, k, g.attributes[k]]); g.deleteAttribute(k); } });
+    v.scene.traverseVisible((o) => { if (!o.isMesh) return; const g = o.geometry; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'uv1', 'color'].includes(k)) { stash.push([g, k, g.attributes[k]]); g.deleteAttribute(k); } });
     const buf = await new Promise((ok, ko) => new GLTFExporter().parse(v.scene, ok, ko, { binary: true, onlyVisible: true, maxTextureSize: 2048 }));
     hidden.forEach((o) => { o.visible = true; });
     stash.forEach(([g, k, at]) => g.setAttribute(k, at));
