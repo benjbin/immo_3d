@@ -93,6 +93,8 @@ const PARAMS = {
   hour: URLP.has('hour') ? THREE.MathUtils.clamp(parseFloat(URLP.get('hour')) || 18, HOUR_MIN, HOUR_MAX) : 18,
   quality: ['auto', 'native', 'high', 'medium', 'low'].includes(URLP.get('q')) ? URLP.get('q') : 'auto',
   ui: URLP.get('ui') !== '0',
+  lm: URLP.get('lm') !== '0',   // lm=0 : sans la texture de lumière calculée par Blender (comparaison) ; lm=gris : facteur d'ombrage seul
+  lmFull: URLP.get('lm') !== 'gris',
   gi: URLP.get('gi') !== '0',   // gi=0 : sans la lumière précalculée (comparaison)
   rooms: URLP.get('rooms') === 'sim' ? 'sim' : 'real',   // rooms=sim : pièces simulées derrière les vitrages (comparaison)
   intro: URLP.get('intro') !== '0',
@@ -1045,7 +1047,7 @@ const OUTD = { done: 0, busy: false, still: 0, last: 0, cam: new THREE.Matrix4()
 function outdoorTick(now) {
   if (!lots || !lots.setOutside || !state.ready || MAQ.lots === false || MAQ.realRooms === false) return;
   if (!OUTD.t0) OUTD.t0 = now;
-  if (!GI.started && now - OUTD.t0 > 800) loadGI();
+  if (!GI.started && now - OUTD.t0 > 800) loadGI(); else if (GI.ready) lmTick();
   if (!QUALITY[state.quality].realRooms || PARAMS.rooms === 'sim') { if (lots.outside) { lots.setOutside(0); invalidate(200); } return; }
   if (!OUTD.cam.equals(camera.matrixWorld)) { OUTD.cam.copy(camera.matrixWorld); OUTD.still = now; }
   if (!OUTD.t0) OUTD.t0 = now;
@@ -1060,7 +1062,7 @@ function outdoorTick(now) {
 }
 // Lumière du ciel précalculée (outils/gi : lancer de rayons maison, un octet par sommet : assets/gi/gi-K.bin) : chargée après l'affichage,
 // étage par étage, appliquée caméra au repos. Absente (404) : occlusion analytique d'origine.
-const GI = { started: false, floors: [2, 1, 3], done: [] };
+const GI = { started: false, floors: [2, 1, 3], done: [], lm: [] };
 async function loadGI() {
   if (GI.started || !lots || !lots.applyGI || PARAMS.gi === false) return;
   GI.started = true;
@@ -1075,8 +1077,38 @@ async function loadGI() {
       if (lots.applyGI(k, index, bytes)) { GI.done.push(k); invalidate(300); }
     } catch (e) { /* lumière précalculée facultative */ }
   }
+  GI.ready = true; invalidate(300);
 }
-const GI_V = '7';
+// Grandes surfaces : texture de lumière calculée par Blender (outils/gi/blender_lm.py), une par étage, décodée hors du fil
+// principal. L'étage affiché d'abord ; les autres ensuite, sauf sur téléphone et tablette (mémoire : chargés à la demande).
+const LM = { req: new Set(), busy: false };
+function lmTick() {
+  if (LM.busy || !GI.ready || PARAMS.lm === false || !lots || !lots.applyLM) return;
+  const k = (TOUCH ? [+cfg.floor] : [+cfg.floor, ...LM_FLOORS]).find((f) => LM_FLOORS.includes(f) && !LM.req.has(f));
+  if (k) loadLM(k);
+}
+async function loadLM(k) {
+  LM.req.add(k); LM.busy = true;
+  const rest = () => new Promise((res) => { const t = () => (!state.userMoving && !state.anim && !cfg.cut.anim ? res() : setTimeout(t, 200)); setTimeout(t, 200); });
+  try {
+    const u = (f) => new URL(`./assets/gi/lm-${k}.${f}?v=${GI_V}`, import.meta.url);
+    const [ir, ur, tr] = await Promise.all([fetch(u('json')), fetch(u('uv.bin')), fetch(u('webp'))]);
+    if (ir.ok && ur.ok && tr.ok) {
+      const info = await ir.json(), index = info.list, uv = new Uint16Array(await ur.arrayBuffer());
+      const bmp = await createImageBitmap(await tr.blob(), { imageOrientation: 'flipY' });
+      const tex = new THREE.Texture(bmp);
+      tex.flipY = false; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.needsUpdate = true;
+      await rest();
+      let vc = null;
+      if (info.vlist) { try { const vr = await fetch(u('vc.bin')); if (vr.ok) vc = new Uint8Array(await vr.arrayBuffer()); } catch (e) { /* tissus : lumière par sommet facultative */ } }
+      await rest();
+      if (lots.applyLM(k, index, uv, tex, info, vc)) { GI.lm.push(k); invalidate(300); } else tex.dispose();
+    }
+  } catch (e) { /* texture de lumière facultative */ }
+  LM.busy = false; invalidate(300);
+}
+const GI_V = '13', LM_FLOORS = [2, 1, 3];
 // Baies coulissantes (building.js : userData.leaves) : en promenade, le vantail devant le visiteur glisse derrière
 // son voisin quand on s'en approche, et se referme quand on s'éloigne.
 const _leafV = new THREE.Vector3();
@@ -1249,6 +1281,7 @@ function applyHour(h, immediate = false) {
   if (lots && lots.outdoor) {
     const lampK = Math.max(night, 0.55 * dusk);
     lots.outdoor.k.value.x = THREE.MathUtils.lerp(OUT_LOOK.night, OUT_LOOK.day, s.day);
+    if (lots.outdoor.lmP) lots.outdoor.lmP.value.z = PARAMS.lmFull ? THREE.MathUtils.smoothstep(s.day, 0.35, 0.85) : 0;   // éclairage entièrement cuit : de jour seulement
     if (lots.outdoor.gi) lots.outdoor.gi.value = THREE.MathUtils.lerp(0.35, 1, s.day);   // la nuit, les lampes éclairent : lumière du ciel précalculée atténuée
     lots.outdoor.lamp.value.set(1, 0.78, 0.56).multiplyScalar(OUT_LOOK.fill * s.day + OUT_LOOK.lamp * lampK);
   }
@@ -3002,6 +3035,7 @@ async function setupConfigurator(bud) {
   }
   try { (JSON.parse(localStorage.getItem('canopee-favs') || '[]') || []).forEach((id) => cfg.favs.add(String(id))); } catch (e) { /* stockage indisponible */ }
   const mod = MAQ.lots ? await tryImport('./lots.js') : null;
+  if (mod && mod.preload) { try { await mod.preload(); } catch (e) { /* mobilier sculpté facultatif */ } }
   lots = await tryCall(mod && mod.createLots, [THREE, M, bud, lotsData], 'createLots');
   if (!lots || !lots.group) lots = createLotsStub(bud, lotsData);
   lots.group.name = lots.group.name || 'lots';

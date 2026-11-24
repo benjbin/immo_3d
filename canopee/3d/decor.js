@@ -13,7 +13,8 @@
  * teinte par objet en couleurs de sommet (variantes d'un même matériau dans un seul appel de dessin),
  * occlusion bakée multipliée par lots.js. Tout ce qui dépasse le plan de coupe (1,2 m) est « visite » seulement.
  */
-import { createFurniture } from './furniture.js';
+import { createFurniture, loadFurnitureAssets } from './furniture.js';
+export { loadFurnitureAssets };
 import { CATALOG as MODEL_CATALOG, fitSize } from './models.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 

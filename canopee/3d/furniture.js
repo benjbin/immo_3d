@@ -17,6 +17,27 @@
  */
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
+// Canapé et fauteuil capitonnés sculptés dans Blender par simulation de tissu (outils/meubles/canape.py) : chargés avant
+// la construction des plans (loadFurnitureAssets), ils remplacent la version générée par code de channelSofa().
+// Fichier absent : la version générée par code reste en place.
+const ASSET = new Map(), MB_V = '1';
+export async function loadFurnitureAssets() {
+  await Promise.all(['canape', 'fauteuil'].map(async (name) => {
+    try {
+      const u = (e) => new URL(`./assets/meubles/${name}.${e}?v=${MB_V}`, import.meta.url);
+      const [jr, br] = await Promise.all([fetch(u('json')), fetch(u('bin'))]); if (!jr.ok || !br.ok) return;
+      const meta = await jr.json(), buf = await br.arrayBuffer();
+      meta.parts = meta.parts.map((e) => {
+        const q = new Uint16Array(buf, e.off, e.nv * 3), index = new Uint16Array(buf, e.off + e.nv * 6, e.nt * 3), s8 = new Uint8Array(buf, e.off + e.nv * 6 + e.nt * 6, e.nv);
+        const pos = new Float32Array(e.nv * 3), shade = new Float32Array(e.nv);
+        for (let i = 0; i < e.nv; i++) { for (let k = 0; k < 3; k++) pos[i * 3 + k] = e.min[k] + (e.max[k] - e.min[k]) * q[i * 3 + k] / 65535; shade[i] = s8[i] / 255; }
+        return { slot: e.slot, pos, index, shade };
+      });
+      ASSET.set(name, meta);
+    } catch (e) { /* facultatif */ }
+  }));
+}
+
 const PB = new Map();   // géométries de coussins partagées par tous les étages (voir puffBox)
 
 export function createFurniture(THREE, K) {
@@ -237,8 +258,25 @@ export function createFurniture(THREE, K) {
     PB.set(key, g);
     return g.clone();
   }
+  // version sculptée (Blender) : corps (assise + coque) et coussins libres, mis à la largeur et à la profondeur demandées
+  function sculpted(A, w, d, o, mk, col) {
+    const sx = w / A.w, sz = d / A.d, pc = C(o.shell || 0xb7ab9c, 0.03); let ci = 0;
+    for (const p of A.parts) {
+      const cushion = p.slot !== 'corps';
+      if (cushion && w < 1.2 && !o.pillowC) continue;
+      const g = new THREE.BufferGeometry(), pos = new Float32Array(p.pos);
+      for (let i = 0; i < pos.length; i += 3) { pos[i] *= sx; pos[i + 2] *= sz; }
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('shade', new THREE.BufferAttribute(p.shade, 1));
+      g.setIndex(new THREE.BufferAttribute(p.index, 1)); g.computeVertexNormals();
+      if (!cushion) put(mk, g, col);
+      else { put(o.pillowC ? 'textile' : mk, g, o.pillowC ? C(o.pillowC, 0.03) : ci % 2 ? pc.map((v) => v * 0.965) : pc); ci++; }
+    }
+    contact(0, 0, w + 0.15, d + 0.15);
+  }
   function channelSofa(w, o = {}) {
     const d = o.d || 0.98, mk = o.mk || 'textile', col = C(o.shell || 0xb7ab9c, 0.015);
+    const A = ASSET.get(w < 1.2 ? 'fauteuil' : 'canape');
+    if (A) return sculpted(A, w, d, o, mk, col);
     const seatH = 0.43, th = w < 1.2 ? 0.2 : 0.25, backH = o.backH || 0.76, armH = o.armH || 0.6, Rc = Math.min(o.Rc || 0.3, w / 2 - th / 2 - 0.005);
     const xs = w / 2 - th / 2, zb = -d / 2 + th / 2, zf = d / 2 - 0.34, zi = zb + th / 2, xi = xs - th / 2;
     // --- assise

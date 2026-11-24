@@ -19,7 +19,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { drawParquet, mulberry32 } from './interiors.js';
 import { createCar } from './cars.js';
-import { decorMaterials, createDecor, furnishUpper } from './decor.js';
+import { decorMaterials, createDecor, furnishUpper, loadFurnitureAssets } from './decor.js';
+export const preload = () => loadFurnitureAssets();   // mobilier sculpté : à charger avant createLots
 import { createModels, CATALOG as MODEL_CATALOG, fitSize } from './models.js';
 
 // Gabarit de repli (identique à building.js passe 5) si building.js ne l'exporte pas
@@ -214,7 +215,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   for (const m of Object.values(MAT)) m.userData.lotsPlan = true;
   // variantes « visite » : mêmes couleurs et textures, éclairage baké (couleurs de sommet), non éclairées
   const WALK = {};
-  const OUT = { k: { value: new THREE.Vector4(1, 0, 0, 0) }, lamp: { value: new THREE.Vector3(0, 0, 0) }, gi: { value: 1 } };
+  const OUT = { k: { value: new THREE.Vector4(1, 0, 0, 0) }, lamp: { value: new THREE.Vector3(0, 0, 0) }, gi: { value: 1 }, lm: [{ value: null }, { value: null }, { value: null }], lmP: { value: new THREE.Vector4(1, 1, 0, 2) }, lmMax: { value: new THREE.Vector3(1, 1, 1) }, lmRef: { value: new THREE.Vector3(1, 1, 1) } };
+  { const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); t.needsUpdate = true; for (const u of OUT.lm) u.value = t; OUT.lmBlank = t; disposables.push(t); }
   const walkMat = (k) => {
     if (WALK[k]) return WALK[k];
     const s = MAT[k];
@@ -240,9 +242,43 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         sh.uniforms.cnpGiK = OUT.gi;
         sh.vertexShader = 'attribute float cnpGi;\nvarying float vCnpGi;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vCnpGi = cnpGi;');
         sh.fragmentShader = 'uniform float cnpGiK;\nvarying float vCnpGi;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= max( 0.0, 1.0 + vCnpGi * cnpGiK );');
+        // même lumière calculée par Blender (Cycles) à la résolution d'une texture, pour les grandes surfaces (applyLM) :
+        // coordonnées nulles = maillage sans texture de lumière. Une texture par étage : la partie entière de x la désigne.
+        sh.uniforms.cnpLmMap0 = OUT.lm[0]; sh.uniforms.cnpLmMap1 = OUT.lm[1]; sh.uniforms.cnpLmMap2 = OUT.lm[2];
+        sh.vertexShader = 'attribute vec2 cnpLm;\nattribute vec3 cnpLv;\nvarying vec2 vCnpLm;\nvarying vec3 vCnpLv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vCnpLm = cnpLm; vCnpLv = cnpLv;');
+        // La texture porte la lumière reçue hors soleil direct (ciel, rebonds du ciel et du soleil, en couleur). De jour
+        // (cnpLmP.z = 1) elle remplace tout l'éclairage diffus temps réel de ces surfaces, sauf le soleil direct (seule
+        // lumière directionnelle, isolée dans cnpSun) ; la nuit (z = 0) elle ne sert plus que de facteur d'ombrage.
+        const TD = 'vec3 totalDiffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;', DIR = '#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )', RECT = '#if ( NUM_RECT_AREA_LIGHTS > 0 ) && defined( RE_Direct_RectArea )';
+        const LB = THREE.ShaderChunk.lights_fragment_begin;
+        if (sh.fragmentShader.includes(TD) && sh.fragmentShader.includes('#include <lights_fragment_begin>') && LB.includes(DIR) && LB.includes(RECT)) {
+          sh.uniforms.cnpLmP = OUT.lmP; sh.uniforms.cnpLmMax = OUT.lmMax; sh.uniforms.cnpLmRef = OUT.lmRef;
+          sh.fragmentShader = 'uniform sampler2D cnpLmMap0;\nuniform sampler2D cnpLmMap1;\nuniform sampler2D cnpLmMap2;\nuniform vec4 cnpLmP;\nuniform vec3 cnpLmMax;\nuniform vec3 cnpLmRef;\nvarying vec2 vCnpLm;\nvarying vec3 vCnpLv;\n' + sh.fragmentShader
+            .replace('#include <lights_fragment_begin>', LB.replace(DIR, 'vec3 cnpD0 = reflectedLight.directDiffuse;\n' + DIR).replace(RECT, 'vec3 cnpSun = reflectedLight.directDiffuse - cnpD0;\n' + RECT))
+            .replace(TD, TD + `
+  bool cnpLmT = vCnpLm.x + vCnpLm.y > 0.0;
+  if ( cnpLmT || vCnpLv.r + vCnpLv.g + vCnpLv.b > 0.0 ) {
+    vec2 cnpLmUv = vec2( fract( vCnpLm.x ), vCnpLm.y );
+    vec2 cnpLmDx = dFdx( cnpLmUv ), cnpLmDy = dFdy( cnpLmUv );
+    vec3 cnpLmV; float cnpLmR;
+    if ( ! cnpLmT ) {   // tissus : lumière par sommet (racine)
+      cnpLmV = vCnpLv * vCnpLv * cnpLmP.w; cnpLmR = ( cnpLmRef.x + cnpLmRef.y + cnpLmRef.z ) / 3.0;
+      // de jour, plus de reflet temps réel des projecteurs de ciel : sur le relief du bouclé il scintille près des baies
+      reflectedLight.directSpecular *= 1.0 - cnpLmP.z;
+      #ifdef USE_SHEEN
+        sheenSpecularDirect *= 1.0 - cnpLmP.z;
+      #endif
+    }
+    else if ( vCnpLm.x < 1.0 ) { cnpLmV = textureGrad( cnpLmMap0, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.x; cnpLmR = cnpLmRef.x; }
+    else if ( vCnpLm.x < 2.0 ) { cnpLmV = textureGrad( cnpLmMap1, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.y; cnpLmR = cnpLmRef.y; }
+    else { cnpLmV = textureGrad( cnpLmMap2, cnpLmUv, cnpLmDx, cnpLmDy ).rgb * cnpLmMax.z; cnpLmR = cnpLmRef.z; }
+    float cnpLmF = mix( 1.0, clamp( sqrt( dot( cnpLmV, vec3( 0.2126, 0.7152, 0.0722 ) ) / cnpLmR ), 0.3, 1.0 ), cnpGiK );
+    totalDiffuse = mix( totalDiffuse * cnpLmF, cnpSun + material.diffuseColor * cnpLmV, cnpLmP.z );
+  }`);
+        } else sh.fragmentShader = 'varying vec2 vCnpLm;\nvarying vec3 vCnpLv;\n' + sh.fragmentShader;
       }
     };
-    m.customProgramCacheKey = () => prevK + ':walk-out-gi';
+    m.customProgramCacheKey = () => prevK + ':walk-out-gi-lm5';
     return (WALK[k] = m);
   };
 
@@ -1428,6 +1464,47 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     }
     return done;
   }
+  // texture de lumière d'un étage (outils/gi/blender_lm.py) : index [{ name, n }] + 2 × uint16 par sommet (coordonnées dans
+  // la texture). La couleur de sommet perd son occlusion analytique (la texture la remplace) et l'écart par sommet est annulé.
+  function applyLM(key, index, uv, texture, info = {}, vc = null) {
+    const p = plans.get(+key), slot = +key - 1; if (!p || !OUT.lm[slot]) return 0;
+    const by = new Map(); p.group.traverse((o) => { if (o.isMesh) by.set(o.name, o); });
+    let off = 0, done = 0;
+    for (const e of index) {
+      const o = by.get(e.name), g = o && o.geometry, occ = g && g.userData.occ, col = g && g.attributes.color;
+      if (g && occ && col && g.attributes.position.count === e.n) {
+        const c = col.array;
+        for (let i = 0; i < e.n; i++) { const k = 255 / Math.max(13, occ[i]); c[i * 3] *= k; c[i * 3 + 1] *= k; c[i * 3 + 2] *= k; }
+        col.needsUpdate = true; g.userData.occ = null;
+        if (g.attributes.cnpGi) g.deleteAttribute('cnpGi');
+        const a = new Float32Array(e.n * 2);   // x : numéro de texture (étage − 1) + abscisse ; y : ordonnée
+        for (let i = 0, j = off * 2; i < e.n; i++, j += 2) { a[i * 2] = slot + Math.min(0.99998, uv[j] / 65535); a[i * 2 + 1] = uv[j + 1] / 65535; }
+        g.setAttribute('cnpLm', new THREE.BufferAttribute(a, 2));
+        done++;
+      }
+      off += e.n;
+    }
+    // tissus d'ameublement : même lumière, par sommet (3 octets, racine de E / vmax)
+    if (vc && info.vlist) {
+      let o2 = 0;
+      for (const e of info.vlist) {
+        const o = by.get(e.name), g = o && o.geometry, occ = g && g.userData.occ, col = g && g.attributes.color;
+        if (g && occ && col && g.attributes.position.count === e.n && (o2 + e.n) * 3 <= vc.length) {
+          const c = col.array;
+          for (let i = 0; i < e.n; i++) { const k = 255 / Math.max(13, occ[i]); c[i * 3] *= k; c[i * 3 + 1] *= k; c[i * 3 + 2] *= k; }
+          col.needsUpdate = true; g.userData.occ = null;
+          if (g.attributes.cnpGi) g.deleteAttribute('cnpGi');
+          const a = vc.slice(o2 * 3, (o2 + e.n) * 3); for (let i = 0; i < a.length; i += 3) if (a[i] + a[i + 1] + a[i + 2] === 0) a[i + 1] = 1;
+          g.setAttribute('cnpLv', new THREE.BufferAttribute(a, 3, true));
+          done++;
+        }
+        o2 += e.n;
+      }
+      if (info.vmax) OUT.lmP.value.w = info.vmax;
+    }
+    if (done) { const u = OUT.lm[slot]; if (u.value && u.value !== texture && u.value !== OUT.lmBlank) u.value.dispose(); u.value = texture; OUT.lmMax.value.setComponent(slot, info.max || 1); OUT.lmRef.value.setComponent(slot, info.ref || 1); OUT.lmOn = true; }
+    return done;
+  }
   function stageOutside(k) { const p = plans.get(k); if (!p) return null; p.staged = true; applyVisibility(); return p.group; }
   function setOutside(n) { n = Math.max(0, Math.min(3, n | 0)); if (n === outTop) return false; outTop = n; applyVisibility(); return true; }
   function setCutLimit(y) {
@@ -1600,7 +1677,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   return {
     group, floors, pickables, labels,
     setFloor, setMode, setHover, setSelected, setFilter, setViewMode,
-    stageOutside, setOutside, setCutLimit, applyGI, outdoor: OUT, get outside() { return outTop; },
+    stageOutside, setOutside, setCutLimit, applyGI, applyLM, outdoor: OUT, get outside() { return outTop; },
     models: MODELS, commonRooms, stairFloor, stairLevel, inCage, get stair() { return STAIR; },
     lot, colliders, floorY, walkFloorAt, walkCeilingY, roomLabels, liftStop, collisionBoxes, update, dispose,
     setLabelsVisible(v) { labelsOn = !!v; labels.visible = labelsOn; },
