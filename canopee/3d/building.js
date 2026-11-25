@@ -77,6 +77,7 @@ const FR = {
 };
 
 export function createBuilding(THREE, M) {
+  const LOUNGE = [], opts = null;   // emplacements du salon de jardin (modèles chargés par viewer.js)
   const rand = mulberry32(20261023);
   const buckets = new Map();      // "sous-groupe|matériau" → [BufferGeometry]
   let grp = 'structure';          // sous-groupe courant
@@ -715,9 +716,11 @@ export function createBuilding(THREE, M) {
     cyl('soil', 0.08, 0.005, x, y + 0.13, z, 14);
     planters.push({ x, y: +(y + 0.135).toFixed(3), z, w: 0.16, d: 0.16, kind: 'indoor' });
   }
-  local(X(0.8), DECK, -5.05, 0, () => sofa(2.2, 3));
-  local(X(-0.95), DECK, -3.75, Math.PI / 2, () => sofa(0.86, 1));
-  local(X(2.55), DECK, -3.75, -Math.PI / 2, () => sofa(0.86, 1));
+  // salon de jardin : modèles sculptés (outils/meubles/sofa.py, style « jardin ») posés par viewer.js (loadLounge) ;
+  // lounge = emplacements. Sans eux (opts.proceduralLounge), l'ancienne version en boîtes.
+  const lounge = [{ x: X(0.8), y: DECK, z: -5.05, ry: 0, w: 2.2 }, { x: X(-0.95), y: DECK, z: -3.75, ry: Math.PI / 2, w: 0.9 }, { x: X(2.55), y: DECK, z: -3.75, ry: -Math.PI / 2, w: 0.9 }];
+  if (opts && opts.proceduralLounge) for (const L of lounge) local(L.x, L.y, L.z, L.ry, () => sofa(L.w > 1 ? 2.2 : 0.86, L.w > 1 ? 3 : 1));
+  LOUNGE.push(...lounge);
   local(X(0.8), DECK, -3.75, 0, () => table(1.2, 0.6, 0.38));
   local(X(1.4), DECK, -1.7, 0, () => table(2.0, 0.9, 0.75));
   for (const x of [X(1.4) - 0.6, X(1.4), X(1.4) + 0.6]) {
@@ -899,6 +902,7 @@ export function createBuilding(THREE, M) {
   tris += interiors.userData.triangles || 0;
 
   group.userData = {
+    lounge: LOUNGE,
     leaves: leaves.filter((L) => L.group),
     levels: [
       { key: 0, name: 'RDC', y0: 0, y1: 3 },

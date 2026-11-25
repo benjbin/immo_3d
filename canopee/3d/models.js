@@ -26,6 +26,10 @@ export const CATALOG = {
   mid_century_lounge_chair: { size: [1.009, 1.169, 1.19], rot: 0, kind: 'meuble' },
   canopee_sofa:             { size: [2.212, 0.933, 1.004], rot: 0, kind: 'meuble' },   // sculpté dans Blender (outils/meubles/sofa.py)
   canopee_fauteuil:         { size: [0.992, 0.921, 1.02], rot: 0, kind: 'meuble' },
+  canopee_salon_fauteuil:   { size: [0.9, 0.822, 0.926], rot: 0, kind: 'meuble' },   // fauteuil de jardin (style « jardin »), en plein air : lumière du soleil, pas du calcul
+  canopee_salon:            { size: [2.2, 0.833, 0.928], rot: 0, kind: 'meuble' },
+  canopee_terrasse_fauteuil:   { size: [0.76, 0.816, 0.894], rot: 0, kind: 'meuble' },   // fauteuil bas de terrasse (style « terrasse ») : cadre fin en teck, coussin terracotta
+  canopee_terrasse_fauteuil_b: { size: [0.76, 0.816, 0.894], rot: 0, kind: 'meuble' },   // le même, coussin ocre
   modern_coffee_table_01:   { size: [1.202, 0.39, 0.6], rot: Math.PI / 2, kind: 'meuble' },
   coffee_table_round_01:    { size: [1.301, 0.491, 1.301], rot: 0, kind: 'meuble' },
   side_table_01:            { size: [0.55, 0.551, 0.45], rot: 0, kind: 'meuble' },
@@ -80,7 +84,7 @@ export function createModels(THREE) {
       roughnessMap: arm || ARM1, metalnessMap: arm || ARM1,
       // canal R de la carte ARM de Poly Haven : occlusion de détail (plis, joints) ; la GTAO fait le reste
       // modèles sculptés (canopee_*) : leur lumière vient du calcul Blender par sommet, qui contient déjà l'occlusion
-      aoMap: arm || WHITE, aoMapIntensity: /^canopee_/.test(src.name || '') ? 0 : 0.75,
+      aoMap: arm || WHITE, aoMapIntensity: /^canopee_(?!salon|terrasse)/.test(src.name || '') ? 0 : 0.75,
       roughness: src.roughness, metalness: src.metalness,
       normalScale: src.normalScale ? src.normalScale.clone() : new THREE.Vector2(1, 1),
       side: foliage ? THREE.DoubleSide : THREE.FrontSide,
@@ -199,7 +203,7 @@ export function createModels(THREE) {
     const img = (url) => { const im = new Image(); im.decoding = 'async'; im.src = url; return im.decode().then(() => im); };
     const byTex = new Map();
     await Promise.all(upgrades.map(async (u) => {
-      const [d, n, r] = await Promise.all(['diff', 'nor', 'rough'].map((k) => img(TEX + u.key + '_' + k + '.jpg').catch(() => null)));
+      const [d, n, r] = await Promise.all(['diff', 'nor', 'rough'].map((k) => img(TEX + u.key + '_' + k + '.jpg?v=4').catch(() => null)));
       for (const [t, im] of [[u.mat.map, d], [u.mat.normalMap, n], [u.mat.roughnessMap, r]]) if (t && im && !byTex.has(t)) byTex.set(t, { t, im, u });
     }));
     upQueue = [...byTex.values()];
@@ -242,7 +246,7 @@ export function createModels(THREE) {
     // une animation d'étage ou un déplacement (images en retard, baisse de qualité automatique)
     if (!still) return;
     if (stillWait.length) { const w = stillWait; stillWait = []; for (const r of w) r(); }
-    if (upState === 'idle' && upgrades.length && (work != null || queue.length)) loadUpgrades().catch((e) => { console.warn('[textures]', e); upState = 'done'; });
+    if (upState === 'idle' && upgrades.length && (work != null || queue.length || upgrades.some((u) => u.eager))) loadUpgrades().catch((e) => { console.warn('[textures]', e); upState = 'done'; });
     if (!work && queue.length) { const key = queue.shift(); work = key; prepare(key).catch((e) => { console.warn('[models]', e); floors.get(key).state = 'idle'; work = null; }); }
     if (upState === 'ready' && still) { if (upQueue.length) { applyUpgrade(upQueue.shift()); if (hooks.onSwap) hooks.onSwap(null); } else upState = 'done'; return; }
     if (work == null) return;

@@ -16,7 +16,7 @@ REFPCT, REFK = 85, float(os.environ.get('LM_REFK', 1.15))   # plus contrasté qu
 LM = r':(wall|ceil|skirt|tile|parquet|concrete|rug|jute|oak|lacquer|stone|travertine|wood|furn|ceramic)$'
 # tissus d'ameublement (canapés, fauteuils, coussins, literie ; pas les voilages, double face) : maillages fins et bosselés qui
 # se déplient mal en îlots. Même calcul, mais stocké par sommet (lm-K.vc.bin) au lieu de la texture.
-LV = r':(boucle|textile|velvet|wool)$|:model:canopee_\w+_(tissu|coussin\w*)$'   # + tissus des modèles sculptés (outils/meubles/sofa.py)
+LV = r':(boucle|textile|velvet|wool)$|:model:canopee_(?!salon|terrasse)\w+_(tissu|coussin\w*)$'   # + tissus des modèles sculptés (outils/meubles/sofa.py)
 ALBEDO = dict(wall=0.78, ceil=0.82, skirt=0.8, parquet=0.36, tile=0.5, oak=0.4, wood=0.3, stone=0.55, black=0.04, ceramic=0.75, lacquer=0.6,
   steel=0.45, brass=0.4, bark=0.2, leafM=0.15, leafG=0.15, shade=0.7, bulb=0.8, paper=0.7, art=0.4, stoneware=0.5, cloth=0.6, soil=0.05,
   zellige=0.4, mirror=0.1, textile=0.5, rug=0.45, jute=0.45, wool=0.6, boucle=0.65, travertine=0.6, concrete=0.4, furn=0.7,

@@ -1168,8 +1168,16 @@ export function createDecor(THREE, P, ctx = {}) {
     for (const [sx, sw] of sinks) {
       box(top, cx, sx - sw / 2, ty0, ty1, zb, zf, topC); box(top, sx - sw / 2, sx + sw / 2, ty0, ty1, zb, -0.2, topC); box(top, sx - sw / 2, sx + sw / 2, ty0, ty1, 0.22, zf, topC);
       // cuve sous plan en inox + bonde, robinet col de cygne noir mat
-      box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0 - 0.19, -0.19, 0.21, C(0xe2e4e6)); for (const s of [-1, 1]) { box('steel', s > 0 ? sx + sw / 2 - 0.012 : sx - sw / 2 + 0.002, s > 0 ? sx + sw / 2 - 0.002 : sx - sw / 2 + 0.012, ty0 - 0.2, ty0, -0.19, 0.21, C(0xd6d9dc)); box('steel', sx - sw / 2 + 0.01, sx + sw / 2 - 0.01, ty0 - 0.2, ty0, s > 0 ? 0.2 : -0.2, s > 0 ? 0.21 : -0.19, C(0xd6d9dc)); }   // inox brossé clair
-      cyl('steel', 0.03, 0.03, 0.003, sx, ty0 - 0.19, 0.01, C(0x55585a));
+      { // cuve sous plan en inox satiné, angles et fond rayonnés (boîte arrondie vue de l'intérieur, un peu plus large que la découpe)
+        const bw = sw + 0.016, bd = 0.436, bh = 0.2, g0 = new RoundedBoxGeometry(bw, bh * 2, bd, 5, 0.03), p = g0.attributes.position, n = g0.attributes.normal, kp = [], kn = [];
+        for (let i = 0; i < p.count; i += 3) { if (p.getY(i) > 0 && p.getY(i + 1) > 0 && p.getY(i + 2) > 0) continue;   // moitié haute retirée ; les faces à cheval sur le milieu deviennent les parois, ramenées au niveau du plan
+          for (const k of [i, i + 2, i + 1]) { const up = p.getY(k) > 0; kp.push(p.getX(k), up ? 0 : p.getY(k), p.getZ(k)); if (up) { const l = Math.hypot(n.getX(k), n.getZ(k)) || 1; kn.push(-n.getX(k) / l, 0, -n.getZ(k) / l); } else kn.push(-n.getX(k), -n.getY(k), -n.getZ(k)); } }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(kp, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(kn, 3));
+        g.translate(sx, ty0, 0.01); put('lacquer', g, C(0xc9ccd0));
+        // bonde à panier : collerette inox, grille sombre, bouton central
+        const by = ty0 - bh;
+        cyl('steel', 0.043, 0.045, 0.004, sx, by, 0.01, C(0xe6e8ea), { seg: 32 }); cyl('black', 0.031, 0.031, 0.005, sx, by, 0.01, C(0x3a3c3e), { seg: 24 }); cyl('steel', 0.011, 0.009, 0.009, sx, by, 0.01, C(0xe6e8ea), { seg: 16 });
+      }
       const tm = o.tap || 'black';
       if (kitchenTap) kitchenTap(sx, ty1, -0.25, tm);
       else { cyl(tm, 0.022, 0.022, 0.06, sx, ty1, -0.25, WHITE, { seg: 14 }); tube(tm, [[sx, ty1 + 0.05, -0.25], [sx, ty1 + 0.3, -0.25], [sx, ty1 + 0.36, -0.17], [sx, ty1 + 0.3, -0.1], [sx, ty1 + 0.25, -0.1]], 0.011, WHITE, { seg: 24, rad: 8 }); }
@@ -1179,7 +1187,7 @@ export function createDecor(THREE, P, ctx = {}) {
     // plaque à induction : verre noir à bord chanfreiné posé sur le plan, foyers sérigraphiés (cercle, repère central),
     // bandeau de commandes tactiles à l'avant (marche/arrêt, un réglage par foyer, curseur de puissance)
     for (const hx of hobs) {
-      const gy = ty1 + 0.006, my = gy + 0.0004, PR = [44, 44, 47], PD = [18, 18, 19.5];
+      const gy = ty1 + 0.006, my = gy + 0.0004, PR = [70, 70, 74], PD = [30, 30, 32];
       rbb('glassBlack', hx - 0.29, hx + 0.29, ty1, gy, -0.25, 0.25, 0.0028, WHITE, { seg: 2 });
       const ring = (x, z, r, t, c, a0 = 0, a1 = Math.PI * 2) => { const g = new THREE.RingGeometry(r - t, r, 56, 1, a0, a1); g.rotateX(-Math.PI / 2); g.translate(x, my, z); put('glassBlack', g, c); };
       const mark = (x0, x1, z0, z1, c = PR) => box('glassBlack', x0, x1, gy, my, z0, z1, c);
@@ -1210,7 +1218,7 @@ export function createDecor(THREE, P, ctx = {}) {
         F(0.1, 0.5); F(0.5, 0.8);
         // deux appareils encastrés : four (0,80–1,38) et four combiné (1,38–1,83). Cadre inox brossé, bandeau de verre
         // noir à afficheur et manettes tournées, fente d'aération, porte vitrée (hublot fumé, grilles devinées), jonc inox
-        const hw = w / 2, GL = [3.2, 3.2, 3.4], RK = [7, 7, 7.4], DG = [20, 26, 34];
+        const hw = w / 2, GL = [8, 8, 8.6], RK = [17, 17, 18], DG = [60, 80, 110];   // hublot gris fumé distinct du cadre noir, grilles et afficheur lisibles
         // afficheur 7 segments (verre clair teinté, lisible de jour comme de nuit)
         const SEG = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abfgcd' };
         const digit = (ch, x, y, z, hD) => {
@@ -1231,7 +1239,8 @@ export function createDecor(THREE, P, ctx = {}) {
           // hublot : verre fumé un peu plus clair, liseré, deux grilles devinées derrière
           const wx = hw - 0.075, wy0 = y0 + 0.07, wy1 = handleY - 0.06;
           rbb('glassBlack', -wx, wx, wy0, wy1, 0.3018, 0.3031, 0.012, GL, { seg: 3 });
-          for (const k of [0.36, 0.68]) { const yy = wy0 + (wy1 - wy0) * k; box('glassBlack', -wx + 0.02, wx - 0.02, yy - 0.0012, yy + 0.0012, 0.3031, 0.3035, RK); }
+          for (const k of [0.3, 0.52, 0.74]) { const yy = wy0 + (wy1 - wy0) * k; box('glassBlack', -wx + 0.02, wx - 0.02, yy - 0.0012, yy + 0.0012, 0.3031, 0.3035, RK); }
+          box('glassBlack', -wx + 0.03, wx - 0.03, wy0 + (wy1 - wy0) * 0.3 - 0.016, wy0 + (wy1 - wy0) * 0.3 - 0.0012, 0.3031, 0.3034, [11, 11, 11.5]);   // plaque à pâtisserie posée sur la grille basse
           rbb('steel', -hw + 0.012, hw - 0.012, y0, y0 + 0.011, 0.3, 0.3042, 0.002, C(0xc6c9cc));          // jonc inox en bas de porte
           if (barHandleFn) barHandleFn('steel', 0, handleY, 0.3025, w - 0.13, { r: 0.0075, off: 0.034 }); else tube('steel', [[-hw + 0.06, handleY, 0.335], [hw - 0.06, handleY, 0.335]], 0.0075, WHITE, { seg: 2 });
         };
@@ -1660,7 +1669,9 @@ export function furnishUpper(THREE, P, D, o = {}) {
     if (o.y == null && MODEL_CATALOG[id] && MODEL_CATALOG[id].kind !== 'objet') { const [fw, , fd] = fitSize(id, fit); D.at(o.x || 0, o.z || 0, o.ry || 0, () => D.contact(0, 0, fw + 0.18, fd + 0.18)); }
   };
   const NS = (w = 0.46, d = 0.4) => (proxy) => M3('side_table_01', { w, h: 0.5, d }, proxy);   // chevet chêne à deux plateaux
-  const plantK = (k, h, proxy) => k === 'pp01' ? M3('potted_plant_01', { h: h || 1.55 }, proxy) : k === 'pp02' ? M3('potted_plant_02', { h: h || 0.95 }, proxy) : proxy();
+  // toutes les plantes d'intérieur sont des plantes scannées (Poly Haven) : les grandes (olivier, figuier) → potted_plant_01,
+  // les autres → potted_plant_02 ; la plante générée par code ne sert plus que de doublure pendant le chargement
+  const plantK = (k, h, proxy) => /^(pp01|olive|fig)$/.test(k) ? M3('potted_plant_01', { h: h && h > 1.2 ? h : 1.55 }, proxy) : M3('potted_plant_02', { h: h && h < 1.2 ? h : 0.95 }, proxy);
   const tall = (x, z, ry, fn) => { const n0 = FUR.length; at(x, z, ry, fn); for (let i = n0; i < FUR.length; i++) { const b = FUR[i]; b.min[0] -= 0.1; b.min[2] -= 0.1; b.max[0] += 0.1; b.max[2] += 0.1; b.max[1] = Math.max(b.max[1], b.min[1] + 2.0); } };
 
   // ======================= LOT A (côté rue) =======================
@@ -1767,7 +1778,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       D.drapes(-4.75, -4.18, -0.53, C(PAL.linenOat)); D.drapes(-1.6, -1.06, -0.53, C(PAL.linenOat));
       walk(() => D.box('black', -4.8, -1.03, P.H - 0.03, P.H - 0.002, -0.545, -0.515));
       D.glassPanel(-4.27, -1.04, -0.47, 0.02, 1.0);               // garde-corps vitré (baie toute hauteur)
-      at(-5.2, -0.85, 0, () => lv === 1 ? M3('potted_plant_02', { h: 0.8 }, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1)) : D.snakePlant(0, 0, 0.8, 0xe7dfd1));
+      at(-5.2, -0.85, 0, () => lv === 1 ? M3('potted_plant_02', { h: 0.8 }, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1)) : M3('potted_plant_02', { h: 0.85 }, () => D.snakePlant(0, 0, 0.8, 0xe7dfd1)));
       face(-5.565, -2.4, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenOat)));
       D.pendant(bx, -2.85, suite ? 1.95 : 1.98, c1.pend[0], c1.pend[1], c1.pend[2]);
       if (suite) { // coin lecture : fauteuil bouclé, lampadaire, guéridon
@@ -1840,27 +1851,27 @@ export function furnishUpper(THREE, P, D, o = {}) {
     // --- loggias A (séjour) et B (chambre 3) : chaise bistrot, lanterne, plante ; la coursive (x > 6) reste libre
     at(5.42, -3.14, PI, () => D.bistroChair({ cushion: lv === 1 ? PAL.ink : lv === 3 ? PAL.rust : PAL.ochre }));
     at(5.0, -4.42, 0, () => D.lantern(0, 0, 0.4));
-    at(5.62, -4.4, 0, () => D.snakePlant(0, 0, 0.7, 0xb8684a));
+    at(5.62, -4.4, 0, () => M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.7, 0xb8684a)));
     at(5.4, -7.45, 0, () => D.pouf(0.22, 0.36, lv === 3 ? PAL.linenOat : PAL.linenSand, 'textile'));
     at(5.05, -8.82, 0, () => D.lantern(0, 0, 0.36));
     // --- balcon sud : salon d'extérieur pour le 201 (fin de l'expérience d'accueil), bistrot au 101, olivier et lanternes au 302 ;
     //     l'axe de l'expérience (x 2,6 → 3,4) et la baie restent libres
     if (lv === 2) {
       at(5.05, 0.1, 0, () => D.rugF(2.2, 1.5, 'jute', C(0xe4dccb), false));
-      at(4.55, 0.05, 0.32, () => D.loungeChair({ pillow: PAL.terracotta }));
-      at(5.6, 0.05, -0.32, () => D.loungeChair({ pillow: PAL.ochre }));
+      at(4.55, 0.05, 0.32, () => M3('canopee_terrasse_fauteuil', { w: 0.76 }, () => D.loungeChair({ pillow: PAL.terracotta })));
+      at(5.6, 0.05, -0.32, () => M3('canopee_terrasse_fauteuil_b', { w: 0.76 }, () => D.loungeChair({ pillow: PAL.ochre })));
       at(5.08, 0.5, 0, () => { D.bistroTable(0.24, 0.42, 'oak'); D.lantern(0.05, 0, 0.26, 0.42); D.bowl(-0.1, 0.42, 0.06, 0.07, 0x9c5236); });
       at(3.85, 0.72, 0, () => D.lantern(0, 0, 0.5));
       at(6.05, 0.74, 0, () => D.lantern(0, 0, 0.42));
-      at(0.72, -0.78, 0, () => D.oliveTree(0, 0, 1.7, 0xb8684a));
+      at(0.72, -0.78, 0, () => M3('potted_plant_01', { h: 1.6 }, () => D.oliveTree(0, 0, 1.7, 0xb8684a)));
     } else if (lv === 1) {
       at(5.2, -0.25, 0, () => D.bistroTable(0.3));
       at(4.72, -0.25, PI / 2, () => D.bistroChair({ cushion: PAL.ink }));
       at(5.68, -0.25, -PI / 2, () => D.bistroChair({ cushion: PAL.ochre }));
       at(5.9, 0.75, 0, () => D.lantern(0, 0, 0.45));
-      at(0.72, -0.78, 0, () => D.snakePlant(0, 0, 0.9, 0xb8684a));
+      at(0.72, -0.78, 0, () => M3('potted_plant_02', { h: 0.95 }, () => D.snakePlant(0, 0, 0.9, 0xb8684a)));
     } else {
-      at(0.72, -0.78, 0, () => D.oliveTree(0, 0, 1.7, 0xb8684a));
+      at(0.72, -0.78, 0, () => M3('potted_plant_01', { h: 1.6 }, () => D.oliveTree(0, 0, 1.7, 0xb8684a)));
       at(4.6, 0.72, 0, () => D.lantern(0, 0, 0.5)); at(5.9, 0.72, 0, () => D.lantern(0, 0, 0.42));
     }
   }
@@ -1946,7 +1957,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
       face(-3.95, -15.95, PI, () => D.art(0, 1.62, 0.7, 0.7, c1.art));
       at(-1.35, -17.85, -1.07, () => M3('canopee_fauteuil', { w: 0.92 }, () => D.armchair({ pillow: c1.accent })));
       if (lv !== 3) D.shoes(-2.55, -17.3, PI - 0.4, lv === 1 ? 1 : 0);
-      at(-1.05, -18.3, 0, () => lv === 2 ? M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)) : D.snakePlant(0, 0, 0.75, 0x3d3a36));
+      at(-1.05, -18.3, 0, () => lv === 2 ? M3('potted_plant_02', { h: 0.78 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)) : M3('potted_plant_02', { h: 0.80 }, () => D.snakePlant(0, 0, 0.75, 0x3d3a36)));
       face(-5.565, -17.6, PI / 2, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
       for (const x of [-4.5, -1.5]) face(x, -18.565, 0, () => D.romanBlind(1.0, 1.74, 0.42, C(PAL.linenStone)));
       face(-3.0, -18.58, 0, () => D.art(0, 1.42, 0.9, 0.62, ART.arcs, { frame: 'oak', crop: [0.4, 0.55, 0.75] }));
@@ -1989,7 +2000,7 @@ export function furnishUpper(THREE, P, D, o = {}) {
     D.akari(-0.6, -12.75, 2.08, 0.18, 0.26);
     at(-0.95, -12.85, 0, () => D.rugF(1.8, 0.9, lv === 3 ? 'jute' : 'rug', C(0xffffff), lv !== 3));
     D.shoes(-2.36, -13.25, PI / 2, 1); D.shoes(-2.38, -12.8, PI / 2 - 0.12, 0);
-    at(1.06, -11.8, 0, () => D.snakePlant(0, 0, 0.95, 0xe7dfd1));
+    at(1.06, -11.8, 0, () => M3('potted_plant_02', { h: 0.95 }, () => D.snakePlant(0, 0, 0.95, 0xe7dfd1)));
     at(-2.07, -14.95, PI / 2, () => D.rugF(1.4, 0.6, 'wool', C(0xd9cbb4), false));
     // --- dressing : penderie sur cintres, pouf et panier côté ouest, œuvre sur le mur nu
     tall(1.3, -17.3, -PI / 2, () => D.dressing(2.4, 0.55));

@@ -32,3 +32,14 @@ Un 4ᵉ argument (`rendu.png`) écrit trois rendus de contrôle ; `SOFA_BAKE=0` 
 la forme). `SOFA_PS` / `SOFA_PB` : gonflage des coussins d'assise / de dossier (0,7 / 0,9 ; au-delà de 1,5 ils
 ballonnent). Après un changement : reporter la taille affichée dans `CATALOG` (`3d/models.js`), puis recalculer la
 lumière (`outils/gi`, les deux commandes).
+
+### Fauteuil de terrasse (`SOFA_STYLE=terrasse`)
+
+Cadre fin en teck (placage de chêne scanné `3d/assets/textures/oak_*`, teinté), assise et dossier à claire-voie,
+coussins de toile simulés, un coussin d'appoint dont la teinte se règle par `SOFA_ACCENT=r,v,b`.
+
+    SOFA_STYLE=terrasse SOFA_FABRIC=rough_linen_ecru SOFA_TILE=0.27 SOFA_RES=2048 \
+      Blender -b -P outils/meubles/sofa.py -- 3d/assets/models canopee_terrasse_fauteuil 0.74
+    SOFA_ACCENT=0.85,0.6,0.22 … canopee_terrasse_fauteuil_b 0.74      # variante coussin ocre
+
+Ces modèles sont en plein air : ils gardent la lumière du soleil en direct (exclus du calcul de lumière par sommet).

@@ -40,7 +40,7 @@ export async function exportFloor(url, K, out, lot = `${K}01`) {
       const opaque = (m) => m && !Array.isArray(m) && !m.transparent && !(m.transmission > 0) && !(m.alphaTest > 0) && m.visible !== false && !/glass|vitr|sheer|contact|arc|label/i.test(m.name || '');
       let root = null; v.lots.group.children.forEach((c) => { if (c.name === 'plan:${K}') root = c; });
       if (!root) return JSON.stringify({ error: 'étage ${K} introuvable' });
-      root.traverseVisible((o) => { if (o.isMesh && !o.isInstancedMesh && opaque(o.material)) add(o, (/Walk$/.test(o.material.name) && !o.material.isMeshBasicMaterial && !!o.geometry.attributes.color && !!o.geometry.userData.occ) || /^model:canopee_\\w+_(tissu|coussin\\w*)$/.test(o.material.name)); });   // + tissus des modèles sculptés (lumière par sommet)
+      root.traverseVisible((o) => { if (o.isMesh && !o.isInstancedMesh && opaque(o.material)) add(o, (/Walk$/.test(o.material.name) && !o.material.isMeshBasicMaterial && !!o.geometry.attributes.color && !!o.geometry.userData.occ) || /^model:canopee_(?!salon|terrasse)\\w+_(tissu|coussin\\w*)$/.test(o.material.name)); });   // + tissus des modèles sculptés (lumière par sommet)
       const fy = v.lots.floorY(${K});
       v.building.traverse((o) => { if (!o.isMesh || o.isInstancedMesh || !opaque(o.material) || /interieur/i.test(o.name || '')) return; let p = o, int = false; while (p) { if (/interieur/i.test(p.name || '')) int = true; p = p.parent; } if (int) return; add(o, false); });
       window.__bufs = bufs; return JSON.stringify({ floorY: fy, list });

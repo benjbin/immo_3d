@@ -528,9 +528,9 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
     // vantail ouvert à 90° (plan : coupé à 1,2 m ; visite : 2,04 m) + arc de débattement au sol
     const door = (axis, c, d) => {
       const w = d.b - d.a, hs = d.hinge === 'b' ? d.b : d.a, dir = d.hinge === 'b' ? -1 : 1, side = d.side || 1, th = 0.04;
-      const leaf = (h) => {
-        if (axis === 'x') { const x0 = dir > 0 ? hs : hs - th, z0 = c, z1 = c + side * w; B('furn', x0, x0 + th, 0, h, Math.min(z0, z1), Math.max(z0, z1)); return rect(x0, x0 + th, Math.min(z0, z1), Math.max(z0, z1)); }
-        const z0 = dir > 0 ? hs : hs - th, x0 = c, x1 = c + side * w; B('furn', Math.min(x0, x1), Math.max(x0, x1), 0, h, z0, z0 + th); return rect(Math.min(x0, x1), Math.max(x0, x1), z0, z0 + th);
+      const leaf = (h, draw = true) => {
+        if (axis === 'x') { const x0 = dir > 0 ? hs : hs - th, z0 = c, z1 = c + side * w; if (draw) B('furn', x0, x0 + th, 0, h, Math.min(z0, z1), Math.max(z0, z1)); return rect(x0, x0 + th, Math.min(z0, z1), Math.max(z0, z1)); }
+        const z0 = dir > 0 ? hs : hs - th, x0 = c, x1 = c + side * w; if (draw) B('furn', Math.min(x0, x1), Math.max(x0, x1), 0, h, z0, z0 + th); return rect(Math.min(x0, x1), Math.max(x0, x1), z0, z0 + th);
       };
       planOnly(() => {
         const R = leaf(CUT - 0.02); flat('cut', R, cy + 0.003);
@@ -538,14 +538,45 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
         else arc(c, hs, w, dir > 0 ? Math.PI / 2 : -Math.PI / 2, side > 0 ? (dir > 0 ? -Math.PI / 2 : Math.PI / 2) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2));
       });
       if (H > 0) walkOnly(() => {
-        const L = leaf(DOOR_H - 0.01);
+        const hL = DOOR_H - 0.01, L = leaf(hL, !FIN);
         // vantail ouvert : boîte fine de collision (on ne le traverse plus en visite)
-        { const xs = L.map(p => p[0]), zs = L.map(p => p[1]); furniture.push({ kind: 'meuble', min: [Math.min(...xs), fy, Math.min(...zs)], max: [Math.max(...xs), fy + DOOR_H, Math.max(...zs)] }); }
+        const xs = L.map(p => p[0]), zs = L.map(p => p[1]), lx0 = Math.min(...xs), lx1 = Math.max(...xs), lz0 = Math.min(...zs), lz1 = Math.max(...zs);
+        furniture.push({ kind: 'meuble', min: [lx0, fy, lz0], max: [lx1, fy + DOOR_H, lz1] });
         if (!FIN) return;
-        // béquilles noires des deux côtés du vantail, près du chant libre
-        const xs = L.map(p => p[0]), zs = L.map(p => p[1]), lx0 = Math.min(...xs), lx1 = Math.max(...xs), lz0 = Math.min(...zs), lz1 = Math.max(...zs), y = 1.02;
-        if (axis === 'x') { const zf = side > 0 ? lz1 - 0.07 : lz0 + 0.07, dz = side > 0 ? -0.11 : 0.11; for (const [xa, xb] of [[lx0 - 0.012, lx0], [lx1, lx1 + 0.012]]) { B('black', xa, xb, y - 0.03, y + 0.03, zf - 0.03, zf + 0.03); const xo = xa < lx0 ? xa - 0.045 : xb + 0.045; B('black', Math.min(xo, xa < lx0 ? xa : xb), Math.max(xo, xa < lx0 ? xa : xb), y - 0.01, y + 0.01, zf - 0.01, zf + 0.01); B('black', xa < lx0 ? xo - 0.016 : xo, xa < lx0 ? xo : xo + 0.016, y - 0.011, y + 0.011, Math.min(zf, zf + dz), Math.max(zf, zf + dz)); } }
-        else { const xf2 = side > 0 ? lx1 - 0.07 : lx0 + 0.07, dx = side > 0 ? -0.11 : 0.11; for (const [za, zb] of [[lz0 - 0.012, lz0], [lz1, lz1 + 0.012]]) { B('black', xf2 - 0.03, xf2 + 0.03, y - 0.03, y + 0.03, za, zb); const zo = za < lz0 ? za - 0.045 : zb + 0.045; B('black', xf2 - 0.01, xf2 + 0.01, y - 0.01, y + 0.01, Math.min(zo, za < lz0 ? za : zb), Math.max(zo, za < lz0 ? za : zb)); B('black', Math.min(xf2, xf2 + dx), Math.max(xf2, xf2 + dx), y - 0.011, y + 0.011, za < lz0 ? zo - 0.016 : zo, za < lz0 ? zo : zo + 0.016); } }
+        // Porte à panneaux (deux panneaux en retrait, montants et traverses de 10,5 cm, arêtes adoucies), paumelles,
+        // béquille coudée sur rosace ronde et rosace de condamnation. Repère local : u du chant des paumelles vers le
+        // chant libre, y vers le haut, t dans l'épaisseur ; ramené dans la maquette par une matrice (miroir possible).
+        const O = axis === 'x' ? [(lx0 + lx1) / 2, c] : [c, (lz0 + lz1) / 2];
+        const U = axis === 'x' ? [0, 0, side] : [side, 0, 0], Tn = axis === 'x' ? [1, 0, 0] : [0, 0, 1];
+        const Mx = new THREE.Matrix4().set(U[0], 0, Tn[0], O[0], 0, 1, 0, fy, U[2], 0, Tn[2], O[1], 0, 0, 0, 1), mirror = Mx.determinant() < 0;
+        const put = (mk, g) => {
+          g = g.index ? g.toNonIndexed() : g; g.applyMatrix4(Mx);
+          if (mirror) for (const n of ['position', 'normal', 'uv']) { const at = g.attributes[n]; if (!at) continue; const a = at.array, q = at.itemSize; for (let i = 0; i < at.count; i += 3) for (let e = 0; e < q; e++) { const v = a[(i + 1) * q + e]; a[(i + 1) * q + e] = a[(i + 2) * q + e]; a[(i + 2) * q + e] = v; } }
+          push(mk, g);
+        };
+        const rb = (mk, u0, u1, y0, y1, t0, t1, r) => { const g = new RoundedBoxGeometry(u1 - u0, y1 - y0, t1 - t0, 2, r); g.translate((u0 + u1) / 2, (y0 + y1) / 2, (t0 + t1) / 2); put(mk, g); };
+        const cyT = (mk, r, u, y, t0, t1, seg = 28) => { const g = new THREE.CylinderGeometry(r, r, Math.abs(t1 - t0), seg, 1); g.rotateX(Math.PI / 2); g.translate(u, y, (t0 + t1) / 2); put(mk, g); };
+        const ST = 0.105, RT = 0.006, CO = 0.014;
+        rb('furn', 0, w, 0.008, hL, -CO, CO, 0.002);                                           // âme (fond des panneaux)
+        for (const sg of [-1, 1]) {
+          const t0 = sg > 0 ? CO - 0.001 : -CO - RT, t1 = sg > 0 ? CO + RT : -CO + 0.001;
+          rb('furn', 0, ST, 0.008, hL, t0, t1, 0.0025); rb('furn', w - ST, w, 0.008, hL, t0, t1, 0.0025);                                   // montants
+          rb('furn', ST - 0.001, w - ST + 0.001, hL - ST, hL, t0, t1, 0.0025);                                                              // traverse haute
+          rb('furn', ST - 0.001, w - ST + 0.001, 0.93, 0.93 + ST + 0.02, t0, t1, 0.0025);                                                   // traverse de serrure
+          rb('furn', ST - 0.001, w - ST + 0.001, 0.008, 0.21, t0, t1, 0.0025);                                                              // traverse basse
+          // béquille : rosace ronde, col, levier coudé à angle arrondi, bout arrondi ; rosace de condamnation dessous
+          const uh = w - 0.058, yh = 1.03, tf = sg * (CO + RT), R = 0.0095, far = 0.052, bend = 0.016;
+          cyT('black', 0.026, uh, yh, tf, tf + sg * 0.008); cyT('black', 0.026, uh, yh - 0.075, tf, tf + sg * 0.008);
+          cyT('black', 0.0075, uh, yh - 0.075, tf + sg * 0.008, tf + sg * 0.0105, 16);
+          const path = new THREE.CurvePath();
+          path.add(new THREE.LineCurve3(new THREE.Vector3(uh, yh, tf + sg * 0.006), new THREE.Vector3(uh, yh, tf + sg * (far - bend))));
+          path.add(new THREE.QuadraticBezierCurve3(new THREE.Vector3(uh, yh, tf + sg * (far - bend)), new THREE.Vector3(uh, yh, tf + sg * far), new THREE.Vector3(uh - bend, yh, tf + sg * far)));
+          path.add(new THREE.LineCurve3(new THREE.Vector3(uh - bend, yh, tf + sg * far), new THREE.Vector3(uh - 0.128, yh, tf + sg * far)));
+          put('black', new THREE.TubeGeometry(path, 40, R, 14, false));
+          { const g = new THREE.SphereGeometry(R, 14, 10); g.translate(uh - 0.128, yh, tf + sg * far); put('black', g); }
+        }
+        // paumelles (trois) sur le chant des gonds, côté huisserie
+        for (const yk of [0.22, 1.02, hL - 0.22]) { const g = new THREE.CylinderGeometry(0.0075, 0.0075, 0.1, 14, 1); g.translate(-0.006, yk, -dir * (CO + RT + 0.004)); put('black', g); }
       });
     };
     // chambranles (3 pièces, 6 cm) sur les deux faces, interrupteur côté gâche ; c : axe du mur, t : épaisseur
@@ -1307,7 +1338,8 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   // textures photographiques (Poly Haven CC0) chargées avec le mobilier : parquet point de Hongrie en chêne
   // clair, chêne fil droit, lin lavé (tissus, rideaux) ; tile = taille réelle d'une répétition (m)
   for (const [k, key, o] of [
-    ['parquet', 'parquet', { tile: [4.4], ns: 0.8, detail: 0, rough: 0.72 }],
+    ['parquet', 'parquet', { tile: [3.4], ns: 0.8, detail: 0, rough: 0.72 }],   // scan 4k à sa taille réelle (3,40 m)
+    ['tile', 'tile', { tile: [3.0], ns: 0.7, rough: 0.5 }],                       // pierre claire 75 × 75 (salles d'eau, paliers)
     ['oak', 'oak', { tile: [0.6], rot: Math.PI / 2, ns: 0.35 }],   // relief du fil discret (le grain « rayé » faisait sale)
     // tapis (laine, jute) : textures procédurales d'origine — la laine photo, trop fine, lisait comme un aplat gris
   ]) { if (MAT[k]) MODELS.upgrade(MAT[k], key, o); if (WALK[k] && WALK[k] !== MAT[k]) MODELS.upgrade(WALK[k], key, o); }

@@ -713,7 +713,12 @@ function setupModels() {
   const Mo = lots && lots.models; if (!Mo) return;
   Mo.hooks.renderer = renderer;
   Mo.hooks.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  Mo.hooks.prepare = (m) => { patchDim(m); if (/^model:canopee_/.test(m.name || '') && lots && lots.patchLight) lots.patchLight(m); };   // modèles sculptés : lumière Blender par sommet
+  // platelage et bois du mobilier de terrasse : lames de terrasse photographiées (Poly Haven CC0, wood_floor_deck)
+  if (M.deck && Mo.upgrade) Mo.upgrade(M.deck, 'deck', { tile: [1.7], ns: 0.9, rough: 0.62, eager: true });
+  if (M.paver && Mo.upgrade) Mo.upgrade(M.paver, 'paver', { tile: [2.15], ns: 0.9, rough: 0.72, eager: true });   // dalles des terrasses : pierre scannée
+  if (M.deck) M.deck.color.setRGB(0.78, 0.86, 0.9);   // le scan tire sur l'acajou : ramené vers un bois brun plus neutre
+  Mo.hooks.prepare = (m) => { patchDim(m); if (/canopee_salon\w*_bois$/.test(m.name || '')) m.color.setRGB(1, 1, 1);   // teck clair plutôt qu'acajou
+    if (/^model:canopee_(?!salon|terrasse)/.test(m.name || '') && lots && lots.patchLight) lots.patchLight(m); };   // modèles sculptés : lumière Blender par sommet
   Mo.hooks.busy = () => !!(state.anim || cfg.cut.anim || (xfadePass && xfadePass.enabled));
   Mo.hooks.compile = async (obj) => {
     // même environnement « pièce » que les autres matériaux d'intérieur (sinon recompilation à la permutation)
@@ -1084,9 +1089,65 @@ async function loadGI() {
 // principal. L'étage affiché d'abord ; les autres ensuite, sauf sur téléphone et tablette (mémoire : chargés à la demande).
 const LM = { req: new Set(), busy: false, vc: new Map() };
 function lmTick() {
+  if (state.ready && !loadLounge.done) loadLounge();
+  if (state.ready && !loadPlants.done) loadPlants();
   if (LM.busy || !GI.ready || PARAMS.lm === false || !lots || !lots.applyLM) return;
   const k = (TOUCH ? [+cfg.floor] : [+cfg.floor, ...LM_FLOORS]).find((f) => LM_FLOORS.includes(f) && !LM.req.has(f));
   if (k) loadLM(k);
+}
+// Salon de jardin du toit-terrasse : modèles sculptés (bois scanné, coussins en toile), aux emplacements de building.js
+async function loadLounge() {
+  const L = building && building.userData && building.userData.lounge; if (!L || !L.length || loadLounge.done) return;
+  loadLounge.done = true;
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'), ld = new GLTFLoader();
+    const url = (id) => new URL(`./assets/models/${id}/${id}.gltf?v=${GI_V}`, import.meta.url).href;
+    const [sofa, chair] = await Promise.all([ld.loadAsync(url('canopee_salon')), ld.loadAsync(url('canopee_salon_fauteuil'))]);
+    const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    for (const g of [sofa, chair]) g.scene.traverse((o) => {
+      if (!o.isMesh) return; o.castShadow = true; o.receiveShadow = true;
+      const m = o.material; m.clippingPlanes = CLIP; m.clipIntersection = true; m.envMapIntensity = 0.6; m.aoMapIntensity = 0.9;
+      for (const k of ['map', 'normalMap', 'roughnessMap']) if (m[k]) m[k].anisotropy = aniso; if (/_bois$/.test(m.name || '')) m.color.setRGB(1, 1, 1);
+    });
+    for (const p of L) {
+      const src = p.w > 1.3 ? sofa : chair, o = src.scene.clone(true);
+      o.position.set(p.x, p.y, p.z); o.rotation.y = p.ry; o.scale.setScalar(p.w > 1.3 ? p.w / 2.2 : 1); o.name = 'salon de jardin';
+      building.add(o);
+    }
+    renderer.shadowMap.needsUpdate = true; invalidate(600);
+  } catch (e) { console.warn('[viewer] salon de jardin indisponible', e && e.message); }
+}
+// Plantes des jardinières : les cartes plates (strelitzia, palmes) prennent la forme et la matière de plantes scannées
+// (Poly Haven CC0 : calathea, anthurium, fougère), aux mêmes emplacements et à la même hauteur.
+async function loadPlants() {
+  if (loadPlants.done) return; loadPlants.done = true;
+  try {
+    const targets = []; scene.traverse((o) => { if (o.isInstancedMesh && /^(strelitzia|palm)\d$/.test(o.name)) targets.push(o); });
+    if (!targets.length) return;
+    const [{ GLTFLoader }, { mergeGeometries }] = await Promise.all([import('three/addons/loaders/GLTFLoader.js'), import('three/addons/utils/BufferGeometryUtils.js')]);
+    const ld = new GLTFLoader(), url = (id) => new URL(`./assets/models/${id}/${id}.gltf`, import.meta.url).href;
+    const [cal, ant, fern] = await Promise.all(['calathea_orbifolia_01', 'anthurium_botany_01', 'fern_02'].map((id) => ld.loadAsync(url(id))));
+    const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    // une variante = un nœud de premier niveau du fichier : géométries fusionnées, recentrées, posées sur y = 0
+    const variants = (g) => g.scene.children.map((node) => {
+      node.updateWorldMatrix(true, true); const geos = []; let mat = null;
+      node.traverse((o) => { if (!o.isMesh) return; const q = o.geometry.clone(); for (const n of Object.keys(q.attributes)) if (!['position', 'normal', 'uv'].includes(n)) q.deleteAttribute(n); q.applyMatrix4(o.matrixWorld); geos.push(q.index ? q.toNonIndexed() : q); mat = mat || o.material; });
+      if (!geos.length) return null;
+      const geo = geos.length > 1 ? mergeGeometries(geos, false) : geos[0]; geo.computeBoundingBox(); const b = geo.boundingBox;
+      geo.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2); geo.computeBoundingBox();
+      return { geo, mat, h: geo.boundingBox.max.y };
+    }).filter(Boolean).sort((a, b) => b.h - a.h);
+    const prep = (m) => { m.side = THREE.DoubleSide; m.alphaTest = 0.5; m.transparent = false; m.alphaToCoverage = true; m.clippingPlanes = CLIP; m.clipIntersection = true; m.envMapIntensity = 0.7; if (m.map) m.map.anisotropy = aniso; return m; };
+    const pool = { strelitzia: [...variants(cal).slice(0, 2), ...variants(ant).slice(0, 1)], palm: variants(fern).slice(0, 3) };
+    for (const o of targets) {
+      const kind = o.name.replace(/\d$/, ''), k = +o.name.slice(-1), v = pool[kind][k % pool[kind].length]; if (!v) continue;
+      o.geometry.computeBoundingBox(); const h0 = o.geometry.boundingBox.max.y - Math.min(0, o.geometry.boundingBox.min.y);
+      const geo = v.geo.clone(); const sc = (h0 * (kind === 'palm' ? 0.8 : 0.75)) / v.h; geo.scale(sc, sc, sc);
+      o.geometry = geo; o.material = prep(v.mat.clone()); o.customDepthMaterial = undefined; o.customDistanceMaterial = undefined;
+      o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+    }
+    renderer.shadowMap.needsUpdate = true; invalidate(600);
+  } catch (e) { console.warn('[viewer] plantes scannées indisponibles', e && e.message); }
 }
 async function loadLM(k) {
   LM.req.add(k); LM.busy = true;
@@ -1110,7 +1171,7 @@ async function loadLM(k) {
   } catch (e) { /* texture de lumière facultative */ }
   LM.busy = false; invalidate(300);
 }
-const GI_V = '17', LM_FLOORS = [2, 1, 3];
+const GI_V = '21', LM_FLOORS = [2, 1, 3];
 // Baies coulissantes (building.js : userData.leaves) : en promenade, le vantail devant le visiteur glisse derrière
 // son voisin quand on s'en approche, et se referme quand on s'éloigne.
 const _leafV = new THREE.Vector3();

@@ -16,7 +16,11 @@ rng = np.random.default_rng(7)
 T0 = time.time()
 def log(*a): print('[sofa %5.1fs]' % (time.time() - T0), *a, flush=True)
 
+STYLE = os.environ.get('SOFA_STYLE', 'salon')   # 'jardin' : structure en bois (lames de terrasse scannées), coussins en toile, sans coussins décoratifs
 D = 0.96; LEG = 0.13; ARM_T = 0.17; BACK_T = 0.19; BASE_T = 0.17; ARM_H = 0.64; BACK_H = 0.70; CUSH_T = 0.17
+TER = STYLE == 'terrasse'                   # fauteuil bas d'extérieur : cadre fin en teck (placage de chêne scanné, teinté), claire-voie, coussins de toile
+if TER: D = 0.78; LEG = 0.25; ARM_T = 0.05; BACK_T = 0.07; BASE_T = 0.078; ARM_H = 0.58; BACK_H = 0.78; CUSH_T = 0.115
+if STYLE == 'jardin': D = 0.9; LEG = 0.10; ARM_T = 0.10; BACK_T = 0.08; BASE_T = 0.12; ARM_H = 0.58; BACK_H = 0.56; CUSH_T = 0.15
 SEAT_Z = LEG + BASE_T                      # dessus du socle
 IN_W = W - 2 * ARM_T                       # largeur entre accoudoirs
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -97,20 +101,53 @@ def slab(name, w, d, h, loc, pin_face='bas', pressure=3.4, shrink=-0.02, r=0.03)
     ob, g = cloth_box(name, w, d, h, max(r, 0.036), 0.026); ob.location = loc
     simulate(ob, g[pin_face], pressure, shrink, tension=32, bending=1.0, foam=1.0)
     parts.append((ob, 'tissu')); return ob
-base = slab('socle', IN_W + 0.02, D - BACK_T + 0.01, BASE_T, (0, -BACK_T / 2, LEG + BASE_T / 2), pressure=1.2, shrink=-0.004, r=0.022)
-armL = slab('accoudoirG', ARM_T, D, ARM_H - LEG, (-W / 2 + ARM_T / 2, 0, LEG + (ARM_H - LEG) / 2), pressure=3.8)
-armR = slab('accoudoirD', ARM_T, D, ARM_H - LEG, (W / 2 - ARM_T / 2, 0, LEG + (ARM_H - LEG) / 2), pressure=3.8)
-back = slab('dossier', IN_W + 0.02, BACK_T, BACK_H - LEG, (0, D / 2 - BACK_T / 2, LEG + (BACK_H - LEG) / 2), pressure=3.8)
+def plank(name, w, d, h, loc):
+    ob, g = cloth_box(name, w, d, h, 0.006, max(w, d, h) / 2); ob.location = loc; parts.append((ob, 'bois'))
+    for p_ in ob.data.polygons: p_.use_smooth = False          # bois : arêtes franches
+    return ob
+frame = []
+def beam(name, ln, a, b, loc, rx=0.0, rz=0.0, ry=0.0):
+    # pièce de bois : longueur selon x (le fil du bois suit u), puis orientée (ry : debout, rz : en profondeur, rx : inclinaison du dossier)
+    ob, g = cloth_box(name, ln, a, b, 0.0035, max(ln, a, b) / 2); co = coords(ob)
+    for ang, M in ((ry, lambda c, s_: [[c, 0, s_], [0, 1, 0], [-s_, 0, c]]), (rz, lambda c, s_: [[c, -s_, 0], [s_, c, 0], [0, 0, 1]]), (rx, lambda c, s_: [[1, 0, 0], [0, c, -s_], [0, s_, c]])):
+        if ang: co = co @ np.array(M(math.cos(ang), math.sin(ang))).T
+    set_coords(ob, co + np.array(loc)); du, dv = rng.random() * 3, rng.random() * 3
+    for d_ in ob.data.uv_layers['UVMap'].data: d_.uv = (d_.uv[0] + du, d_.uv[1] + dv)
+    for p_ in ob.data.polygons: p_.use_smooth = False
+    parts.append((ob, 'bois')); frame.append(ob); return ob
+if TER:
+    H90 = math.pi / 2; xs = W / 2 - 0.025; yf = -D / 2 + 0.03; yr = D / 2 - 0.03; TILT = 0.2
+    for sx in (-1, 1):
+        beam('piedAv', ARM_H, 0.05, 0.05, (sx * xs, yf, ARM_H / 2), ry=H90); beam('piedAr', ARM_H, 0.05, 0.05, (sx * xs, yr, ARM_H / 2), ry=H90)
+        beam('accoudoir', D + 0.03, 0.07, 0.028, (sx * xs, 0, ARM_H + 0.014), rz=H90)
+        beam('longeron', D - 0.11, 0.028, 0.06, (sx * xs, 0, LEG + 0.03), rz=H90)
+    for y in (yf, yr): beam('traverse', W - 0.1, 0.028, 0.06, (0, y, LEG + 0.03))
+    for k in range(6): beam('latte%d' % k, W - 0.1, 0.085, 0.018, (0, yf + 0.045 + k * (yr - yf - 0.09) / 5, LEG + 0.06 + 0.009))
+    # dossier incliné : deux montants et cinq lattes horizontales à claire-voie
+    z0 = LEG + 0.05; yb0 = D / 2 - BACK_T + 0.02; hb = BACK_H - z0; cy_ = lambda z: yb0 + (z - z0) * math.tan(TILT)
+    for sx in (-1, 1): beam('montant', hb / math.cos(TILT), 0.03, 0.04, (sx * (W / 2 - 0.075), cy_(z0 + hb / 2) + 0.012, z0 + hb / 2), ry=H90, rx=-TILT)
+    for k in range(5): z = z0 + 0.13 + k * (hb - 0.16) / 4; beam('dossier%d' % k, W - 0.1, 0.014, 0.055, (0, cy_(z) - 0.006, z), rx=-TILT)
+    base = armL = armR = back = None
+if STYLE == 'jardin':
+    base = plank('socle', W, D, BASE_T, (0, 0, LEG + BASE_T / 2))
+    armL = plank('accoudoirG', ARM_T, D, ARM_H - LEG - BASE_T, (-W / 2 + ARM_T / 2, 0, LEG + BASE_T + (ARM_H - LEG - BASE_T) / 2))
+    armR = plank('accoudoirD', ARM_T, D, ARM_H - LEG - BASE_T, (W / 2 - ARM_T / 2, 0, LEG + BASE_T + (ARM_H - LEG - BASE_T) / 2))
+    back = plank('dossier', IN_W, BACK_T, BACK_H - LEG - BASE_T, (0, D / 2 - BACK_T / 2, LEG + BASE_T + (BACK_H - LEG - BASE_T) / 2))
+if STYLE == 'salon': base = slab('socle', IN_W + 0.02, D - BACK_T + 0.01, BASE_T, (0, -BACK_T / 2, LEG + BASE_T / 2), pressure=1.2, shrink=-0.004, r=0.022)
+if STYLE == 'salon': armL = slab('accoudoirG', ARM_T, D, ARM_H - LEG, (-W / 2 + ARM_T / 2, 0, LEG + (ARM_H - LEG) / 2), pressure=3.8)
+if STYLE == 'salon': armR = slab('accoudoirD', ARM_T, D, ARM_H - LEG, (W / 2 - ARM_T / 2, 0, LEG + (ARM_H - LEG) / 2), pressure=3.8)
+if STYLE == 'salon': back = slab('dossier', IN_W + 0.02, BACK_T, BACK_H - LEG, (0, D / 2 - BACK_T / 2, LEG + (BACK_H - LEG) / 2), pressure=3.8)
 
 NS = 1 if W < 1.3 else 2 if W < 2.6 else 3; CW = IN_W / NS - 0.006; CD = D - BACK_T + 0.035
 seats, backs = [], []
 for k in range(NS):
     x = -IN_W / 2 + IN_W / NS * (k + 0.5)
     ob, g = cloth_box('assise%d' % k, CW, CD, CUSH_T, 0.035); ob.location = (x, -D / 2 + CD / 2 - 0.03, SEAT_Z + CUSH_T / 2 - 0.004)
-    simulate(ob, [], float(os.environ.get('SOFA_PS', 0.7)), -0.012, tension=26, bending=0.7, foam=0); seats.append(ob); parts.append((ob, 'tissu'))
+    simulate(ob, [], float(os.environ.get('SOFA_PS', 0.32 if TER else 0.7)), -0.012, tension=26, bending=0.7, foam=0); seats.append(ob); parts.append((ob, 'tissu'))
     bh = 0.47 + (0.012 if k % 2 else 0)
-    ob, g = cloth_box('dosseret%d' % k, CW - 0.01, 0.17, bh, 0.05); ob.location = (x + k * 3, 6, 3)
-    simulate(ob, [], float(os.environ.get('SOFA_PB', 0.9)), -0.03, tension=16, bending=0.2, foam=0); backs.append((ob, x, bh)); parts.append((ob, 'tissu'))
+    if TER: bh = 0.40
+    ob, g = cloth_box('dosseret%d' % k, CW - 0.01, 0.12 if TER else 0.17, bh, 0.05); ob.location = (x + k * 3, 6, 3)
+    simulate(ob, [], float(os.environ.get('SOFA_PB', 0.45 if TER else 0.9)), -0.03, tension=16, bending=0.2, foam=0); backs.append((ob, x, bh)); parts.append((ob, 'tissu'))
 # coussins décoratifs : deux faces cousues (taie)
 def pillow(name, size):
     n = max(8, round(size / STEP)); U = np.linspace(-size / 2, size / 2, n + 1); co, faces, idx = [], [], {}
@@ -136,7 +173,7 @@ def pillow(name, size):
     ob['loops'] = json.dumps({'bord': edge_loop})
     simulate(ob, [], 4.5, -0.06, tension=14, bending=0.3)
     return ob
-PIL = [(-IN_W / 2 + 0.27, 0.50, 0.30, -0.22, 'coussinA'), (IN_W / 2 - 0.30, 0.45, 0.26, 0.28, 'coussinB')] if W >= 1.3 else [(0.04, 0.42, 0.26, 0.12, 'coussinA')]
+PIL = [] if STYLE == 'jardin' else [(0.07, 0.34, 0.36, 0.16, 'coussinA')] if TER else [(-IN_W / 2 + 0.27, 0.50, 0.30, -0.22, 'coussinA'), (IN_W / 2 - 0.30, 0.45, 0.26, 0.28, 'coussinB')] if W >= 1.3 else [(0.04, 0.42, 0.26, 0.12, 'coussinA')]
 pils = []
 for k, (x, size, tilt, rz, mat) in enumerate(PIL):
     ob = pillow('coussin%d' % k, size); ob.location = (k * 2, 9, 3); pils.append(ob); parts.append((ob, mat))
@@ -175,7 +212,7 @@ for (ob, x, bh), k in zip(backs, range(NS)):
     ct, st = math.cos(-tilt), math.sin(-tilt); co = co @ np.array([[1, 0, 0], [0, ct, -st], [0, st, ct]]).T
     cz, sz = math.cos(rz), math.sin(rz); co = co @ np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]).T
     zs = SEAT_Z + CUSH_T - 0.012
-    co += (x, yb - 0.115, 0); co[:, 2] += zs - co[:, 2].min() - 0.02
+    co += (x, yb - (0.075 if TER else 0.115), 0); co[:, 2] += zs - co[:, 2].min() - 0.02
     co[:, 2] = soft(co[:, 2], zs, 0.25)
     lim = yb + 0.02 + 0.05 * np.clip((co[:, 2] - zs) / 0.4, 0, 1.2); co[:, 1] = soft(co[:, 1], lim, 0.25, above=True)
     set_coords(ob, co)
@@ -184,12 +221,13 @@ for ob, (x, size, tilt, rz, mat) in zip(pils, PIL):
     ct, st = math.cos(-tilt), math.sin(-tilt); co = co @ np.array([[1, 0, 0], [0, ct, -st], [0, st, ct]]).T
     cz, sz = math.cos(rz), math.sin(rz); co = co @ np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]).T
     zs = SEAT_Z + CUSH_T - 0.008
-    co += (x, yb - 0.30, 0); co[:, 2] += zs - co[:, 2].min() - 0.03
+    co += (x, yb - (0.21 if TER else 0.30), 0); co[:, 2] += zs - co[:, 2].min() - 0.03
     co[:, 2] += 0.018
-    lim = yb - 0.13 + 0.10 * np.clip((co[:, 2] - zs) / 0.4, 0, 1.2); co[:, 1] = soft(co[:, 1], lim, 0.6, 0.09, above=True)
+    lim = yb - (0.08 if TER else 0.13) + 0.10 * np.clip((co[:, 2] - zs) / 0.4, 0, 1.2); co[:, 1] = soft(co[:, 1], lim, 0.6, 0.09, above=True)
     lx = IN_W / 2 - 0.01; co[:, 0] = np.clip(co[:, 0], -lx, lx)
     set_coords(ob, co)
-for ob in (base, armL, armR, back): set_coords(ob, world(ob))
+for ob in (base, armL, armR, back):
+    if ob is not None: set_coords(ob, world(ob))
 
 # ---------------------------------------------------------------- passepoils (cordon cousu le long des arêtes), pieds
 def piping(ob, tags, radius=0.0042, sides=6, every=2):
@@ -225,14 +263,14 @@ for ob in ((armL, armR) if PIPING else ()): pp += piping(ob, ['avant'], 0.0036)
 bpy.context.view_layer.update()
 for o in pp: parts.append((o, 'tissu'))
 legs = []
-for sx in (-1, 1):
+for sx in (() if TER else (-1, 1)):
     for sy in (-1, 1):
         bpy.ops.mesh.primitive_cone_add(vertices=20, radius1=0.011, radius2=0.017, depth=LEG + 0.02, location=(sx * (W / 2 - 0.11), sy * (D / 2 - 0.10), (LEG + 0.02) / 2))
         o = bpy.context.object; o.rotation_euler = (sy * 0.10, -sx * 0.10, 0)
         for p in o.data.polygons: p.use_smooth = True
         legs.append(o); parts.append((o, 'pied'))
 # dessous : toile noire tendue sous le socle
-bpy.ops.mesh.primitive_plane_add(size=1, location=(0, 0, LEG + 0.004)); o = bpy.context.object; o.scale = (W - 0.03, D - 0.03, 1); o.rotation_euler = (math.pi, 0, 0); parts.append((o, 'dessous'))
+if not TER: bpy.ops.mesh.primitive_plane_add(size=1, location=(0, 0, LEG + 0.004)); o = bpy.context.object; o.scale = (W - 0.03, D - 0.03, 1); o.rotation_euler = (math.pi, 0, 0); parts.append((o, 'dessous'))
 bpy.context.view_layer.update()
 log('pièces :', len(parts), 'triangles :', sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o, _ in parts))
 
@@ -281,6 +319,8 @@ def make_materials(uv_scale):
         cm = nt.nodes.new('ShaderNodeMix'); cm.data_type = 'RGBA'; cm.blend_type = 'MULTIPLY'; cm.inputs[0].default_value = 1; cm.inputs[6].default_value = (*col, 1)
         nt.links.new(mm.outputs[0], cm.inputs[7]); nt.links.new(cm.outputs[2], b.inputs['Base Color'])
         MATS[name] = m
+    m = bpy.data.materials.new('bois'); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
+    b.inputs['Base Color'].default_value = (0.30, 0.13, 0.06, 1); b.inputs['Roughness'].default_value = 0.6; MATS['bois'] = m
     m = bpy.data.materials.new('pied'); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
     b.inputs['Base Color'].default_value = (0.03, 0.03, 0.032, 1); b.inputs['Metallic'].default_value = 1; b.inputs['Roughness'].default_value = 0.38; MATS['pied'] = m
     m = bpy.data.materials.new('dessous'); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
@@ -348,6 +388,11 @@ mi = np.zeros(len(me.polygons), dtype=np.int32); me.polygons.foreach_get('materi
 ls = np.zeros(len(me.polygons), dtype=np.int32); me.polygons.foreach_get('loop_start', ls); lt = np.zeros(len(me.polygons), dtype=np.int32); me.polygons.foreach_get('loop_total', lt)
 hard = [i for i, s_ in enumerate(L.material_slots) if s_.material.name.split('.')[0] in ('pied', 'dessous')]
 for f in np.nonzero(np.isin(mi, hard))[0]: uv0[ls[f]:ls[f] + lt[f]] = 0.5          # métal, toile du dessous : pas de grain
+WOOD_TILE = 0.6 if TER else 1.7
+woodi = [i for i, s_ in enumerate(L.material_slots) if s_.material.name.split('.')[0] == 'bois']
+for f in np.nonzero(np.isin(mi, woodi))[0]: uv0[ls[f]:ls[f] + lt[f]] *= TILE / WOOD_TILE     # bois : échelle des lames de terrasse
+if TER:
+    for f in np.nonzero(np.isin(mi, woodi))[0]: uv0[ls[f]:ls[f] + lt[f]] = uv0[ls[f]:ls[f] + lt[f]][:, ::-1]     # placage : le fil du scan est vertical, il suit la longueur des pièces
 det.data.foreach_set('uv', uv0.ravel())
 select([L]); bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT'); bpy.ops.mesh.quads_convert_to_tris()
 bpy.ops.uv.select_all(action='SELECT'); bpy.ops.uv.average_islands_scale(); bpy.ops.uv.pack_islands(margin=0.004, rotate=True)
@@ -419,7 +464,10 @@ key = np.round(np.concatenate([P * 1e5, Nn * 1e3, UV * 1e5, U2 * 1e4], 1)).astyp
 _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
 P, Nn, UV, U2 = P[first].astype(np.float32), Nn[first].astype(np.float32), UV[first].astype(np.float32), U2[first].astype(np.float32); idx = inv.ravel()[tri].astype(np.uint32)
 # une primitive par matière : le tissu (scan répété, teinté par pièce) et les parties dures (pieds, toile du dessous)
-TINT = {'tissu': (0.83, 0.85, 0.86), 'coussinA': (0.50, 0.47, 0.43), 'coussinB': (1.0, 1.0, 1.0)}   # le scan tire sur le pêche : teinte ramenée vers le grège
+ACC = tuple(float(v) for v in os.environ.get('SOFA_ACCENT', '0.75,0.36,0.24').split(','))
+if STYLE == 'jardin': TINT = {'tissu': (1.0, 1.0, 1.0)}
+elif TER: TINT = {'tissu': (1.0, 1.0, 1.0), 'coussinA': ACC}
+else: TINT = {'tissu': (0.83, 0.85, 0.86), 'coussinA': (0.50, 0.47, 0.43), 'coussinB': (1.0, 1.0, 1.0)}   # le scan tire sur le pêche : teinte ramenée vers le grège
 HARD = {'pied': ((0.025, 0.025, 0.027), 0.42), 'dessous': ((0.02, 0.02, 0.02), 0.95)}
 names = [s_.material.name.split('.')[0] for s_ in L.material_slots]; tri3 = idx.reshape(-1, 3)
 n = len(P); blob = bytearray(P.tobytes() + Nn.tobytes() + UV.tobytes() + U2.tobytes())
@@ -433,16 +481,20 @@ for mi_, nm in enumerate(names):
     if not len(sel): continue
     views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': sel.size * 4, 'target': 34963}); blob += sel.astype(np.uint32).tobytes()
     acc.append({'bufferView': len(views) - 1, 'componentType': 5125, 'count': int(sel.size), 'type': 'SCALAR'})
-    if nm in HARD:
+    if nm == 'bois':
+        mats.append({'name': NAME + '_bois', 'normalTexture': {'index': 4, 'texCoord': 1}, 'occlusionTexture': {'index': 2},
+                     'pbrMetallicRoughness': {'baseColorFactor': [0.66, 0.5, 0.4, 1] if TER else [0.78, 0.86, 0.9, 1], 'baseColorTexture': {'index': 3, 'texCoord': 1}, 'metallicRoughnessTexture': {'index': 2}}})
+    elif nm in HARD:
         col, rough = HARD[nm]; mats.append({'name': NAME + '_' + nm, 'pbrMetallicRoughness': {'baseColorFactor': [*col, 1], 'metallicFactor': 0, 'roughnessFactor': rough}})
     else:
         mats.append({'name': NAME + '_' + nm, 'normalTexture': {'index': 1, 'texCoord': 1}, 'occlusionTexture': {'index': 2},
                      'pbrMetallicRoughness': {'baseColorFactor': [*TINT[nm], 1], 'baseColorTexture': {'index': 0, 'texCoord': 1}, 'metallicRoughnessTexture': {'index': 2}}})
     prims.append({'attributes': {'POSITION': 0, 'NORMAL': 1, 'TEXCOORD_0': 2, 'TEXCOORD_1': 3}, 'indices': len(acc) - 1, 'material': len(mats) - 1})
 g = {'asset': {'generator': 'Canopée outils/meubles/sofa.py', 'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': [{'mesh': 0, 'name': NAME}],
-     'materials': mats, 'meshes': [{'name': NAME, 'primitives': prims}], 'textures': [{'sampler': 0, 'source': i_} for i_ in range(3)],
+     'materials': mats, 'meshes': [{'name': NAME, 'primitives': prims}], 'textures': [{'sampler': 0, 'source': i_} for i_ in range(5)],
      'images': [{'mimeType': 'image/jpeg', 'uri': f'../_tissus/{FAB}/{FAB}_diff_2k.jpg'}, {'mimeType': 'image/jpeg', 'uri': f'../_tissus/{FAB}/{FAB}_nor_gl_2k.jpg'},
-                {'mimeType': 'image/jpeg', 'uri': f'textures/{NAME}_arm_{K}.jpg'}],
+                {'mimeType': 'image/jpeg', 'uri': f'textures/{NAME}_arm_{K}.jpg'},
+                {'mimeType': 'image/jpeg', 'uri': '../../textures/%s_diff.jpg' % ('oak' if TER else 'deck')}, {'mimeType': 'image/jpeg', 'uri': '../../textures/%s_nor.jpg' % ('oak' if TER else 'deck')}],
      'accessors': acc, 'bufferViews': views, 'samplers': [{'magFilter': 9729, 'minFilter': 9987}], 'buffers': [{'byteLength': len(blob), 'uri': NAME + '.bin'}]}
 open(os.path.join(OUT, NAME, NAME + '.bin'), 'wb').write(bytes(blob)); json.dump(g, open(os.path.join(OUT, NAME, NAME + '.gltf'), 'w'))
 log('écrit', NAME, n, 'sommets,', len(idx) // 3, 'triangles, taille', np.round(P.max(0) - P.min(0), 3).tolist())
