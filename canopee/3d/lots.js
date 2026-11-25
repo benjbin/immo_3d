@@ -1340,6 +1340,7 @@ export function createLots(THREE, M, buildingUserData = {}, lotsData = {}) {
   for (const [k, key, o] of [
     ['parquet', 'parquet', { tile: [3.4], ns: 0.8, detail: 0, rough: 0.72 }],   // scan 4k à sa taille réelle (3,40 m)
     ['tile', 'tile', { tile: [3.0], ns: 0.7, rough: 0.5 }],                       // pierre claire 75 × 75 (salles d'eau, paliers)
+    ['stone', 'stone', { tile: [3.4, 1.8], ns: 0.3, rough: 0.5 }],                // plan de travail : une dalle de marbre scannée, blanchie, répétée en miroir
     ['oak', 'oak', { tile: [0.6], rot: Math.PI / 2, ns: 0.35 }],   // relief du fil discret (le grain « rayé » faisait sale)
     // tapis (laine, jute) : textures procédurales d'origine — la laine photo, trop fine, lisait comme un aplat gris
   ]) { if (MAT[k]) MODELS.upgrade(MAT[k], key, o); if (WALK[k] && WALK[k] !== MAT[k]) MODELS.upgrade(WALK[k], key, o); }
